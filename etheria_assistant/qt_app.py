@@ -23,10 +23,11 @@ from storage import Archive, project_unit, unit_key, shell_candidates
 from analytics import analyse, rank_statistics
 from theme import STYLE
 from equipment import (project_gear, attribute_text, matches_gear, normalize_filters,
-                       filter_options, filter_summary, RARITIES, UNKNOWN)
+                       filter_options, filter_summary, RARITIES, UNKNOWN, ATTRIBUTES,
+                       normalize_sort, sort_gear, gear_sort_value)
 from inventory_widgets import GearFilterDialog
 
-VERSION='2.5.0'
+VERSION='2.5.1'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 KINDS=['未分类','BP排位','竞技场','练习/测试']
@@ -104,6 +105,7 @@ class MainWindow(QMainWindow):
         self.latest=None; self.unsaved_battle=None; self.storage_failed=False; self.inventory_rows=[]; self.history_offset=0; self.history_ids=[]
         saved=self.archive.latest_inventory(); self.bag_snapshot=saved['data'] if saved else None
         self.gear_filters=normalize_filters(self.preferences.get('gear_filters',{}))
+        self.gear_sort=normalize_sort(self.preferences.get('gear_sort',{}))
         self.gear_metadata=self.archive.gear_metadata()
         if self.bag_snapshot:self.inventory_rows=self.bag_snapshot.get('loadout_rows',[])
         self.setWindowTitle('伊瑟 · 对局助手 '+VERSION); self.resize(1536,960); self.setMinimumSize(1050,700)
@@ -283,12 +285,26 @@ class MainWindow(QMainWindow):
         bar.addWidget(self.action('清除筛选',self.clear_gear_filters))
         bar.addWidget(self.action('校正分类',self.edit_gear_metadata))
         bar.addWidget(self.action('导出库存',lambda:self.write_json(self.bag_snapshot,'etheria_local_inventory.json'))); layout.addLayout(bar)
+        sorting=QHBoxLayout(); sorting.addWidget(label('排序'))
+        self.gear_sort_key=QComboBox(); self.gear_sort_key.addItem('默认顺序','default'); self.gear_sort_key.addItem('等级','level')
+        for tag,spec in ATTRIBUTES.items():self.gear_sort_key.addItem(spec[0],f'attr:{tag}')
+        self.gear_sort_key.setCurrentIndex(self.gear_sort_key.findData(self.gear_sort['key']))
+        self.gear_sort_scope=QComboBox()
+        for text,key in [('副属性','subs'),('主属性','main'),('主副属性合计','all')]:self.gear_sort_scope.addItem(text,key)
+        self.gear_sort_scope.setCurrentIndex(self.gear_sort_scope.findData(self.gear_sort['scope']))
+        self.gear_sort_order=combo(['从高到低','从低到高'],'从高到低' if self.gear_sort['descending'] else '从低到高')
+        for w in (self.gear_sort_key,self.gear_sort_scope,self.gear_sort_order):sorting.addWidget(w); w.currentIndexChanged.connect(self.change_gear_sort)
+        sorting.addStretch(); sorting.addWidget(label('按解码小数值排序 · 缺少该属性的源器排在末尾','hint')); layout.addLayout(sorting)
         self.gear_filter_info=label('','hint'); layout.addWidget(self.gear_filter_info)
-        tabs=QTabWidget(); self.gear_table=table(['源器编号','等级','矩阵','点数','稀有度','初始副属性','主属性','副属性','装备关联']); self.loadout_table=table(['角色','精确编号','配装类型','智壳','矩阵'])
+        tabs=QTabWidget(); self.gear_table=table(['源器编号','等级','排序数值','矩阵','点数','稀有度','初始副属性','主属性','副属性','装备关联']); self.loadout_table=table(['角色','精确编号','配装类型','智壳','矩阵'])
         tabs.addTab(self.gear_table,'源器背包'); tabs.addTab(self.loadout_table,'本号智壳与矩阵'); layout.addWidget(tabs,1)
         self.gear_details=QPlainTextEdit(); self.gear_details.setReadOnly(True); self.gear_details.setMaximumHeight(180); layout.addWidget(self.gear_details)
         self.gear_table.itemSelectionChanged.connect(self.gear_detail)
         self.gear_table.cellDoubleClicked.connect(lambda r,c:self.edit_gear_metadata())
+    def change_gear_sort(self):
+        self.gear_sort=normalize_sort({'key':self.gear_sort_key.currentData(),'scope':self.gear_sort_scope.currentData(),
+                                       'descending':self.gear_sort_order.currentIndex()==0})
+        self.archive.save_settings({'gear_sort':self.gear_sort}); self.render_inventory()
     def edit_gear_filters(self):
         options=filter_options(self.mappings,(self.bag_snapshot or {}).get('gear',[]))
         dialog=GearFilterDialog(options,self.gear_filters,self)
@@ -319,11 +335,19 @@ class MainWindow(QMainWindow):
             for field,title in [('normal_gear_uids','普通'),('arena_gear_uids','竞技候选')]:
                 for uid in hero.get(field,[]):holders.setdefault(uid,[]).append(self.hero_name(hero['hero_id'])+'·'+title)
         rows=[]; self.gear_display=[]
-        for gear in snap.get('gear',[]):
+        attr_sort=self.gear_sort['key'].startswith('attr:')
+        self.gear_sort_scope.setEnabled(attr_sort)
+        self.gear_sort_order.setEnabled(self.gear_sort['key']!='default')
+        self.gear_table.setColumnHidden(2,self.gear_sort['key']=='default')
+        self.gear_table.horizontalHeaderItem(2).setText(self.gear_sort_key.currentText()+' · 排序值')
+        for gear in sort_gear(snap.get('gear',[]),self.gear_sort):
             metadata=self.gear_metadata.get(gear['uid'])
             if not matches_gear(gear,self.gear_filters,metadata):continue
             p=project_gear(gear,metadata); matrix=gear.get('matrix') or {}
+            sort_value=gear_sort_value(gear,self.gear_sort)
+            suffix=ATTRIBUTES[int(self.gear_sort['key'].split(':')[1])][2] if attr_sort else ''
             values=[gear['uid'],gear.get('level') if gear.get('level') is not None else '未知',
+                    f'{sort_value:g}{suffix}' if sort_value is not None else '—',
                     matrix_name(self.mappings,matrix['id']) if matrix.get('id') is not None else '未知',
                     matrix.get('points') if matrix.get('points') is not None else '未知',
                     p['rarity'] if p['rarity']!=UNKNOWN else '未知',p['initial'] if p['initial']!=UNKNOWN else '未知',

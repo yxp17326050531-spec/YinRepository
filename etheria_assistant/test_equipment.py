@@ -7,7 +7,7 @@ from unittest.mock import patch
 from core import Engine, Inventory, load_mappings
 from capture import CaptureJob
 from storage import Archive
-from equipment import project_gear, matches_gear, UNKNOWN
+from equipment import project_gear, matches_gear, UNKNOWN, sort_gear, gear_sort_value
 from test_core import scalar, blob, vi, frame, pcapng, tcp
 
 
@@ -107,6 +107,21 @@ class EquipmentTests(unittest.TestCase):
         inv.update(0x1133,blob(1,initial)); inv.update(0x1134,upgraded(42,15))
         g=inv.snapshot(1,[])['gear'][0]
         self.assertEqual(g['initial_sub_count'],1); self.assertEqual(g['level'],15)
+
+    def test_sort_uses_decimal_values_and_keeps_missing_last_both_directions(self):
+        bag=[gear(1,attrs=[attr(8,33000),attr(16,1560,4)]),
+             gear(2,attrs=[attr(8,33000),attr(16,1620,4)]),
+             gear(3,attrs=[attr(8,33000)]),
+             gear(4,attrs=[attr(8,33000),attr(16,1590,4)])]
+        original=copy.deepcopy(bag);spec={'key':'attr:16','scope':'subs','descending':True}
+        self.assertEqual([g['uid'] for g in sort_gear(bag,spec)],[2,4,1,3])
+        self.assertEqual([g['uid'] for g in sort_gear(bag,dict(spec,descending=False))],[1,4,2,3])
+        self.assertEqual(gear_sort_value(bag[0],spec),15.6)
+        self.assertIsNone(gear_sort_value(bag[0],dict(spec,scope='main')))
+        duplicate=gear(5,attrs=[attr(8,33000),attr(8,1920)])
+        self.assertEqual(gear_sort_value(duplicate,{'key':'attr:8','scope':'subs'}),19.2)
+        self.assertEqual(gear_sort_value(duplicate,{'key':'attr:8','scope':'all'}),349.2)
+        self.assertEqual(bag,original)
 
 
 if __name__=='__main__':unittest.main()

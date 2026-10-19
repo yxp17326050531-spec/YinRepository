@@ -117,4 +117,23 @@ class QtTests(unittest.TestCase):
         self.assertEqual(self.archive.gear_metadata()[42],{'rarity':'超凡','initial_sub_count':3})
         self.assertEqual(self.window.bag_snapshot['gear'][0],original)
 
+    def test_attribute_sort_controls_persist_and_retain_selected_uid(self):
+        bag=[gear(1,attrs=[attr(8,33000),attr(16,1560)]),
+             gear(2,attrs=[attr(8,33000),attr(16,1620)]),
+             gear(3,attrs=[attr(8,33000)]),
+             gear(4,attrs=[attr(8,33000),attr(16,1590)])]
+        self.window.bag_snapshot={'gear':bag,'capture_time':100};self.window.render_inventory()
+        self.window.gear_table.selectRow(0)
+        control=self.window.gear_sort_key;control.setCurrentIndex(control.findData('attr:16'))
+        self.assertEqual([g['uid'] for g in self.window.gear_display],[2,4,1,3])
+        self.assertEqual(self.window.gear_display[self.window.gear_table.currentRow()]['uid'],1)
+        self.assertEqual(self.window.gear_table.item(0,2).text(),'16.2')
+        self.window.gear_sort_order.setCurrentText('从低到高')
+        self.assertEqual([g['uid'] for g in self.window.gear_display],[1,4,2,3])
+        self.assertEqual(self.archive.settings()['gear_sort'],{'key':'attr:16','scope':'subs','descending':False})
+        fresh=MainWindow(self.archive)
+        self.assertEqual(fresh.gear_sort,self.window.gear_sort);fresh.close()
+        self.window.gear_filters=normalize_filters({'subs':['16']});self.window.render_inventory()
+        self.assertEqual([g['uid'] for g in self.window.gear_display],[1,4,2])
+
 if __name__=='__main__':unittest.main()

@@ -14,6 +14,36 @@ UNKNOWN = 'unknown'
 FILTER_KEYS = ('matrix','points','rarity','initial','main','subs')
 
 
+def normalize_sort(value):
+    value = value if isinstance(value, dict) else {}
+    keys = {'default','level',*[f'attr:{tag}' for tag in ATTRIBUTES]}
+    return {'key':value.get('key') if value.get('key') in keys else 'default',
+            'scope':value.get('scope') if value.get('scope') in ('subs','main','all') else 'subs',
+            'descending':value.get('descending',True) is not False}
+
+
+def gear_sort_value(gear, spec):
+    spec = normalize_sort(spec)
+    if spec['key'] == 'level':return gear.get('level')
+    if not spec['key'].startswith('attr:'):return None
+    tag = int(spec['key'].split(':')[1])
+    attrs = project_gear(gear)['attributes']
+    if spec['scope'] == 'subs':attrs = attrs[1:]
+    elif spec['scope'] == 'main':attrs = attrs[:1]
+    values = [a['value'] for a in attrs if a['type'] == tag and a['value'] is not None]
+    return sum(values) if values else None
+
+
+def sort_gear(gear, spec):
+    spec = normalize_sort(spec)
+    if spec['key'] == 'default':return list(gear)
+    def key(g):
+        value = gear_sort_value(g,spec)
+        # Unknown/missing values stay last in either direction; equal values use UID.
+        return (value is None, (-value if spec['descending'] else value) if value is not None else 0, g['uid'])
+    return sorted(gear,key=key)
+
+
 def decode_attribute(raw):
     tag = (raw >> 4) & 255
     spec = ATTRIBUTES.get(tag)
