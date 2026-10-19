@@ -29,7 +29,7 @@ from inventory_widgets import GearFilterDialog
 from components import project_component, attribute_text as component_attribute_text, component_detail as component_detail_text
 from battle_attributes import decode_extra_attributes, pending_attributes, pending_text, extra_text
 
-VERSION='2.6.8'
+VERSION='2.6.9'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 KINDS=['未分类','BP排位','竞技场','练习/测试']
@@ -244,6 +244,10 @@ class MainWindow(QMainWindow):
                     metric.setAccessibleName(f"{team}方 {unit['hero_id']} {title}")
                     tooltip_title={'damage_result_bonus':'伤害结果增伤','damage_result_reduction':'伤害结果减伤'}.get(key,title)
                     metric.setToolTip(tooltip_title+'：'+shown+(' · 对局开场总值，已对照科技/元件同类合计；未下发显示 —' if key in ('pvp_damage_bonus','pvp_damage_reduction') else ' · 对局开场已下发值，不保证包含全部矩阵/技能；不同减伤字段不相加；未下发显示 —' if index>=8 else ' · 沿用已观测百分比规则；未下发显示 —' if percentage else ''))
+                    if key=='extra_damage_reduction':
+                        metric.setToolTip(metric.toolTip()+' · 潜能贡献与涌泉效果分开记录，不按矩阵说明改写。')
+                    elif key=='damage_result_bonus':
+                        metric.setToolTip(metric.toolTip()+' · 普通与相性增伤属同一区间；未下发的相性条件值不补算。')
                     column.addWidget(metric); grid.addWidget(cell,index//4,index%4)
                 c.addWidget(attributes)
                 equipment=QWidget(); eq=QVBoxLayout(equipment); eq.setContentsMargins(0,0,0,0); eq.setSpacing(6)

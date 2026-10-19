@@ -1338,5 +1338,61 @@
     ],
     "policy": "PVP合计已验证；其他字段只显示开场已下发值，不按说明补算、不声称全部矩阵技能已计入。",
     "fields_47_94": "仍未消歧，按角色独立比较，不与施加方效果混加。"
+  },
+  "controlled_healing_matrix_removal": {
+    "source_new": "etheria_battle下掉了治愈少了25%治疗效果跟护盾效果下掉了12涌泉减伤只剩10%.json",
+    "source_before": [
+      "etheria_battle同属性增伤.json",
+      "etheria_battle增伤琥珀（普通增伤）.json"
+    ],
+    "removed_effects": [
+      1401,
+      1101
+    ],
+    "added_effects": [
+      1191
+    ],
+    "known_fountain_transition": {
+      "1401": "12档",
+      "1191": "8档"
+    },
+    "new_mapping": {
+      "effect_id": 1101,
+      "name": "治愈",
+      "matrix_id": 10,
+      "threshold": 8,
+      "confidence": "已对照样本"
+    },
+    "changed_attribute_tags": [
+      1,
+      5,
+      9,
+      13,
+      20,
+      23,
+      26
+    ],
+    "nonbase_attributes_unchanged": 51,
+    "unchanged_enemy_units": 4,
+    "manual_annotations_empty": true,
+    "limitations": [
+      "同时调整多件源器，基础属性变化不用于建立新数值标签。",
+      "确认的是治愈效果8档，不推断总点数。",
+      "41/44/47/94没有随此次矩阵移除变化，保留各自语义边界。",
+      "不提交完整个人阵容或属性数组。"
+    ]
+  },
+  "user_confirmed_attribute_sources": {
+    "potential_screenshot": "image(20261019-084918).png",
+    "potential_extra_damage_bonus_percent": 10,
+    "potential_extra_damage_reduction_percent": 10,
+    "current_tag41_source": "用户明确当前缬草10%为潜能贡献，不与涌泉混合。",
+    "tag38_status": "载荷与10%吻合但没有可归因变化，仍未确认。",
+    "affinity_passive_screenshot": "image(20261019-085016).png",
+    "affinity_name": "破序之刃",
+    "affinity_condition": "破序相性异格者",
+    "affinity_description_bonus_percent": 10,
+    "damage_interval": "用户确认与智壳普通伤害结果增伤属同一增伤区间。",
+    "display_policy": "统一区间分类；只显示下发值，不自动补入未观测的条件10%。"
   }
 }

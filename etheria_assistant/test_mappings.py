@@ -139,6 +139,31 @@ class MappingBoundaries(unittest.TestCase):
         for identifier in (33,35,83889586,1051,1151):
             self.assertNotIn(str(identifier),self.mappings['matrix_effects'])
 
+    def test_healing_matrix_effect_is_separate_from_potential_and_received_bonuses(self):
+        from capture import matrix_text as desktop_matrix_text
+        from battle_attributes import decode_extra_attributes,extra_text
+        unit=copy.deepcopy(self.unit)
+        unit['effects_raw']=[1401,1101]
+        unit['attributes_raw']=[(1<<63)|(110<<8)|41,(130<<8)|47,(130<<8)|94,80]
+        before=copy.deepcopy(unit)
+        display=project_unit(unit,self.mappings)
+        healing=next(m for m in display['matrix_effects_candidates'] if m['effect_id']==1101)
+        self.assertEqual((healing['name'],healing['matrix_id'],healing['threshold']),('治愈',10,8))
+        self.assertIn('治愈 8点效果（已对照）',desktop_matrix_text(display))
+        self.assertIn('涌泉 12点效果（已对照）',desktop_matrix_text(display))
+        changed=copy.deepcopy(unit);changed['effects_raw']=[1191]
+        changed_display=project_unit(changed,self.mappings)
+        self.assertEqual(desktop_matrix_text(changed_display),'涌泉 8点效果（已对照）')
+        self.assertEqual(display['extra_attributes'],changed_display['extra_attributes'])
+        self.assertEqual(decode_extra_attributes(unit['attributes_raw'])['extra_damage_reduction'],11)
+        self.assertIn('潜能提供的额外减伤与涌泉矩阵效果分开',extra_text(unit))
+        self.assertEqual(decode_extra_attributes(unit['attributes_raw'])['damage_result_bonus'],0)
+        self.assertIn('条件值未下发时不补入',extra_text(unit))
+        self.assertEqual(unit,before)
+        custom=copy.deepcopy(self.mappings)
+        custom['matrix_effects']['1101']={'name':'用户治愈名称','threshold':8,'confidence':'用户映射'}
+        self.assertIn('用户治愈名称',desktop_matrix_text(project_unit(unit,custom)))
+
 
 if __name__=='__main__':
     unittest.main()

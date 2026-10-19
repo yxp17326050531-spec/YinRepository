@@ -1,5 +1,5 @@
 {
-  "version": "2.6.8",
+  "version": "2.6.9",
   "heroes": {
     "32601": "艾莉尔",
     "40692": "缬草",
@@ -296,6 +296,12 @@
       "name": "浴血之躯",
       "threshold": 12,
       "matrix_id": 32,
+      "confidence": "已对照样本"
+    },
+    "1101": {
+      "name": "治愈",
+      "threshold": 8,
+      "matrix_id": 10,
       "confidence": "已对照样本"
     }
   },
