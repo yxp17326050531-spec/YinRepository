@@ -240,9 +240,11 @@ class Archive:
         if category in ('shell_effects', 'matrix_effects'):
             value = {'name': name, 'confidence': '用户映射'}
         if category == 'matrix_effects':
-            threshold = int(threshold)
-            if not 1 <= threshold <= 999:
-                raise ValueError('效果档位应为 1–999 点')
+            if threshold not in (None,''):
+                threshold = int(threshold)
+                if not 1 <= threshold <= 999:
+                    raise ValueError('效果档位应为 1–999 点，未知可留空')
+            else:threshold=None
             value['threshold'] = threshold
         with self.connect() as db:
             db.execute('INSERT OR REPLACE INTO mappings VALUES (?,?,?)', (category, identifier, encode(value)))

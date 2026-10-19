@@ -122,6 +122,23 @@ class MappingBoundaries(unittest.TestCase):
         manual = project_unit(self.unit,self.mappings,{'matrices':[{'name':'用户记录','points':9}]})
         self.assertEqual(matrix_text(manual),'用户记录 +9 [手动]')
 
+    def test_fenjin_effect_name_is_confirmed_without_inventing_threshold_or_position(self):
+        from capture import matrix_text as desktop_matrix_text
+        before=copy.deepcopy(self.unit)
+        before['effects_raw']=[33,1121,39001533,83889586,35]
+        original=copy.deepcopy(before)
+        mapped=project_unit(before,self.mappings)
+        effect=mapped['matrix_effects_candidates'][0]
+        self.assertEqual((effect['name'],effect['matrix_id'],effect['effect_id']),('奋进',12,1121))
+        self.assertIsNone(effect['threshold'])
+        self.assertEqual(desktop_matrix_text(mapped),'奋进 效果 · 档位待确认（已对照）')
+        self.assertEqual(matrix_text(mapped),desktop_matrix_text(mapped))
+        self.assertEqual(before,original)
+        after=copy.deepcopy(before);after['effects_raw'].remove(1121)
+        self.assertEqual(project_unit(after,self.mappings)['matrix_effects_candidates'],[])
+        for identifier in (33,35,83889586,1051,1151):
+            self.assertNotIn(str(identifier),self.mappings['matrix_effects'])
+
 
 if __name__=='__main__':
     unittest.main()

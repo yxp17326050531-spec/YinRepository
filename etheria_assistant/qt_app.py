@@ -27,7 +27,7 @@ from equipment import (project_gear, attribute_text, matches_gear, normalize_fil
                        normalize_sort, sort_gear, gear_sort_value)
 from inventory_widgets import GearFilterDialog
 
-VERSION='2.6.3'
+VERSION='2.6.4'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 KINDS=['未分类','BP排位','竞技场','练习/测试']
@@ -510,7 +510,9 @@ class MainWindow(QMainWindow):
     def render_mappings(self):
         category=CATEGORIES[self.map_category.currentText()]; builtin=load_mappings()[category]; rows=[]; query=self.map_query.text().strip().lower()
         for identifier,value in sorted(self.mappings[category].items(),key=lambda x:int(x[0])):
-            row=[identifier,value.get('name','') if isinstance(value,dict) else value,value.get('threshold','') if isinstance(value,dict) else '', '内置' if builtin.get(identifier)==value else '用户映射']
+            threshold=value.get('threshold') if isinstance(value,dict) else None
+            shown_threshold=threshold if threshold is not None else '待确认' if category=='matrix_effects' else ''
+            row=[identifier,value.get('name','') if isinstance(value,dict) else value,shown_threshold, '内置' if builtin.get(identifier)==value else '用户映射']
             if not query or query in ' '.join(map(str,row)).lower():rows.append(row)
         fill(self.mapping_table,rows)
     def edit_selected_mapping(self):
@@ -518,10 +520,10 @@ class MainWindow(QMainWindow):
         self.edit_mapping(CATEGORIES[self.map_category.currentText()],identifier)
     def edit_mapping(self,category,identifier=''):
         value=self.mappings[category].get(identifier,''); d=Editor(self,'编号名称映射')
-        code=QLineEdit(identifier); name=QLineEdit(value.get('name','') if isinstance(value,dict) else value); points=QSpinBox(); points.setRange(1,999); points.setValue(value.get('threshold',12) if isinstance(value,dict) else 12)
+        code=QLineEdit(identifier); name=QLineEdit(value.get('name','') if isinstance(value,dict) else value); points=QSpinBox(); points.setRange(0,999); points.setSpecialValueText('待确认'); points.setValue((value.get('threshold') or 0) if isinstance(value,dict) else 0)
         d.form.addRow('编号',code); d.form.addRow('名称',name)
         if category=='matrix_effects':d.form.addRow('生效档位',points)
-        def save():self.archive.set_mapping(category,code.text(),name.text(),points.value()); self.mapping_changed()
+        def save():self.archive.set_mapping(category,code.text(),name.text(),points.value() or None); self.mapping_changed()
         d.on_save=save; d.exec()
     def restore_mapping(self):
         row=self.mapping_table.currentRow()

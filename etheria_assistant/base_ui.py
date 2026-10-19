@@ -50,7 +50,9 @@ def matrix_text(unit):
         confidence = matrix.get('confidence', '')
         status = ('用户映射' if confidence == '用户映射' else
                   '已对照' if confidence == '已对照样本' else '候选')
-        label = f"{matrix['name']} {matrix['threshold']}点效果（{status}）"
+        threshold=matrix.get('threshold')
+        effect=f'{threshold}点效果' if threshold is not None else '效果 · 档位待确认'
+        label = f"{matrix['name']} {effect}（{status}）"
         if label not in labels:
             labels.append(label)
     return '、'.join(labels) if labels else '完整矩阵未知'

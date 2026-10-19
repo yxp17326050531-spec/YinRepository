@@ -217,4 +217,21 @@ class QtTests(unittest.TestCase):
         self.assertEqual(shown()['A方 30153 暴击伤害'],'423.8%')
         self.assertEqual(self.archive.get(bid)['original'],b)
 
+    def test_fenjin_unknown_threshold_can_be_displayed_and_saved_in_mapping_editor(self):
+        from PySide6.QtWidgets import QSpinBox
+        b=copy.deepcopy(self.battle);b['teams']['A'][0]['effects_raw']=[1121,33,35]
+        bid=self.archive.save_battle(b,'synthetic matrix');self.window.browse_battle(bid)
+        self.window.show();self.app.processEvents()
+        def displayed():
+            self.app.processEvents()
+            return [w.text() for w in self.window.findChildren(QLabel) if w.isVisibleTo(self.window.stack.widget(0))]
+        self.assertIn('奋进 效果 · 档位待确认（已对照）',displayed())
+        def save_unknown(d):
+            points=d.findChild(QSpinBox);self.assertEqual(points.value(),0)
+            self.assertEqual(points.text(),'待确认');d.commit()
+        self.modal(save_unknown);self.window.edit_mapping('matrix_effects','1121')
+        self.assertIsNone(self.archive.mappings(load_mappings())['matrix_effects']['1121']['threshold'])
+        self.assertIn('奋进 效果 · 档位待确认（用户映射）',displayed())
+        self.assertEqual(self.archive.get(bid)['original'],b)
+
 if __name__=='__main__':unittest.main()

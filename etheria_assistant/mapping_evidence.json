@@ -1,5 +1,5 @@
 {
-  "version": "2.1.3",
+  "version": "2.6.4",
   "notes": [
     "背包配置匹配和战斗效果编号推定分别标记。",
     "唯一匹配是在已提供账号样本中的结果，不是官方协议定义。",
@@ -1107,6 +1107,33 @@
       "8点档不表示精确8点：9点也可触发。",
       "不推广为所有矩阵的档位替换规则，未出现特效不表示未装备。",
       "v4其他角色并非与v2完全一致：葵诺丝仍无1081，基础属性也有差异；此变化不并入瑞玛丽自己的效果差分。"
+    ]
+  },
+  "controlled_fenjin_pair": {
+    "source_files": [
+      "etheria_battle奋进.json",
+      "etheria_battle5奋进.json"
+    ],
+    "hero_id": 32451,
+    "shell_effect_unchanged": 39001533,
+    "removed_effects": [
+      1121
+    ],
+    "added_effects": [],
+    "other_seven_units_unchanged": true,
+    "manual_annotations_empty": true,
+    "user_control": "第二份拆掉奋进套装",
+    "mapping": {
+      "effect_id": 1121,
+      "matrix_id": 12,
+      "name": "奋进",
+      "threshold": null,
+      "confidence": "已对照样本"
+    },
+    "limitations": [
+      "仅确认效果名称，未提供拆卸前后准确点数，生效档位待确认。",
+      "数组下标不作为协议语义，不按位置或公式推导其他矩阵。",
+      "83889586、33、35在两份记录中保持不变，具体含义未知。"
     ]
   }
 }
