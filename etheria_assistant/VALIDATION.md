@@ -161,3 +161,8 @@ BP状态原值包括84、85、101、102、118；17条消息不等于17次选人�
 Six original pcapng captures replayed through the extracted CaptureJob and Qt handlers: packets 7983/568/2360/369/443/4266; messages 320/29/149/25/26/163; initialized battles 1/0/1/1/0/0; all zero warnings and no storage errors. Login inventory restored and rendered 1218 gear items. Windows live capture and EXE build not executed here.
 
 UI_PREVIEW.png is a rendered application window using a supplied historical match; dashboard sample counts reflect only that temporary demonstration database. No historical capture files or user database are included in the distribution. The font used for Linux rendering QA is not redistributed; Windows uses installed system fonts.
+
+
+## 2.5.0 实时强化与分类筛选
+
+新增强化增量解析、按字段保留原库存、时间允许的缓存恢复，以及组合筛选、分类校正。供给的强化抓包本地回放确认 5 次等级更新（3/6/9/12/15），0 个解析警告；原始抓包不提交。合成测试覆盖缺失矩阵保持未知、显式零值、同包多消息最新状态、较晚库存不能污染旧回放、条件 OR/AND、手工分类持久化、Qt 实时刷新与选中 UID 保留。宽/窄窗口和滚动筛选窗口完成离屏检查。Windows 实机抓包与 DPI 仍需本机验证。

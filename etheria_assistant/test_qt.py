@@ -13,6 +13,8 @@ from qt_app import MainWindow, Editor
 from core import decode_battle, load_mappings
 from storage import Archive
 from test_core import battle_body, pcapng, tcp, frame
+from equipment import normalize_filters
+from test_equipment import gear, attr
 
 class QtTests(unittest.TestCase):
     @classmethod
@@ -83,5 +85,36 @@ class QtTests(unittest.TestCase):
         self.window.stats_group.setText('other'); self.window.refresh_stats(); self.assertEqual(self.window.stat_tables[0].rowCount(),0)
         self.archive.set_mapping('heroes',32101,'斐莫莉安'); self.window.mapping_changed()
         self.assertEqual(self.window.hero_name(32101),'斐莫莉安'); self.assertEqual(self.window.hero_name(32102),load_mappings()['heroes'].get('32102','角色 #32102'))
+
+    def test_equipment_filter_dialog_persistence_and_live_selection(self):
+        self.window.bag_snapshot={'gear':[gear(),gear(43,matrix=15)],'capture_time':100}
+        self.window.render_inventory(); self.window.navigate(2)
+        self.assertEqual(self.window.gear_table.rowCount(),2)
+        from inventory_widgets import GearFilterDialog
+        def choose():
+            d=QApplication.activeModalWidget(); self.assertIsInstance(d,GearFilterDialog)
+            d.choices['matrix']['1'].setChecked(True)
+            d.choices['subs']['16'].setChecked(True); d.choices['subs']['22'].setChecked(True); d.accept()
+        QTimer.singleShot(0,choose); self.window.edit_gear_filters()
+        self.assertEqual(self.window.gear_table.rowCount(),1)
+        self.assertEqual(self.archive.settings()['gear_filters']['matrix'],['1'])
+        self.window.gear_table.selectRow(0)
+        changed=gear(level=6,attrs=[attr(8,15000),attr(22,64,1),attr(16,570,1)])
+        self.window.handle_event('inventory_snapshot',{'gear':[gear(43,matrix=15),changed],'capture_time':101})
+        self.assertEqual(self.window.gear_display[self.window.gear_table.currentRow()]['uid'],42)
+        self.assertIn('速度 +5.7',self.window.gear_details.toPlainText())
+        self.window.gear_filters=normalize_filters({'subs':['16','25']}); self.window.render_inventory()
+        self.assertEqual(self.window.gear_table.rowCount(),0)
+        self.window.clear_gear_filters(); self.assertEqual(self.window.gear_table.rowCount(),2)
+
+    def test_equipment_metadata_editor_does_not_modify_raw_snapshot(self):
+        original=gear(); self.window.bag_snapshot={'gear':[original],'capture_time':100}
+        self.window.render_inventory(); self.window.gear_table.selectRow(0)
+        from PySide6.QtWidgets import QComboBox
+        def edit(d):
+            boxes=d.findChildren(QComboBox); boxes[0].setCurrentText('超凡'); boxes[1].setCurrentText('3'); d.commit()
+        self.modal(edit); self.window.edit_gear_metadata()
+        self.assertEqual(self.archive.gear_metadata()[42],{'rarity':'超凡','initial_sub_count':3})
+        self.assertEqual(self.window.bag_snapshot['gear'][0],original)
 
 if __name__=='__main__':unittest.main()

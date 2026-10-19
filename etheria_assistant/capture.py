@@ -2,7 +2,7 @@
 from __future__ import annotations
 import os, shutil, subprocess, sys, threading
 from pathlib import Path
-from core import Engine
+from core import Engine, packets
 ROOT = Path(__file__).resolve().parent
 HIDE_CONSOLE = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
 
@@ -95,8 +95,19 @@ class CaptureJob:
         try:
             if path:
                 with open(path, 'rb') as stream:
+                    if self.archive:
+                        first = next(packets(stream), None)
+                        stream.seek(0)
+                        # Never seed an older replay with a later inventory state.
+                        saved = self.archive.latest_inventory(before=first[0]) if first else None
+                        if saved:
+                            self.engine.inventory.restore(saved['data'])
                     self.engine.read(stream, self.stop_event)
             else:
+                if self.archive:
+                    saved = self.archive.latest_inventory()
+                    if saved:
+                        self.engine.inventory.restore(saved['data'])
                 command = [dumpcap, '-i', interface, '-f', f'tcp port {self.engine.port}', '-s', '0', '-q', '-w', '-']
                 with self.lock:
                     if self.stop_event.is_set():

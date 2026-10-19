@@ -22,8 +22,11 @@ from core import load_mappings, shell_config_name, matrix_name
 from storage import Archive, project_unit, unit_key, shell_candidates
 from analytics import analyse, rank_statistics
 from theme import STYLE
+from equipment import (project_gear, attribute_text, matches_gear, normalize_filters,
+                       filter_options, filter_summary, RARITIES, UNKNOWN)
+from inventory_widgets import GearFilterDialog
 
-VERSION='2.4.0'
+VERSION='2.5.0'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 KINDS=['未分类','BP排位','竞技场','练习/测试']
@@ -100,6 +103,8 @@ class MainWindow(QMainWindow):
         self.job=None; self.token=0; self.current_id=None; self.live_id=None; self.browsing=False
         self.latest=None; self.unsaved_battle=None; self.storage_failed=False; self.inventory_rows=[]; self.history_offset=0; self.history_ids=[]
         saved=self.archive.latest_inventory(); self.bag_snapshot=saved['data'] if saved else None
+        self.gear_filters=normalize_filters(self.preferences.get('gear_filters',{}))
+        self.gear_metadata=self.archive.gear_metadata()
         if self.bag_snapshot:self.inventory_rows=self.bag_snapshot.get('loadout_rows',[])
         self.setWindowTitle('伊瑟 · 对局助手 '+VERSION); self.resize(1536,960); self.setMinimumSize(1050,700)
         self.setStyleSheet(STYLE); self.setup(); self.refresh_all()
@@ -274,31 +279,78 @@ class MainWindow(QMainWindow):
     def build_inventory(self):
         layout=self.page(); self.bag_info=label('','hint'); layout.addWidget(self.bag_info)
         bar=QHBoxLayout(); self.gear_query=QLineEdit(); self.gear_query.setPlaceholderText('搜索矩阵 / 角色 / 源器编号'); self.gear_query.textChanged.connect(lambda _:self.render_inventory()); bar.addWidget(self.gear_query,1)
+        bar.addWidget(self.action('分类筛选',self.edit_gear_filters,True))
+        bar.addWidget(self.action('清除筛选',self.clear_gear_filters))
+        bar.addWidget(self.action('校正分类',self.edit_gear_metadata))
         bar.addWidget(self.action('导出库存',lambda:self.write_json(self.bag_snapshot,'etheria_local_inventory.json'))); layout.addLayout(bar)
-        tabs=QTabWidget(); self.gear_table=table(['源器编号','等级','矩阵','点数','装备关联','属性状态']); self.loadout_table=table(['角色','精确编号','配装类型','智壳','矩阵'])
+        self.gear_filter_info=label('','hint'); layout.addWidget(self.gear_filter_info)
+        tabs=QTabWidget(); self.gear_table=table(['源器编号','等级','矩阵','点数','稀有度','初始副属性','主属性','副属性','装备关联']); self.loadout_table=table(['角色','精确编号','配装类型','智壳','矩阵'])
         tabs.addTab(self.gear_table,'源器背包'); tabs.addTab(self.loadout_table,'本号智壳与矩阵'); layout.addWidget(tabs,1)
-        self.gear_details=QPlainTextEdit(); self.gear_details.setReadOnly(True); self.gear_details.setMaximumHeight(130); layout.addWidget(self.gear_details)
+        self.gear_details=QPlainTextEdit(); self.gear_details.setReadOnly(True); self.gear_details.setMaximumHeight(180); layout.addWidget(self.gear_details)
         self.gear_table.itemSelectionChanged.connect(self.gear_detail)
+        self.gear_table.cellDoubleClicked.connect(lambda r,c:self.edit_gear_metadata())
+    def edit_gear_filters(self):
+        options=filter_options(self.mappings,(self.bag_snapshot or {}).get('gear',[]))
+        dialog=GearFilterDialog(options,self.gear_filters,self)
+        if dialog.exec()==QDialog.DialogCode.Accepted:
+            self.gear_filters=dialog.selected(); self.archive.save_settings({'gear_filters':self.gear_filters}); self.render_inventory()
+    def clear_gear_filters(self):
+        self.gear_filters=normalize_filters({}); self.archive.save_settings({'gear_filters':self.gear_filters})
+        self.gear_query.clear(); self.render_inventory()
+    def edit_gear_metadata(self):
+        row=self.gear_table.currentRow()
+        if not 0<=row<len(self.gear_display):self.notify('请先选择一件源器'); return
+        gear=self.gear_display[row]; p=project_gear(gear,self.gear_metadata.get(gear['uid']))
+        d=Editor(self,'校正源器分类 · '+str(gear['uid']))
+        rarity=combo(['未知',*RARITIES],p['rarity'] if p['rarity']!=UNKNOWN else '未知')
+        initial=combo(['未知','0','1','2','3','4'],str(p['initial']) if p['initial']!=UNKNOWN else '未知')
+        d.form.addRow('稀有度',rarity); d.form.addRow('初始副属性条数',initial)
+        d.form.addRow(label('只影响这件源器的分类，强化更新不会覆盖手工记录。初始条数不等于当前条数；不清楚时保留未知。','hint'))
+        def save():
+            value={'rarity':rarity.currentText() if rarity.currentText()!='未知' else UNKNOWN,
+                   'initial_sub_count':int(initial.currentText()) if initial.currentText()!='未知' else UNKNOWN}
+            self.archive.set_gear_metadata(gear['uid'],value); self.gear_metadata=self.archive.gear_metadata(); self.render_inventory()
+        d.on_save=save; d.exec()
     def render_inventory(self):
         snap=self.bag_snapshot or {}; query=self.gear_query.text().strip().lower(); holders={}
+        oldrow=self.gear_table.currentRow()
+        selected=self.gear_display[oldrow]['uid'] if hasattr(self,'gear_display') and 0<=oldrow<len(self.gear_display) else None
         for hero in snap.get('heroes',[]):
             for field,title in [('normal_gear_uids','普通'),('arena_gear_uids','竞技候选')]:
                 for uid in hero.get(field,[]):holders.setdefault(uid,[]).append(self.hero_name(hero['hero_id'])+'·'+title)
         rows=[]; self.gear_display=[]
         for gear in snap.get('gear',[]):
-            values=[gear['uid'],gear['level'],matrix_name(self.mappings,gear['matrix']['id']),gear['matrix']['points'],' / '.join(holders.get(gear['uid'],[])) or '无已观测关联',f"{len(gear['attributes_raw'])} 项原值 · 待核对"]
+            metadata=self.gear_metadata.get(gear['uid'])
+            if not matches_gear(gear,self.gear_filters,metadata):continue
+            p=project_gear(gear,metadata); matrix=gear.get('matrix') or {}
+            values=[gear['uid'],gear.get('level') if gear.get('level') is not None else '未知',
+                    matrix_name(self.mappings,matrix['id']) if matrix.get('id') is not None else '未知',
+                    matrix.get('points') if matrix.get('points') is not None else '未知',
+                    p['rarity'] if p['rarity']!=UNKNOWN else '未知',p['initial'] if p['initial']!=UNKNOWN else '未知',
+                    attribute_text(p['main']) if p['main'] else '未知',
+                    ' / '.join(attribute_text(a) for a in p['subs']) or '未知',
+                    ' / '.join(holders.get(gear['uid'],[])) or '无已观测关联']
             if query and query not in (' '.join(map(str,values))+' '+str(gear['config_id'])).lower():continue
             rows.append(values); self.gear_display.append(gear)
-        fill(self.gear_table,rows); loads=[]
+        self.gear_table.blockSignals(True); fill(self.gear_table,rows); self.gear_table.clearSelection(); self.gear_table.setCurrentCell(-1,-1)
+        for i,g in enumerate(self.gear_display):
+            if g['uid']==selected:self.gear_table.selectRow(i); break
+        self.gear_table.blockSignals(False); loads=[]
         for r in self.inventory_rows:
             values=[self.hero_name(r['hero_id']),r['hero_id'],r['mode'],shell_config_name(self.mappings,r['shell_config_id']),' / '.join(f"{matrix_name(self.mappings,m['id'])} +{m['points']}" for m in r['matrices'])+('（数据不全）' if r['incomplete'] else '')]
             if not query or query in ' '.join(map(str,values)).lower():loads.append(values)
         fill(self.loadout_table,loads)
-        self.bag_info.setText(f"已接收源器 {len(snap.get('gear',[]))} 件 · 智壳 {len(snap.get('shells',[]))} 个 · 采集 {stamp(snap.get('capture_time'))} · 仅显示已收到库存")
-        self.gear_details.setPlainText('点击源器查看原始属性；主副属性、部位、单位尚未核对。价值评分保留为后续预案。')
+        self.bag_info.setText(f"筛出 {len(rows)} / {len(snap.get('gear',[]))} 件源器 · 智壳 {len(snap.get('shells',[]))} 个 · 采集 {stamp(snap.get('capture_time'))}")
+        self.gear_filter_info.setText(filter_summary(self.gear_filters,filter_options(self.mappings,snap.get('gear',[]))))
+        self.gear_details.setPlainText('点击源器查看属性与原值。主副属性按已对照规则解码；未确认字段显示未知。稀有度和初始副属性条数可通过“校正分类”记录。')
+        self.gear_detail()
     def gear_detail(self):
         row=self.gear_table.currentRow()
-        if 0<=row<len(self.gear_display):self.gear_details.setPlainText(json.dumps(self.gear_display[row],ensure_ascii=False,indent=2))
+        if 0<=row<len(self.gear_display):
+            gear=self.gear_display[row]; p=project_gear(gear,self.gear_metadata.get(gear['uid']))
+            text='\n'.join(('主属性：' if i==0 else '副属性：')+attribute_text(a)+
+                           (f" · 追加次数 {a['upgrade_count_tentative']}（观测推定）" if i else '') for i,a in enumerate(p['attributes']))
+            self.gear_details.setPlainText(text+'\n\n原始记录：\n'+json.dumps(gear,ensure_ascii=False,indent=2))
     def build_history(self):
         layout=self.page(); row=QHBoxLayout(); self.history_info=label('','hint'); row.addWidget(self.history_info,1)
         for text,fn in [('上一页',lambda:self.history_page(-1)),('下一页',lambda:self.history_page(1)),('打开',self.open_history),('删除选中',self.delete_history),('恢复最近删除',self.restore_history)]:row.addWidget(self.action(text,fn))
@@ -436,7 +488,7 @@ class MainWindow(QMainWindow):
                 self.unsaved_battle=data
                 if not self.browsing:self.current_id=None; self.render_battle()
         elif kind=='inventory':self.inventory_rows=data; self.render_inventory()
-        elif kind=='inventory_snapshot':self.bag_snapshot=data; self.inventory_rows=data.get('loadout_rows',self.inventory_rows); self.render_inventory(); self.refresh_metrics()
+        elif kind=='inventory_snapshot':self.bag_snapshot=data; self.inventory_rows=data.get('loadout_rows',self.inventory_rows); self.render_inventory()
         elif kind=='observation':
             if data.get('kind')=='settlement':
                 self.render_battle(); self.refresh_history(); self.refresh_stats(); self.notify('结算已自动同步')

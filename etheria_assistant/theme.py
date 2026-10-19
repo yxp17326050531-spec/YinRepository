@@ -17,6 +17,8 @@ QFrame#heroCard {background:#10212e; border:1px solid #1d3546; border-radius:9px
 QFrame#heroCard QLabel {background:transparent;}
 QPushButton {background:#243246; border:1px solid #35455d; border-radius:7px; padding:8px 13px; color:#dce6f2;}
 QPushButton:hover {background:#30435b; border-color:#53a79d;}
+QPushButton#filterChip {text-align:left; background:#152635; border:1px solid #31495a; padding:10px 14px;}
+QPushButton#filterChip:checked {background:#17473f; border:2px solid #36d2b7; color:#adffe8;}
 QPushButton:pressed {background:#162f35;}
 QPushButton:disabled {color:#58677b; background:#1b2431; border-color:#263246;}
 QPushButton#primary {background:#16d6bd; color:#102920; border:0; font-weight:700;}

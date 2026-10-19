@@ -208,7 +208,7 @@ def tcp_packet(link, data):
 
 
 class Framer:
-    ANCHORS = {1, 3, 4, 0x5fc1, 0x6001, 0x6002, 0x6003, 0x6004, 0x1122, 0x1129, 0x1133, 0x8100}
+    ANCHORS = {1, 3, 4, 0x5fc1, 0x6001, 0x6002, 0x6003, 0x6004, 0x1122, 0x1129, 0x1132, 0x1133, 0x1134, 0x8100}
 
     def __init__(self, emit, warn):
         self.buffer = bytearray()
@@ -380,14 +380,65 @@ class Inventory:
     def __init__(self, mappings):
         self.mappings = mappings
         self.heroes, self.shells, self.gear = {}, {}, {}
+        self.initial_sub_counts = {}
+
+    def restore(self, snapshot):
+        """Restore a saved inventory selected for the current capture time."""
+        def pack(values):
+            out = bytearray()
+            for value in values:
+                while value >= 128:
+                    out.append((value & 127) | 128); value >>= 7
+                out.append(value)
+            return bytes(out)
+        def matrices(values):
+            return pack([(m['points'] << 16) | m['id'] for m in values
+                         if isinstance(m.get('id'), int) and isinstance(m.get('points'), int)])
+        for g in snapshot.get('gear', []):
+            item = {1:g['uid'], 4:pack(g.get('attributes_raw', []))}
+            for field, key in [(2,'config_id'), (3,'level'), (6,'flag_raw')]:
+                if isinstance(g.get(key), int): item[field] = g[key]
+            matrix = g.get('matrix') or {}
+            if isinstance(matrix.get('id'), int) and isinstance(matrix.get('points'), int):
+                item[5] = (matrix['points'] << 16) | matrix['id']
+            self.gear[g['uid']] = item
+            if g.get('initial_sub_count') is not None:
+                self.initial_sub_counts[g['uid']] = g['initial_sub_count']
+        for s in snapshot.get('shells', []):
+            item = {1:s['uid'], 8:matrices(s.get('matrices', [])), 9:pack(s.get('passives_raw', []))}
+            for field, key in [(2,'config_id'), (4,'level'), (6,'awakened_config_id')]:
+                if isinstance(s.get(key), int): item[field] = s[key]
+            self.shells[s['uid']] = item
+        for h in snapshot.get('heroes', []):
+            item = {1:h['base_id'], 10:pack(h.get('normal_gear_uids', [])), 12:pack(h.get('arena_gear_uids', []))}
+            for field,key in [(9,'hero_id'), (7,'normal_shell_uid'), (11,'arena_shell_uid')]:
+                if isinstance(h.get(key), int): item[field] = h[key]
+            self.heroes[h['base_id']] = item
 
     def update(self, op, body):
-        target, number = {0x1122: (self.heroes, 2), 0x1129: (self.shells, 1), 0x1133: (self.gear, 1)}[op]
+        if op == 0x1134:
+            response = record(body)
+            level = response.get(2)
+            if response.get(1, 0) != 0 or not isinstance(level, int) or not 0 <= level <= 15:
+                return
+            for uid in packed(response.get(3, b'')):
+                if uid > 0:
+                    self.gear.setdefault(uid, {1:uid})[3] = level
+            return
+        target, number = {0x1122: (self.heroes, 2), 0x1129: (self.shells, 1),
+                          0x1133: (self.gear, 1), 0x1132: (self.gear, 3)}[op]
         for f, w, data in fields(body):
             if f == number and w == 2:
                 item = record(data)
-                if isinstance(item.get(1), int):
-                    target[item[1]] = item
+                if isinstance(item.get(1), int) and item[1] > 0:
+                    uid = item[1]
+                    if op == 0x1132:
+                        # Omitted fields mean unchanged; explicit zero must be retained.
+                        target.setdefault(uid, {1:uid}).update(item)
+                    else:
+                        target[uid] = item
+                    if target is self.gear and item.get(3) == 0 and isinstance(item.get(4), bytes):
+                        self.initial_sub_counts[uid] = max(0, len(packed(item[4])) - 1)
 
     def rows(self):
         out = []
@@ -416,10 +467,11 @@ class Inventory:
     def snapshot(self, timestamp, observed):
         """Selected local inventory fields; raw attributes stay uninterpreted."""
         def matrix(value):
-            return {'id': value & 65535, 'points': value >> 16}
+            return {'id': value & 65535, 'points': value >> 16} if isinstance(value, int) else {'id':None, 'points':None}
         gear = [{'uid': uid, 'config_id': r.get(2), 'level': r.get(3),
                  'attributes_raw': packed(r.get(4, b'')),
-                 'matrix': matrix(r.get(5, 0)), 'flag_raw': r.get(6)}
+                 'matrix': matrix(r.get(5)), 'flag_raw': r.get(6),
+                 **({'initial_sub_count':self.initial_sub_counts[uid]} if uid in self.initial_sub_counts else {})}
                 for uid, r in sorted(self.gear.items())]
         shells = [{'uid': uid, 'config_id': r.get(2), 'level': r.get(4),
                    'awakened_config_id': r.get(6),
@@ -434,7 +486,8 @@ class Inventory:
         return {'schema': 'etheria-local-inventory-v1', 'capture_time': timestamp,
                 'observed_opcodes': sorted(observed), 'heroes': heroes,
                 'shells': shells, 'gear': gear, 'loadout_rows': self.rows(),
-                'notes': ['仅本次监听收到的库存；不保证完整。', '属性原值未完成主副属性及单位核对。']}
+                'notes': ['仅本地已观测库存，不保证完整或最新；会沿用时间允许的已保存资料。',
+                          '原始属性保留，界面按已对照规则解码；未知属性不猜测。']}
 
 
 class Engine:
@@ -484,7 +537,7 @@ class Engine:
                 self.active_battle = True
                 self.counts['battles'] += 1
                 self.emit('battle', battle)
-            elif op in (0x1122, 0x1129, 0x1133):
+            elif op in (0x1122, 0x1129, 0x1132, 0x1133, 0x1134):
                 self.inventory.update(op, body)
                 self.emit('inventory', self.inventory.rows())
                 self.inventory_observed.add(op)

@@ -67,6 +67,8 @@ class Archive:
                 CREATE TABLE IF NOT EXISTS inventory_snapshots (
                     id TEXT PRIMARY KEY, capture_time REAL, saved_at TEXT NOT NULL,
                     source TEXT NOT NULL, data TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS gear_metadata (
+                    uid INTEGER PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS observations (
                     id TEXT PRIMARY KEY, capture_time REAL, kind TEXT NOT NULL,
                     source TEXT NOT NULL, data TEXT NOT NULL);
@@ -301,13 +303,30 @@ class Archive:
                        ON CONFLICT(id) DO UPDATE SET capture_time=excluded.capture_time,
                        saved_at=excluded.saved_at,source=excluded.source,data=excluded.data
                        WHERE COALESCE(excluded.capture_time,-1)>=COALESCE(inventory_snapshots.capture_time,-1)''',
-                       (identity,snapshot.get('capture_time'),now(),source,encode(snapshot)))
+                       (identity,snapshot.get('capture_time'),datetime.now(timezone.utc).isoformat(timespec='microseconds'),source,encode(snapshot)))
         return identity
 
-    def latest_inventory(self):
+    def latest_inventory(self, before=None):
         with self.connect() as db:
-            row = db.execute('SELECT * FROM inventory_snapshots ORDER BY capture_time DESC,saved_at DESC LIMIT 1').fetchone()
+            condition = ' WHERE capture_time<=?' if before is not None else ''
+            row = db.execute('SELECT * FROM inventory_snapshots'+condition+
+                             ' ORDER BY capture_time DESC,saved_at DESC,rowid DESC LIMIT 1',
+                             (before,) if before is not None else ()).fetchone()
         return {'id':row['id'],'source':row['source'],'data':json.loads(row['data'])} if row else None
+
+    def gear_metadata(self):
+        with self.connect() as db:
+            return {r['uid']:json.loads(r['value']) for r in db.execute('SELECT * FROM gear_metadata')}
+
+    def set_gear_metadata(self, uid, value):
+        from equipment import RARITIES, UNKNOWN
+        rarity = value.get('rarity', UNKNOWN)
+        initial = value.get('initial_sub_count', UNKNOWN)
+        if rarity not in [*RARITIES, UNKNOWN] or (initial != UNKNOWN and (type(initial) is not int or not 0 <= initial <= 4)):
+            raise ValueError('稀有度或初始副属性条数无效')
+        with self.connect() as db:
+            db.execute('INSERT OR REPLACE INTO gear_metadata VALUES (?,?)',
+                       (int(uid),encode({'rarity':rarity,'initial_sub_count':initial})))
 
     def save_observation(self, observation, source):
         data = {k:v for k,v in observation.items() if k != 'archive_id'}
