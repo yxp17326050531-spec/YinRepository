@@ -661,9 +661,23 @@ class MainWindow(QMainWindow):
         form.addRow(label('在本人对局的“对局分类”中确认方向并勾选“记住所选玩家为本号”。需要读到玩家资料和可对应方向的选人记录；证据不足时仍需本场确认。','hint'))
         form.addRow(self.action('清除记住的本号身份',self.clear_player_identity))
         c.addWidget(self.action('保存设置',self.save_preferences,True)); c.addWidget(label('使用已安装的 Wireshark / dumpcap 和 Npcap。网卡刷新在后台执行，抓包只在你点击开始后运行。','hint'))
-        c.addWidget(label('此版本不附带驱动或第三方抓包程序；可继续使用原安装。额外素材与服务支出：0 元。','hint'))
+        helpbar=QHBoxLayout();helpbar.addWidget(self.action('抓包组件安装说明',self.capture_setup_help));helpbar.addWidget(self.action('重新检测 dumpcap',self.detect_dumpcap));helpbar.addStretch();c.addLayout(helpbar)
+        c.addWidget(label('默认发布包复用已安装的抓包组件；Npcap需要单独安装。离线导入无需实时抓包驱动。','hint'))
         saved=self.preferences.get('interface_id')
         if saved:self.interface.addItem(self.preferences.get('interface_label',saved),saved)
+    def capture_setup_help(self):
+        d=Editor(self,'抓包组件安装说明');d.save.hide()
+        d.form.addRow(label('首次使用实时监听：安装Windows版Wireshark，并按官方安装流程安装Npcap。已有安装可直接复用，不需要再装完整开发环境。'))
+        d.form.addRow(label('安装完成后回到设置，点击“重新检测 dumpcap”，选择实际联网网卡并保存。离线导入pcap/pcapng不需要Npcap；无需启动Wireshark界面。'))
+        d.form.addRow(label('dumpcap是捕获程序，Npcap是系统驱动。随包dumpcap也不能替代驱动；本程序不会静默安装或替换驱动。','hint'))
+        d.actions.insertWidget(1,self.action('Wireshark官方下载',lambda:QDesktopServices.openUrl(QUrl('https://www.wireshark.org/download.html'))))
+        d.actions.insertWidget(1,self.action('Npcap官方网站',lambda:QDesktopServices.openUrl(QUrl('https://npcap.com/'))))
+        d.exec()
+    def detect_dumpcap(self):
+        path=find_dumpcap()
+        if not path:self.notify('未找到dumpcap，请查看抓包组件安装说明');return
+        self.dumpcap.setText(path);self.refresh_interfaces();self.notify('已检测dumpcap，请选择网卡并保存设置')
+
     def set_topmost(self,value):self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint,bool(value)); self.show()
     def clear_player_identity(self):
         self.archive.save_settings({'own_player_key':None});self.refresh_all();self.notify('已清除本号身份；本场手动方向记录保留')

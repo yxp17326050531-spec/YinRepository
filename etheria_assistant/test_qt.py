@@ -117,6 +117,18 @@ class QtTests(unittest.TestCase):
             self.assertEqual(self.window.battle_scroll.verticalScrollBar().maximum(),0)
         self.assertFalse(self.window.record_info.isVisible());self.assertFalse(self.window.capture_info.isVisible())
 
+    def test_capture_help_is_informational_and_redetection_uses_installed_tool(self):
+        from PySide6.QtWidgets import QPushButton
+        with patch('qt_app.QDesktopServices.openUrl') as opened:
+            def inspect(d):
+                buttons=[w.text() for w in d.findChildren(QPushButton)]
+                self.assertIn('Wireshark官方下载',buttons);self.assertIn('Npcap官方网站',buttons)
+                opened.assert_not_called()
+            self.modal(inspect);self.window.capture_setup_help()
+            opened.assert_not_called()
+        with patch('qt_app.find_dumpcap',return_value='C:/synthetic/dumpcap.exe'),patch.object(self.window,'refresh_interfaces') as refresh:
+            self.window.detect_dumpcap();self.assertEqual(self.window.dumpcap.text(),'C:/synthetic/dumpcap.exe');refresh.assert_called_once()
+
     def test_team_result_badges_follow_review_and_clear_without_guessing(self):
         b=copy.deepcopy(self.battle);b['capture_time']+=123
         bid=self.archive.save_battle(b,'synthetic review badges');self.window.browse_battle(bid)

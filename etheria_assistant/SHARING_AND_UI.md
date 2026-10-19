@@ -29,7 +29,7 @@
 
 ## 本次准备的构建入口
 
-1. 在Windows上安装64位Python 3.10+（建议使用已验证环境；本程序开发测试为Python3.12），保留py启动器和Tcl/Tk。
+1. 在Windows上安装64位Python 3.10+（建议使用已验证环境；本程序开发测试为Python3.12），保留py启动器（Qt版不需要Tcl/Tk）。
 2. 双击build_windows.cmd。该脚本会在本目录新建.build-venv，安装requirements-build.txt中的PyInstaller，然后运行EtheriaAssistant.spec。首次需要网络下载构建依赖。
 3. 成功后运行dist/EtheriaAssistant/EtheriaAssistant.exe。
 4. 分享整个dist/EtheriaAssistant文件夹，包括_internal，不单独复制exe。
@@ -68,3 +68,25 @@ Npcap官网明确说明免费版不得对外再分发；需要将Npcap集成进�
 - https://npcap.com/
 - https://npcap.com/oem/redist
 - https://npcap.com/guide/
+
+## 当前发布流程（2.10.0）
+
+在已更新到main且没有未提交修改的Windows x64工作目录中运行build_windows.cmd。脚本安装构建依赖，执行完整回归，构建目录版，并启动冻结后的EXE做独立临时数据库检查。全部成功后输出release/EtheriaAssistant-2.10.0-windows-x64.zip、SHA256SUMS.txt及release.json；不生成假冒Windows程序的Linux包。
+
+默认仅包含运行所需映射、图片和发布说明；不再将mapping_evidence.json、VALIDATION.md、RESULT_VALIDATION.md或结算候选分析带入二进制资源。构建后的目录还会检查数据库、日志、抓包和驱动排除规则。
+
+需要发布GitHub Release时，先安装GitHub CLI（https://cli.github.com/）并完成gh auth login，然后运行publish_release.cmd。脚本校验版本、源码提交和ZIP校验和，将准确构建提交作为v版本标签目标；已有版本拒绝覆盖。该操作在本机执行，不启动GitHub Actions，不改变仓库可见性。当前私有仓库的Release也只有有访问权限的人能下载；可另行分享ZIP，但不要在分享包中放凭据。
+
+源码版更新器不能升级冻结EXE，目录版需关闭程序后完整替换程序目录；个人历史和映射在LocalAppData，不随替换删除。
+
+### 可选随包dumpcap
+
+默认发布包走官方安装入口，暂不自动下载或捆绑dumpcap。若之后准备好一组经确认可再分发的Windows x64 dumpcap运行库，可放到vendor/dumpcap并使用build_windows.cmd --with-capture。
+
+必须提供capture_manifest.json，记录version、对应Wireshark源码source_url，以及files对象（相对文件名→SHA256）；其中必须列出dumpcap.exe、COPYING.txt、SOURCE.txt及实际所需DLL、依赖许可文字。COPYING.txt是组件许可，SOURCE.txt说明对应版本源码和依赖的获取方式。清单仅证明文件与审查版本一致，不替代许可证要求及干净Windows环境依赖验证。
+
+构建只收清单文件并校验哈希及EXE/DLL的x64架构，禁止路径越界、其他EXE和Npcap/WinPcap安装器、驱动、Packet.dll/wpcap.dll。不要从本机系统目录拷出Npcap文件。现有可选vendor目录不会再被默认整目录打包。dumpcap通过独立子进程调用，Npcap驱动仍由接收者从官方安装。
+
+### iOS暂缓
+
+Qt for Python现有iOS部署工具，但当前Windows目录包、dumpcap进程与Npcap驱动无法直接搬到iPhone。需要macOS/Xcode签名部署、触控布局及另行设计手机端采集链路；本阶段先维护Windows发布版。

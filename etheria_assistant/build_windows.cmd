@@ -7,19 +7,18 @@ py -3 -m venv .build-venv
 if errorlevel 1 goto failed
 ".build-venv\Scripts\python.exe" -m pip install -r requirements-build.txt
 if errorlevel 1 goto failed
-".build-venv\Scripts\python.exe" -m PyInstaller --noconfirm EtheriaAssistant.spec
+".build-venv\Scripts\python.exe" release_tools.py build %*
 if errorlevel 1 goto failed
 echo.
-echo Build finished: dist\EtheriaAssistant\EtheriaAssistant.exe
-echo Share the WHOLE dist\EtheriaAssistant folder, including _internal.
-echo Capture components are separate. Read SHARING_AND_UI.md before sharing.
+echo Build and startup checks passed. ZIP and SHA256SUMS are in release\.
+echo Run publish_release.cmd to upload this exact build to GitHub Releases.
 pause
 exit /b 0
 :missingpython
-echo Install 64-bit Python 3.10 or newer with the Windows py launcher first.
+echo Install 64-bit Python 3.10+ with the Windows py launcher first.
 pause
 exit /b 1
 :failed
-echo Build failed. Read the output above; no Windows binary was verified here.
+echo Release did not finish. Keep this window open to read the error.
 pause
 exit /b 1

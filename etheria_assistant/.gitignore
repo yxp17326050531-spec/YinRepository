@@ -10,3 +10,7 @@ dist/
 *.pcapng
 runtime.log*
 checkout/
+
+.build-venv/
+release/
+vendor/

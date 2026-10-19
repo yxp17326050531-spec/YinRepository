@@ -29,3 +29,9 @@ assets目录包含用户要求从其提供的《伊瑟》游戏图鉴截图中�
 - https://npcap.com/
 
 Npcap 免费安装器不要直接打入分享包。若之后计划包含第三方抓包程序或驱动，应先单独评估相应的许可、依赖和分发方案。
+
+## 目录版构建
+
+EtheriaAssistant.spec复制PySide6-Essentials、Shiboken6、PyInstaller的安装元数据及Windows Python的LICENSE.txt；licenses目录提供LGPLv3/GPLv3许可文字。Qt动态库保持独立文件。官方Qt/PySide源码与组件许可入口：https://code.qt.io/cgit/pyside/pyside-setup.git/ ，https://code.qt.io/cgit/qt/ ，https://download.qt.io/official_releases/qt/ 。这些入口不改变各组件的源码提供等分发义务。
+
+默认目录版不附带dumpcap或Npcap。可选capture_manifest.json路径仅接受已审查运行库；Npcap/WinPcap的DLL、驱动和安装器不得通过该入口带入。
