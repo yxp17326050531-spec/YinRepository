@@ -168,6 +168,7 @@ class CaptureJob:
             if self.archive:
                 try:self.archive.save_settings({'last_capture_diagnostics':self.engine.diagnostics()})
                 except Exception as exc:self.emit('storage_error','诊断保存失败：'+str(exc))
+            self.engine.release_buffers()
             self.emit('done', {'stopped': self.stop_event.is_set(), 'offline': bool(path),
                                'failed': failed, 'counts': dict(self.engine.counts)})
             if self.archive:

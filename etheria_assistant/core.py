@@ -629,7 +629,8 @@ class Engine:
         self.latest = None
         self.last_warning = None
         self.inventory_observed = set()
-        self.actor_aliases = {}
+        self.actor_aliases = collections.OrderedDict()
+        self.actor_serial = 0
         self.active_battle = False
         self.capture_context = 'replay' if capture_context=='replay' else 'live'
         self.sessions = collections.OrderedDict()
@@ -708,12 +709,24 @@ class Engine:
         for session in list(self.sessions.values()):session.finish(self.last_timestamp,reason)
         self.emit('diagnostics',self.diagnostics())
 
+    def release_buffers(self):
+        """Called after final diagnostics are saved; durable records live in Archive."""
+        self.flows=collections.OrderedDict();self.flow_connections={}
+        self.sessions=collections.OrderedDict();self.player_evidence=collections.OrderedDict()
+        self.replay_records=collections.OrderedDict();self.candidates=[]
+        self.actor_aliases=collections.OrderedDict();self.inventory=Inventory(self.mappings)
+        self.latest=None
+
     def draft_observation(self, body, timestamp):
         r = record(body)
         def alias(identifier):
             if not isinstance(identifier, int):
                 return None
-            return self.actor_aliases.setdefault(identifier, f'参与者{len(self.actor_aliases)+1}')
+            if identifier not in self.actor_aliases:
+                self.actor_serial+=1;self.actor_aliases[identifier]=f'参与者{self.actor_serial}'
+            self.actor_aliases.move_to_end(identifier)
+            while len(self.actor_aliases)>512:self.actor_aliases.popitem(last=False)
+            return self.actor_aliases[identifier]
         heroes = []
         for f, w, value in fields(body):
             if f == 9 and w == 2:
@@ -814,6 +827,7 @@ class Engine:
             oldkey,_ = self.flows.popitem(last=False)
             oldconnection = self.flow_connections.pop(oldkey,None)
             if oldconnection in self.sessions:self.sessions[oldconnection].finish(timestamp,'连接缓存超限')
+            self.player_evidence.pop(oldconnection,None)
         framer=self.flows[key].framer; discarded=framer.discarded_bytes
         self.flows[key].feed(seq, flags, payload, timestamp)
         current=self.flows[key].framer

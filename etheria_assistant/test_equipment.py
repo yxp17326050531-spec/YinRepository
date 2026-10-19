@@ -86,7 +86,8 @@ class EquipmentTests(unittest.TestCase):
         with open(path,'wb') as f:
             f.write(pcapng(tcp(frame(0x1132,delta(42,[attr(8,15000)]))+frame(0x1134,upgraded(42,6)))))
         job=CaptureJob(lambda *a:None,20001,load_mappings(),self.archive); job.run(path,None,None)
-        snap=job.engine.inventory.snapshot(1,[])['gear']
+        # Capture teardown frees parser buffers; the historical projection is durable.
+        snap=self.archive.latest_inventory(before=2)['data']['gear']
         self.assertEqual([g['uid'] for g in snap],[42,43]); self.assertEqual(snap[0]['level'],6)
         self.assertEqual(snap[0]['matrix'],gear()['matrix'])
         self.assertEqual(self.archive.latest_inventory()['data']['gear'][0]['uid'],99)

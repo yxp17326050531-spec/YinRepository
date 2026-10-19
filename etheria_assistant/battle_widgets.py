@@ -1,10 +1,10 @@
-"""Readable compact battle rows. Pictures supplement the full text labels."""
+"""Compact battle cards: fourteen attributes and equipment at a glance."""
 from html import escape
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QWidget,QFrame,QLabel,QVBoxLayout,QHBoxLayout,QGridLayout
+from PySide6.QtWidgets import QWidget,QFrame,QLabel,QVBoxLayout,QHBoxLayout,QGridLayout,QMenu
 from artwork import image_label,matrix_color
 from capture import shell_text,matrix_text,imprint_text
-from battle_attributes import decode_extra_attributes,pending_attributes
+from battle_attributes import decode_extra_attributes
 
 
 def text(value,name=None):
@@ -15,17 +15,24 @@ def text(value,name=None):
 
 def unit_card(unit,team,action,edit_name,edit_loadout,details):
     card=QFrame();card.setObjectName('heroRow')
-    root=QVBoxLayout(card);root.setContentsMargins(5,13,5,13);root.setSpacing(10)
-    top=QHBoxLayout();top.setSpacing(10)
-    top.addWidget(image_label('heroes',unit['hero_name'],48))
+    root=QVBoxLayout(card);root.setContentsMargins(4,1,4,1);root.setSpacing(2)
+    top=QHBoxLayout();top.setSpacing(7)
+    top.addWidget(image_label('heroes',unit['hero_name'],28))
     name=action(unit['hero_name'],lambda:edit_name(unit));name.setObjectName('link')
-    name.setToolTip('点击修改名称 · #'+str(unit['hero_id']));top.addWidget(name,1)
-    for title,fn in [('配装',edit_loadout),('详情',details)]:
-        b=action(title,lambda f=fn:f(unit));b.setObjectName('smallAction');top.addWidget(b)
-    root.addLayout(top)
-    body=QHBoxLayout();body.setSpacing(12)
-    attributes=QWidget();attributes.setFixedWidth(328)
-    grid=QGridLayout(attributes);grid.setContentsMargins(0,0,0,0);grid.setHorizontalSpacing(8);grid.setVerticalSpacing(8)
+    name.setToolTip('修改精确编号名称 · #'+str(unit['hero_id']));top.addWidget(name,1)
+    shell_names={s['name'] for s in unit.get('shells',[])}
+    shell=(unit.get('manual') or {}).get('shell') or (next(iter(shell_names)) if len(shell_names)==1 else None)
+    if shell:
+        top.addWidget(image_label('shells',shell,24));shellname=text(shell,'shell');shellname.setWordWrap(False)
+    else:shellname=text('智壳待识别','hint')
+    shellname.setToolTip(shell_text(unit));top.addWidget(shellname)
+    more=action('⋯',lambda:None);more.setObjectName('heroMore');more.setToolTip('角色详情与本场配装')
+    menu=QMenu(more)
+    menu.addAction('查看详情',lambda:details(unit));menu.addAction('修改本场配装',lambda:edit_loadout(unit))
+    more.setMenu(menu);top.addWidget(more);root.addLayout(top)
+    attributes=QWidget();grid=QGridLayout(attributes);grid.setContentsMargins(0,0,0,0)
+    grid.setHorizontalSpacing(5);grid.setVerticalSpacing(2)
+    # Inline names and values keep fourteen attributes readable in three rows.
     specs=[('hp','生命'),('attack','攻击'),('defense','防御'),('speed','速度'),
            ('crit','暴击率'),('crit_damage','暴击伤害'),('effect_hit','效果命中'),('effect_resist','效果抵抗'),
            ('pvp_damage_bonus','PVP增伤'),('pvp_damage_reduction','PVP减伤'),('extra_damage_reduction','额外减伤'),('ignore_defense','无视防御'),
@@ -35,40 +42,38 @@ def unit_card(unit,team,action,edit_name,edit_loadout,details):
         values=extra if index>=8 else unit.get('percent_attributes_tentative',{}) if index>=4 else unit['stats']
         value=(values or {}).get(key)
         shown='—' if not isinstance(value,(int,float)) else f'{value:g}%' if index>=4 else f'{value:.2f}' if key=='speed' else f'{value:g}'
-        cell=QWidget();cell.setFixedWidth(76);col=QVBoxLayout(cell);col.setContentsMargins(0,0,0,0);col.setSpacing(1)
+        cell=QWidget();col=QHBoxLayout(cell);col.setContentsMargins(0,0,0,0);col.setSpacing(4)
         heading=text(title,'attributeTitle');heading.setWordWrap(False);col.addWidget(heading)
         metric=text(shown,'speed' if key=='speed' else 'statValue');metric.setWordWrap(False)
-        metric.setAccessibleName(f"{team}方 {unit['hero_id']} {title}")
+        metric.setAccessibleName(f"{team}方 {unit['hero_id']} {title}");metric.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
         tip=title+'：'+shown+' · 对局开场已下发值；缺失不代表0，不再次叠加库存。'
         if key in ('pvp_damage_bonus','pvp_damage_reduction'):tip+=' 对局开场总值，已对照科技/元件同类合计。'
         if key=='extra_damage_reduction':tip+=' 潜能与涌泉效果分开，不按矩阵说明改写。'
         if key=='damage_result_bonus':tip+=' 普通与相性增伤同区间；破序之刃10%等未下发条件值不补算。'
-        metric.setToolTip(tip);col.addWidget(metric);grid.addWidget(cell,index//4,index%4)
-    body.addWidget(attributes)
-    equipment=QWidget();equipment.setMinimumWidth(155);eq=QVBoxLayout(equipment);eq.setContentsMargins(0,0,0,0);eq.setSpacing(7)
-    shell_names={s['name'] for s in unit.get('shells',[])}
-    shell=(unit.get('manual') or {}).get('shell') or (next(iter(shell_names)) if len(shell_names)==1 else None)
-    shellrow=QHBoxLayout();shellrow.setSpacing(7)
-    if shell:shellrow.addWidget(image_label('shells',shell,32))
-    shellname=text(shell_text(unit),'shell');shellname.setToolTip(shell_text(unit));shellrow.addWidget(shellname,1);eq.addLayout(shellrow)
+        metric.setToolTip(tip);col.addWidget(metric,1);grid.addWidget(cell,index//5,index%5)
+    root.addWidget(attributes)
+    equipment=QHBoxLayout();equipment.setSpacing(8)
     manual=(unit.get('manual') or {}).get('matrices')
     matrices=manual if manual is not None else unit.get('matrix_effects_candidates',[])
-    seen=set()
+    seen=set();unique=[]
     for m in matrices:
-        name=m['name'];threshold=m.get('points') if manual is not None else m.get('threshold')
-        if (name,threshold) in seen:continue
-        seen.add((name,threshold))
-        row=QHBoxLayout();row.setSpacing(6);row.addWidget(image_label('matrices',name,24))
-        suffix=f'+{threshold}' if manual is not None else f'{threshold}点' if threshold is not None else '档位待确认'
-        if manual is not None:suffix+=' · 手动'
-        elif m.get('confidence') not in ('已对照样本','用户映射'):suffix+=' · 候选'
+        threshold=m.get('points') if manual is not None else m.get('threshold')
+        if (m['name'],threshold) in seen:continue
+        seen.add((m['name'],threshold));unique.append((m,threshold))
+    for m,threshold in unique[:3]:
+        name=m['name'];group=QWidget();row=QHBoxLayout(group);row.setContentsMargins(0,0,0,0);row.setSpacing(4)
+        row.addWidget(image_label('matrices',name,18))
+        suffix=str(threshold) if threshold is not None else '?'
+        if manual is not None:suffix+='*'
+        elif m.get('confidence') not in ('已对照样本','用户映射'):suffix+='?'
         chip=text(f'<b style="color:{matrix_color(name)}">{escape(name)}</b> <span style="color:#a1afbd">{suffix}</span>','matrixName')
-        chip.setTextFormat(Qt.TextFormat.RichText)
-        chip.setToolTip(matrix_text(unit));chip.setAccessibleName('矩阵 '+name);row.addWidget(chip,1);eq.addLayout(row)
-    if not matrices:eq.addWidget(text('完整矩阵未知','hint'))
-    eq.addWidget(text(imprint_text(unit),'hint'));eq.addStretch()
-    hint=text('更多属性 · 详情','hint');pending=pending_attributes(unit)
-    hint.setToolTip('原始属性未保存' if pending is None else f'另有 {len(pending)} 项属性待对照；开场值不保证包含条件技能效果。')
-    eq.addWidget(hint);body.addWidget(equipment,1);root.addLayout(body)
+        chip.setTextFormat(Qt.TextFormat.RichText);chip.setWordWrap(False)
+        chip.setToolTip(matrix_text(unit)+'\n'+imprint_text(unit)+'\n?：候选或档位未确认；*：本场手动。')
+        chip.setAccessibleName('矩阵 '+name);row.addWidget(chip);equipment.addWidget(group)
+    if not unique:equipment.addWidget(text('矩阵 —','hint'))
+    if len(unique)>3:
+        overflow=action('+'+str(len(unique)-3),lambda:details(unit));overflow.setObjectName('heroMore')
+        overflow.setToolTip(matrix_text(unit));equipment.addWidget(overflow)
+    equipment.addStretch();root.addLayout(equipment)
     card.ensurePolished();root.invalidate();card.setMinimumHeight(card.sizeHint().height())
     return card

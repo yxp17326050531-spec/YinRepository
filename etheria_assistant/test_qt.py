@@ -80,12 +80,56 @@ class QtTests(unittest.TestCase):
         self.assertTrue(self.archive.settings()['own_player_key'])
         self.archive.set_perspective(bid,None)
         self.archive.save_settings({'own_player_key':'f'*64});self.window.refresh_all()
-        self.assertIn('SyntheticTwo',self.window.battle_info.text())
-        self.assertIn('己方待确认',self.window.battle_info.text())
+        self.assertIn('SyntheticTwo',self.window.battle_info.toolTip())
+        self.assertIn('己方待确认',self.window.battle_info.toolTip())
         self.archive.set_classification(bid,'回放/观战');self.window.refresh_all()
-        self.assertIn('不计本人战绩',self.window.battle_info.text())
-        self.assertTrue(self.window.team_titles['B'].text().startswith('记录 B 方'))
+        self.assertIn('不计本人战绩',self.window.battle_info.toolTip())
+        self.assertEqual(self.window.team_titles['B'].text(),'SyntheticTwo')
         self.window.clear_player_identity();self.assertIsNone(self.archive.settings()['own_player_key'])
+
+    def test_eight_characters_and_full_attributes_fit_a_normal_window(self):
+        from PySide6.QtCore import QPoint,QRect
+        b=copy.deepcopy(self.battle);b['capture_time']+=100
+        names=list(load_mappings()['heroes'])[:8]
+        for ti,team in enumerate(('A','B')):
+            base=b['teams'][team][0];b['teams'][team]=[]
+            for i in range(4):
+                u=copy.deepcopy(base);u['hero_id']=int(names[ti*4+i])
+                u['percent_attributes_tentative']={'crit':77.8,'crit_damage':245.5,'effect_hit':42.1,'effect_resist':15.2}
+                u['attributes_raw'] += [(n<<8)|tag for tag,n in [(171,121),(174,187),(41,73),(58,116),(80,63),(83,74)]]
+                b['teams'][team].append(u)
+        bid=self.archive.save_battle(b,'synthetic eight');self.window.browse_battle(bid);self.window.show()
+        for width,height in ((1280,800),(1366,768)):
+            self.window.resize(width,height);self.app.processEvents();self.app.processEvents()
+            viewport=self.window.battle_scroll.viewport();count=0
+            for roster in self.window.team_layouts.values():
+                self.assertEqual(roster.count(),4)
+                for i in range(roster.count()):
+                    card=roster.itemAt(i).widget();rect=QRect(card.mapTo(viewport,QPoint(0,0)),card.size())
+                    self.assertTrue(viewport.rect().contains(rect),(width,height,rect));count+=1
+                    for metric in card.findChildren(QLabel):
+                        if metric.objectName() in ('speed','statValue'):
+                            self.assertGreaterEqual(metric.width(),metric.sizeHint().width(),metric.accessibleName())
+            self.assertEqual(count,8)
+            self.assertEqual(self.window.battle_scroll.horizontalScrollBar().maximum(),0)
+            self.assertEqual(self.window.battle_scroll.verticalScrollBar().maximum(),0)
+        self.assertFalse(self.window.record_info.isVisible());self.assertFalse(self.window.capture_info.isVisible())
+
+    def test_captured_unassigned_nicknames_can_be_selected_for_team_headers(self):
+        b=copy.deepcopy(self.battle);b['capture_time']+=100
+        b['participants']=[{'nickname':'SyntheticLeft','team':None},{'nickname':'SyntheticRight','team':None}]
+        bid=self.archive.save_battle(b,'synthetic names');before=copy.deepcopy(self.archive.get(bid)['original'])
+        self.window.browse_battle(bid);self.window.show();self.app.processEvents()
+        self.assertEqual(self.window.team_titles['A'].text(),'记录 A 方')
+        self.assertTrue(self.window.nickname_buttons['A'].isVisible())
+        def assign(d):
+            boxes=d.findChildren(QComboBox);self.assertEqual(boxes[0].currentData(),None)
+            boxes[0].setCurrentText('SyntheticRight');boxes[1].setCurrentText('SyntheticLeft');d.commit()
+        self.modal(assign);self.window.assign_nicknames()
+        self.assertEqual(self.window.team_titles['A'].text(),'SyntheticRight')
+        self.assertEqual(self.window.team_titles['B'].text(),'SyntheticLeft')
+        self.assertFalse(self.window.nickname_buttons['A'].isVisible())
+        self.assertEqual(self.archive.get(bid)['original'],before)
 
     def test_small_portraits_matrix_colors_and_readable_metrics(self):
         from artwork import portrait,matrix_color
@@ -302,14 +346,16 @@ class QtTests(unittest.TestCase):
         def displayed():
             self.app.processEvents()
             return [w.text() for w in self.window.findChildren(QLabel) if w.isVisibleTo(self.window.stack.widget(0))]
-        self.assertTrue(any('奋进' in t and '档位待确认' in t for t in displayed()))
+        self.assertTrue(any('奋进' in t and '?' in t for t in displayed()))
+        self.assertTrue(any('档位待确认' in w.toolTip() for w in self.window.findChildren(QLabel) if w.accessibleName()=='矩阵 奋进'))
         self.assertTrue(any('已对照' in w.toolTip() for w in self.window.findChildren(QLabel) if w.accessibleName()=='矩阵 奋进'))
         def save_unknown(d):
             points=d.findChild(QSpinBox);self.assertEqual(points.value(),0)
             self.assertEqual(points.text(),'待确认');d.commit()
         self.modal(save_unknown);self.window.edit_mapping('matrix_effects','1121')
         self.assertIsNone(self.archive.mappings(load_mappings())['matrix_effects']['1121']['threshold'])
-        self.assertTrue(any('奋进' in t and '档位待确认' in t for t in displayed()))
+        self.assertTrue(any('奋进' in t and '?' in t for t in displayed()))
+        self.assertTrue(any('档位待确认' in w.toolTip() for w in self.window.findChildren(QLabel) if w.accessibleName()=='矩阵 奋进'))
         self.assertTrue(any('用户映射' in w.toolTip() for w in self.window.findChildren(QLabel) if w.accessibleName()=='矩阵 奋进'))
         self.assertEqual(self.archive.get(bid)['original'],b)
 
@@ -330,7 +376,7 @@ class QtTests(unittest.TestCase):
         b=copy.deepcopy(self.battle);b['teams']['A'][0]['effects_raw'].append(83889586)
         bid=self.archive.save_battle(b,'synthetic imprint');self.window.browse_battle(bid)
         self.window.show();self.app.processEvents()
-        self.assertIn('刻影：屠夫',[w.text() for w in self.window.findChildren(QLabel) if w.isVisibleTo(self.window.stack.widget(0))])
+        self.assertTrue(any('刻影：屠夫' in w.toolTip() for w in self.window.findChildren(QLabel) if w.accessibleName().startswith('矩阵 ')))
 
     def test_component_projection_search_detail_and_refresh_keeps_original(self):
         raw={'uid':91,'config_id_raw':11048,'field3_raw':3,'field6_raw':1,
