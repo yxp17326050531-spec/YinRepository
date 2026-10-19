@@ -62,10 +62,15 @@ class CaptureJob:
         self.thread = None
 
     def on_event(self, kind, data):
+        local_players = None
+        if kind == 'battle':
+            data = dict(data)
+            local_players = data.pop('_local_players', None)
         if self.archive:
             if kind == 'battle':
                 try:
                     bid = self.archive.save_battle(data, self.source)
+                    if local_players:self.archive.save_players(bid, local_players)
                     data = dict(data, archive_id=bid)
                 except Exception as exc:
                     self.emit('storage_error', '自动保存失败：' + str(exc))

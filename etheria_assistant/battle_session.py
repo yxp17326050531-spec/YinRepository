@@ -70,17 +70,22 @@ class BattleSession:
             self.blocked = True
             self.publish(timestamp,'incomplete',reason)
 
-    def settle(self, code, body, timestamp):
+    def settle(self, code, body, timestamp, context_marker=None):
         eligible = self.latest is not None and self.state in ('active','awaiting_settlement') and timestamp>=self.latest['capture_time']
-        association = ('replay' if self.context=='replay' else 'ambiguous' if self.blocked else 'linked') if eligible else 'unlinked'
+        expected = (self.latest or {}).get('protocol_context')
+        mismatch = type(expected) is int and type(context_marker) is int and expected != context_marker
+        association = ('ambiguous' if self.blocked or mismatch else 'replay' if self.context=='replay' else 'linked') if eligible else 'unlinked'
         linked = association == 'linked'
+        associated = association in ('linked', 'replay')
         reason = {'linked':'同一连接的当前开场', 'replay':'回放/观战，不推断本人胜负',
                   'ambiguous':'上一场缺结算，无法区分迟到结算', 'unlinked':'本连接没有可关联的完整开场'}[association]
+        if eligible and mismatch:reason = '开场与结算上下文编号不一致，停止关联'
         observation = {'schema':'etheria-settlement-observation-v2','kind':'settlement',
             'capture_time':timestamp,'body_hex':body.hex(),'result_code':code,
             'winner':{382:'A',383:'B'}.get(code,'unknown') if linked else 'unknown',
-            'battle_capture_time':self.latest['capture_time'] if linked else None,
-            'battle_record_id':self.latest['record_id'] if linked else None,
+            'protocol_winner':{382:'A',383:'B'}.get(code,'unknown') if associated else 'unknown',
+            'battle_capture_time':self.latest['capture_time'] if associated else None,
+            'battle_record_id':self.latest['record_id'] if associated else None,
             'connection_id':self.connection,'capture_context':self.context,
             'association_status':association,'association_reason':reason}
         # Save the settlement before publishing the final display state.
@@ -89,8 +94,10 @@ class BattleSession:
             self.unresolved = False
             self.latest = copy.deepcopy(self.latest)
             self.latest.setdefault('tracking',{}).update(settlement_received=True,result_code=code)
-            state = 'settled' if linked and code in (382,383) else 'incomplete' if association=='ambiguous' else 'settled_unknown'
-            self.publish(timestamp,state,reason if not linked else '结果已关联' if code in (382,383) else f'未确认结算代码 {code}')
+            state = 'settled' if associated and code in (382,383) else 'incomplete' if association=='ambiguous' else 'settled_unknown'
+            self.publish(timestamp,state,reason if not associated else
+                         ('观战胜方已关联，不计本人战绩' if association=='replay' else '结果已关联') if code in (382,383)
+                         else f'未确认结算代码 {code}')
         elif self.state=='incomplete':
             self.unresolved = False
         return association

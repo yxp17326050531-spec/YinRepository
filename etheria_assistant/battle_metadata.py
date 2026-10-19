@@ -22,7 +22,13 @@ def mode_info(battle, mappings=None):
 
 def result_text(context):
     winner = context.get('winner', 'unknown')
+    def victor(side):
+        name = context.get('team_names', {}).get(side)
+        return f'{side} 方获胜（{name}）' if name else f'{side} 方获胜'
     if context.get('sample_kind') == '回放/观战':
+        protocol = context.get('protocol_winner')
+        if protocol in ('A', 'B'):
+            return victor(protocol) + ' · 观战，不计本人战绩'
         return '回放 · 结果未确认 · 不计战绩'
     if winner == 'draw':
         return '平局'
@@ -30,7 +36,7 @@ def result_text(context):
         return '结果未确认'
     own = context.get('own_team')
     if own not in ('A', 'B'):
-        return f'{winner} 方获胜 · 己方待确认'
+        return victor(winner) + ' · 己方待确认'
     return '胜利' if winner == own else '失败'
 
 

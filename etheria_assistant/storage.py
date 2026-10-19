@@ -79,6 +79,8 @@ class Archive:
                     winner TEXT NOT NULL, observation_id TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS battle_perspective (
                     battle_id TEXT PRIMARY KEY REFERENCES battles(id), own_team TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS battle_players (
+                    battle_id TEXT PRIMARY KEY REFERENCES battles(id), value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS battle_trash (
                     battle_id TEXT PRIMARY KEY REFERENCES battles(id),
                     deleted_at TEXT NOT NULL, batch_id TEXT NOT NULL);
@@ -281,6 +283,8 @@ class Archive:
                 JOIN battles b ON b.id=p.battle_id LEFT JOIN battle_context c ON c.battle_id=b.id
                 WHERE COALESCE(c.sample_kind,'未分类')!='回放/观战' AND b.id NOT IN (SELECT battle_id FROM battle_trash)''').fetchall()
             mode_rows = db.execute("SELECT id,value FROM mappings WHERE category='battle_modes'").fetchall()
+            private = db.execute('SELECT value FROM battle_players WHERE battle_id=?',(bid,)).fetchone()
+            self_key = db.execute("SELECT value FROM settings WHERE key='own_player_key'").fetchone()
         if original is None:raise ValueError('找不到这场对局')
         battle=json.loads(original['original'])
         modes={'battle_modes':{r['id']:json.loads(r['value']) for r in mode_rows}}
@@ -288,6 +292,13 @@ class Archive:
         context = dict(row) if row else {'winner':'unknown','sample_kind':'未分类','dataset_group':''}
         context['result_origin'] = 'manual' if context['winner'] != 'unknown' else 'unknown'
         if automatic:context.update(winner=automatic['winner'],result_origin='automatic')
+        context['protocol_winner']=context['winner']
+        players=json.loads(private['value']) if private else []
+        own_key=json.loads(self_key['value']) if self_key else None
+        context['participants']=[{k:v for k,v in p.items() if k!='player_key'} for p in players] or battle.get('participants',[])
+        context['team_names']={p['team']:p['nickname'] for p in context['participants'] if p.get('team') in ('A','B')}
+        context['remember_identity_teams']=[t for t in ('A','B') if sum(p.get('team')==t for p in players)==1]
+        context['can_remember_identity']=bool(context['remember_identity_teams'])
         if mode['kind']=='回放/观战' or context['sample_kind']=='未分类':
             context['sample_kind']=mode['kind']; context['mode_origin']=mode['origin']
         else:context['mode_origin']='manual'
@@ -296,16 +307,47 @@ class Archive:
             context.update(own_team=None,side_origin='replay',side_reason='回放不推断本人身份',winner='unknown')
         elif side:
             context.update(own_team=side['own_team'],side_origin='manual',side_reason='本场手动确认')
+        elif own_key and len(players)==2 and {p.get('team') for p in players}=={'A','B'}:
+            matches=[p for p in players if p['player_key']==own_key]
+            if len(matches)==1:
+                context.update(own_team=matches[0]['team'],side_origin='player_identity',side_reason='与本机记住的玩家身份一致；方向由确认选人和阵容交叉对应')
+            else:
+                context.update(own_team=None,side_origin='identity_unmatched',
+                               side_reason='参与者未匹配记住的本号，可能为观战或账号变化；己方待确认，不计本人胜负')
         else:
             context.update(infer_side(battle,[(json.loads(r['original']),r['own_team']) for r in refs]))
         return context
 
-    def set_perspective(self, bid, own_team):
+    def save_players(self, bid, players):
+        """Private local identifiers stay outside original observations and exports."""
+        import re
+        if len(players)!=2 or any(not re.fullmatch(r'[0-9a-f]{64}',p.get('player_key','')) for p in players):
+            raise ValueError('无效玩家身份')
+        if len({p['player_key'] for p in players})!=2:raise ValueError('玩家身份重复')
+        clean=[{'player_key':p['player_key'],'nickname':p['nickname'],'team':p.get('team')} for p in players]
+        with self.connect() as db:
+            previous=db.execute('SELECT value FROM battle_players WHERE battle_id=?',(bid,)).fetchone()
+            if previous:
+                old={p['player_key']:p for p in json.loads(previous['value'])}
+                if set(old)!={p['player_key'] for p in clean}:raise ValueError('同场玩家身份冲突，未覆盖')
+                for p in clean:
+                    before=old[p['player_key']].get('team')
+                    if old[p['player_key']].get('conflicted') or before and p['team'] and before!=p['team']:
+                        p.update(team=None,conflicted=True)
+                    elif before and not p['team']:p['team']=before
+            db.execute('INSERT OR REPLACE INTO battle_players VALUES (?,?)',(bid,encode(clean)))
+
+    def set_perspective(self, bid, own_team, remember=False):
         self.get(bid)
         if own_team not in (None,'A','B'):raise ValueError('无效己方队伍')
         with self.connect() as db:
             if own_team:db.execute('INSERT OR REPLACE INTO battle_perspective VALUES (?,?)',(bid,own_team))
             else:db.execute('DELETE FROM battle_perspective WHERE battle_id=?',(bid,))
+            if remember:
+                row=db.execute('SELECT value FROM battle_players WHERE battle_id=?',(bid,)).fetchone()
+                players=[p for p in json.loads(row['value']) if p.get('team')==own_team] if row and own_team else []
+                if len(players)!=1:raise ValueError('本场玩家方向证据不足，暂不能记住身份；可只确认本场方向')
+                db.execute('INSERT OR REPLACE INTO settings VALUES (?,?)',('own_player_key',encode(players[0]['player_key'])))
             db.execute('INSERT INTO audit VALUES (?,?,?,?)',(now(),'perspective',bid,encode({'own_team':own_team})))
 
     def set_mode_mapping(self, candidate, sample_kind):
@@ -335,8 +377,10 @@ class Archive:
     def _apply_settlement(db, data, source, observation_id):
         if data.get('kind') != 'settlement' or data.get('battle_capture_time') is None:
             return
-        if data.get('capture_context')=='replay' or data.get('association_status','linked')!='linked':
+        association=data.get('association_status','linked')
+        if association not in ('linked','replay'):
             return
+        if association=='replay' and not data.get('battle_record_id'):return
         try:
             code=record(bytes.fromhex(data.get('body_hex',''))).get(1)
         except (ValueError,TypeError,OverflowError):
@@ -352,14 +396,16 @@ class Archive:
                                (data['battle_record_id'],data['battle_capture_time'])).fetchall()
             if len(matches)==1:
                 original=json.loads(matches[0]['original'])
-                if original.get('capture_context')=='replay':
-                    return
         else:
             matches=db.execute('SELECT id,original FROM battles WHERE capture_time=? AND source=?',
                                (data['battle_capture_time'],source)).fetchall()
-            if len(matches)==1 and json.loads(matches[0]['original']).get('capture_context')=='replay':return
         if len(matches)!=1:
             return
+        original=json.loads(matches[0]['original'])
+        if data.get('connection_id') and original.get('connection_id') and data['connection_id']!=original['connection_id']:return
+        expected=original.get('protocol_context')
+        marker=record(bytes.fromhex(data.get('body_hex',''))).get(6)
+        if type(expected) is int and type(marker) is int and expected!=marker:return
         bid=matches[0]['id']
         previous=db.execute('SELECT winner FROM automatic_results WHERE battle_id=?',(bid,)).fetchone()
         if previous and previous['winner']!=winner:
@@ -470,13 +516,16 @@ class Archive:
             if data.get('battle_capture_time') is not None and data['battle_capture_time'] in deleted_times:
                 continue
             observation_rows.append({'id':row['id'],**data})
+        battle_rows=[]
+        for r in rows:
+            ctx=self.context(r['id'])
+            battle_rows.append({'id':r['id'],'original':json.loads(r['original']),
+                'tracking':self.get(r['id'])['tracking'],
+                'opponent':'B 队' if ctx['own_team']=='A' else 'A 队' if ctx['own_team']=='B' else '待确认',
+                **{k:ctx[k] for k in ('own_team','winner','protocol_winner','result_origin','sample_kind','dataset_group')},
+                'team_names':ctx['team_names']})
         return {'schema':'etheria-analysis-dataset-v1','exported_at':now(),
-                'battles':[{'id':r['id'],'original':json.loads(r['original']),
-                            'tracking':self.get(r['id'])['tracking'],
-                            'opponent':('B 队' if self.context(r['id'])['own_team']=='A' else 'A 队' if self.context(r['id'])['own_team']=='B' else '待确认'),
-                            'own_team':self.context(r['id'])['own_team'],
-                            'winner':self.context(r['id'])['winner'],'result_origin':self.context(r['id'])['result_origin'],
-                            'sample_kind':self.context(r['id'])['sample_kind'],'dataset_group':r['dataset_group'] or ''} for r in rows],
+                'battles':battle_rows,
                 'observations':observation_rows,
                 'notes':['BP观测未确认预选/选取/禁用含义，未关联具体对局，不能计算pick/ban率。',
                          '阵容出场率分母为符合筛选条件的队伍数；未知胜负不计入胜率。',

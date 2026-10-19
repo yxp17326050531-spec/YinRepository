@@ -375,6 +375,9 @@ def decode_battle(body, mappings):
                 if item not in candidates:candidates.append(item)
     battle.update(source_opcode='0x6003',mode_candidates=candidates,
                   protocol_shape=[{'field':f,'wire':w,'size':len(v) if isinstance(v,bytes) else None} for f,w,v in fields(body)])
+    marker = outer.get(5)
+    if type(marker) is int and 0 <= marker <= 255:
+        battle['protocol_context'] = marker
     battle['mode_detection']=mode_info(battle,mappings)
     return battle
 
@@ -636,6 +639,16 @@ class Engine:
         self.candidates = []
         self.replay_records = collections.OrderedDict()
         self.last_timestamp = None
+        self.player_evidence = collections.OrderedDict()
+
+    def players(self, connection):
+        from player_identity import PlayerEvidence
+        if connection not in self.player_evidence:
+            self.player_evidence[connection] = PlayerEvidence(fields, record)
+            while len(self.player_evidence) > 64:
+                self.player_evidence.popitem(last=False)
+        self.player_evidence.move_to_end(connection)
+        return self.player_evidence[connection]
 
     def session(self, connection):
         if connection not in self.sessions:
@@ -727,6 +740,10 @@ class Engine:
             if op == 0x6003:
                 session = self.session(connection)
                 battle = decode_battle(body, self.mappings)
+                try:
+                    self.players(connection).decorate(battle, timestamp)
+                except (ValueError, TypeError, KeyError, OverflowError):
+                    self.player_evidence.pop(connection, None)
                 if session.start(battle,body,timestamp):self.counts['battles'] += 1
                 else:self.counts['duplicate_openings'] += 1
             elif op == 0x8421:
@@ -739,11 +756,16 @@ class Engine:
                 self.emit('inventory_snapshot', self.inventory.snapshot(timestamp, self.inventory_observed))
             elif op == 0x5fc1:
                 self.counts['draft_messages']+=1
+                self.players(connection).draft(body, timestamp)
                 self.emit('observation', self.draft_observation(body, timestamp))
             elif op in (0x6001, 0x6002):
                 self.session(connection).boundary(timestamp)
+                if op == 0x6001:
+                    try:self.players(connection).header(body, timestamp)
+                    except (ValueError, TypeError, KeyError, OverflowError):self.player_evidence.pop(connection, None)
             elif op == 0x6004:
-                association = self.session(connection).settle(record(body).get(1),body,timestamp)
+                result = record(body)
+                association = self.session(connection).settle(result.get(1),body,timestamp,result.get(6))
                 self.counts['settlements'] += 1
                 self.counts[association+'_settlements'] += 1
             elif op not in (1,3,4):
@@ -761,6 +783,7 @@ class Engine:
         except (ValueError, TypeError, KeyError, OverflowError) as exc:
             if op==0x6003:
                 self.counts['invalid_openings'] += 1
+                self.player_evidence.pop(connection, None)
                 self.session(connection).invalidate(timestamp,'收到新开场但解析失败，停止关联旧场结算')
             elif op==0x8421:
                 self.counts['invalid_replays']+=1
@@ -779,12 +802,13 @@ class Engine:
         self.counts['game_packets'] += 1
         if key not in self.flows or flags & 2:
             if key in self.flow_connections:
+                self.player_evidence.pop(self.flow_connections[key], None)
                 self.session(self.flow_connections[key]).finish(timestamp,'连接重新建立，旧会话未闭合')
             self.connection_serial += 1
             connection = f'连接{self.connection_serial}'
             self.flow_connections[key] = connection
             self.flows[key] = TCPStream(lambda op,body,t,c=connection:self.message(op,body,t,c),
-                                       lambda message,c=connection:(self.session(c).invalidate(self.last_timestamp,'TCP数据缺口影响本场完整性'),self.warn(message)))
+                                       lambda message,c=connection:(self.player_evidence.pop(c,None),self.session(c).invalidate(self.last_timestamp,'TCP数据缺口影响本场完整性'),self.warn(message)))
         self.flows.move_to_end(key)
         while len(self.flows) > 64:
             oldkey,_ = self.flows.popitem(last=False)
@@ -795,6 +819,7 @@ class Engine:
         current=self.flows[key].framer
         self.counts['framing_discarded_bytes'] += current.discarded_bytes-discarded if current is framer else current.discarded_bytes
         if flags & 5:  # FIN/RST
+            self.player_evidence.pop(self.flow_connections[key], None)
             self.session(self.flow_connections[key]).finish(timestamp,'连接关闭，尚未收到本场结算')
             self.flows.pop(key, None)
             self.flow_connections.pop(key,None)

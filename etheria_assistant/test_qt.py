@@ -62,6 +62,30 @@ class QtTests(unittest.TestCase):
         self.assertIsNone(self.window.history_filter.currentData())
         self.assertIn(arena,self.window.selected_ids())
 
+    def test_remember_player_checkbox_and_named_observer_victor(self):
+        from capture import CaptureJob
+        from test_player_identity import round_start
+        from test_core import scalar
+        events=[];job=CaptureJob(lambda k,d:events.append((k,d)),20001,load_mappings(),self.archive)
+        bid=round_start(job,2000000000)
+        job.engine.message(0x6004,scalar(1,383)+scalar(6,17),2000000010,'one')
+        for kind,data in events:self.window.handle_event(kind,data)
+        def edit(d):
+            d.findChildren(QComboBox)[0].setCurrentText('B 方是我')
+            check=next(c for c in d.findChildren(QCheckBox) if '记住所选玩家' in c.text())
+            self.assertTrue(check.isEnabled());check.setChecked(True);d.commit()
+        self.modal(edit);self.window.edit_context(bid)
+        self.assertIn('胜利',self.window.battle_info.text())
+        self.assertTrue(self.archive.settings()['own_player_key'])
+        self.archive.set_perspective(bid,None)
+        self.archive.save_settings({'own_player_key':'f'*64});self.window.refresh_all()
+        self.assertIn('SyntheticTwo',self.window.battle_info.text())
+        self.assertIn('己方待确认',self.window.battle_info.text())
+        self.archive.set_classification(bid,'回放/观战');self.window.refresh_all()
+        self.assertIn('不计本人战绩',self.window.battle_info.text())
+        self.assertEqual(self.window.team_titles['B'].text(),'记录 B 方')
+        self.window.clear_player_identity();self.assertIsNone(self.archive.settings()['own_player_key'])
+
     def test_exact_name_save_and_scoped_manual_loadout(self):
         u=self.window.latest['teams']['A'][0]; hid=u['hero_id']; original=copy.deepcopy(self.battle)
         self.modal(lambda d:(d.findChild(QLineEdit).setText('我的皮肤名称'),d.commit()))
