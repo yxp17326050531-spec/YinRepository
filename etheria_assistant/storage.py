@@ -13,6 +13,7 @@ import uuid
 from core import shell_effect_mapping, record, mapped_imprints
 from battle_session import battle_identity
 from battle_attributes import decode_extra_attributes
+from battle_metadata import KINDS, mode_info, infer_side
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -76,6 +77,8 @@ class Archive:
                 CREATE TABLE IF NOT EXISTS automatic_results (
                     battle_id TEXT PRIMARY KEY REFERENCES battles(id),
                     winner TEXT NOT NULL, observation_id TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS battle_perspective (
+                    battle_id TEXT PRIMARY KEY REFERENCES battles(id), own_team TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS battle_trash (
                     battle_id TEXT PRIMARY KEY REFERENCES battles(id),
                     deleted_at TEXT NOT NULL, batch_id TEXT NOT NULL);
@@ -129,21 +132,23 @@ class Archive:
                         db.execute('INSERT OR REPLACE INTO battle_tracking VALUES (?,?)',(bid,encode(tracking)))
         return bid
 
-    def history(self, limit=100, offset=0):
-        with self.connect() as db:
-            total = db.execute('SELECT COUNT(*) FROM battles WHERE id NOT IN (SELECT battle_id FROM battle_trash)').fetchone()[0]
-            rows = [dict(r) for r in db.execute('SELECT id,capture_time,saved_at,source,status,opponent FROM battles WHERE id NOT IN (SELECT battle_id FROM battle_trash) ORDER BY capture_time DESC,id LIMIT ? OFFSET ?', (limit, offset))]
-        return total, rows
+    def history(self, limit=100, offset=0, sample_kind=None):
+        rows = self.history_directory(sample_kind)
+        return len(rows), rows[offset:offset+limit]
 
-    def history_directory(self):
-        """Lightweight navigation over all non-deleted records, without loading lineups."""
+    def history_directory(self, sample_kind=None):
+        """Navigation and pagination share the same effective mode filter."""
         with self.connect() as db:
-            return [dict(r) for r in db.execute('''
-                SELECT b.id,b.capture_time,b.source,b.status,COALESCE(a.winner,c.winner,'unknown') AS winner FROM battles b
-                LEFT JOIN automatic_results a ON a.battle_id=b.id
-                LEFT JOIN battle_context c ON c.battle_id=b.id
-                WHERE b.id NOT IN (SELECT battle_id FROM battle_trash)
-                ORDER BY b.capture_time DESC,b.id''')]
+            rows = [dict(r) for r in db.execute('''
+                SELECT id,capture_time,saved_at,source,status,opponent FROM battles
+                WHERE id NOT IN (SELECT battle_id FROM battle_trash)
+                ORDER BY capture_time DESC,id''')]
+        out=[]
+        for row in rows:
+            context=self.context(row['id'])
+            if sample_kind and context['sample_kind'] != sample_kind:continue
+            out.append(dict(row,**{k:v for k,v in context.items() if k not in row}))
+        return out
 
     def is_deleted(self, bid):
         with self.connect() as db:
@@ -223,7 +228,7 @@ class Archive:
         result = copy.deepcopy(builtin)
         with self.connect() as db:
             for row in db.execute('SELECT * FROM mappings'):
-                result[row['category']][row['id']] = json.loads(row['value'])
+                result.setdefault(row['category'],{})[row['id']] = json.loads(row['value'])
                 if row['category'] == 'matrices':
                     result.get('matrix_confidence', {}).pop(row['id'],None)
         return result
@@ -270,11 +275,55 @@ class Archive:
         with self.connect() as db:
             row = db.execute('SELECT * FROM battle_context WHERE battle_id=?',(bid,)).fetchone()
             automatic = db.execute('SELECT winner FROM automatic_results WHERE battle_id=?',(bid,)).fetchone()
+            original = db.execute('SELECT original FROM battles WHERE id=?',(bid,)).fetchone()
+            side = db.execute('SELECT own_team FROM battle_perspective WHERE battle_id=?',(bid,)).fetchone()
+            refs = db.execute('''SELECT b.original,p.own_team FROM battle_perspective p
+                JOIN battles b ON b.id=p.battle_id LEFT JOIN battle_context c ON c.battle_id=b.id
+                WHERE COALESCE(c.sample_kind,'未分类')!='回放/观战' AND b.id NOT IN (SELECT battle_id FROM battle_trash)''').fetchall()
+            mode_rows = db.execute("SELECT id,value FROM mappings WHERE category='battle_modes'").fetchall()
+        if original is None:raise ValueError('找不到这场对局')
+        battle=json.loads(original['original'])
+        modes={'battle_modes':{r['id']:json.loads(r['value']) for r in mode_rows}}
+        mode=mode_info(battle,modes)
         context = dict(row) if row else {'winner':'unknown','sample_kind':'未分类','dataset_group':''}
         context['result_origin'] = 'manual' if context['winner'] != 'unknown' else 'unknown'
-        if automatic:
-            context.update(winner=automatic['winner'],result_origin='automatic')
+        if automatic:context.update(winner=automatic['winner'],result_origin='automatic')
+        if mode['kind']=='回放/观战' or context['sample_kind']=='未分类':
+            context['sample_kind']=mode['kind']; context['mode_origin']=mode['origin']
+        else:context['mode_origin']='manual'
+        context['mode_reason']=mode['reason'] if context['mode_origin']!='manual' else '手动分类优先'
+        if context['sample_kind']=='回放/观战':
+            context.update(own_team=None,side_origin='replay',side_reason='回放不推断本人身份',winner='unknown')
+        elif side:
+            context.update(own_team=side['own_team'],side_origin='manual',side_reason='本场手动确认')
+        else:
+            context.update(infer_side(battle,[(json.loads(r['original']),r['own_team']) for r in refs]))
         return context
+
+    def set_perspective(self, bid, own_team):
+        self.get(bid)
+        if own_team not in (None,'A','B'):raise ValueError('无效己方队伍')
+        with self.connect() as db:
+            if own_team:db.execute('INSERT OR REPLACE INTO battle_perspective VALUES (?,?)',(bid,own_team))
+            else:db.execute('DELETE FROM battle_perspective WHERE battle_id=?',(bid,))
+            db.execute('INSERT INTO audit VALUES (?,?,?,?)',(now(),'perspective',bid,encode({'own_team':own_team})))
+
+    def set_mode_mapping(self, candidate, sample_kind):
+        from battle_metadata import mode_key
+        if sample_kind not in ('BP排位','竞技场','练习/测试'):raise ValueError('无效模式映射')
+        paths={f'outer.{i}' for i in range(2,33)} | {f'roster.{i}' for i in [1,*range(4,33)]}
+        if candidate.get('opcode')!='0x6003' or candidate.get('path') not in paths:
+            raise ValueError('不支持该模式候选路径')
+        if type(candidate.get('value')) is not int or not 0<=candidate['value']<=255:raise ValueError('无效候选值')
+        with self.connect() as db:
+            db.execute('INSERT OR REPLACE INTO mappings VALUES (?,?,?)',('battle_modes',mode_key(candidate),encode(sample_kind)))
+            db.execute('INSERT INTO audit VALUES (?,?,?,?)',(now(),'mode_mapping',mode_key(candidate),encode(sample_kind)))
+
+    def remove_mode_mapping(self, candidate):
+        from battle_metadata import mode_key
+        with self.connect() as db:
+            db.execute("DELETE FROM mappings WHERE category='battle_modes' AND id=?",(mode_key(candidate),))
+            db.execute('INSERT INTO audit VALUES (?,?,?,?)',(now(),'remove_mode_mapping',mode_key(candidate),'{}'))
 
     def set_classification(self, bid, sample_kind, dataset_group=''):
         # Retain old manual metadata for compatibility; results have no UI editor.
@@ -320,7 +369,7 @@ class Archive:
     def set_context(self, bid, winner, sample_kind, dataset_group=''):
         if winner not in ('unknown','A','B','draw'):
             raise ValueError('无效胜负')
-        if sample_kind not in ('未分类','BP排位','竞技场','练习/测试'):
+        if sample_kind not in KINDS:
             raise ValueError('无效对局分类')
         if len(dataset_group.strip()) > 100:
             raise ValueError('统计分组最多100字')
@@ -424,20 +473,21 @@ class Archive:
         return {'schema':'etheria-analysis-dataset-v1','exported_at':now(),
                 'battles':[{'id':r['id'],'original':json.loads(r['original']),
                             'tracking':self.get(r['id'])['tracking'],
-                            'opponent':'B 队',
+                            'opponent':('B 队' if self.context(r['id'])['own_team']=='A' else 'A 队' if self.context(r['id'])['own_team']=='B' else '待确认'),
+                            'own_team':self.context(r['id'])['own_team'],
                             'winner':self.context(r['id'])['winner'],'result_origin':self.context(r['id'])['result_origin'],
-                            'sample_kind':r['sample_kind'] or '未分类','dataset_group':r['dataset_group'] or ''} for r in rows],
+                            'sample_kind':self.context(r['id'])['sample_kind'],'dataset_group':r['dataset_group'] or ''} for r in rows],
                 'observations':observation_rows,
                 'notes':['BP观测未确认预选/选取/禁用含义，未关联具体对局，不能计算pick/ban率。',
                          '阵容出场率分母为符合筛选条件的队伍数；未知胜负不计入胜率。',
-                         '本人对局己方固定A、敌方固定B；已关联结算382=胜、383=负，其他结果未知；类型及分组手动维护。',
-                         '回放/观战记录不计本人统计；采集场景由用户选择，并非协议自动识别。']}
+                         '协议A/B与本人身份分开；382/383暂按A/B方获胜，己方未确认不计算本人胜负。',
+                         '0x8421自动分类回放；排位/竞技场仅使用已确认模式映射，手动分类优先。']}
 
     def validation_dataset(self):
         dataset=self.dataset()
         return {**dataset,'schema':'etheria-result-validation-v1',
                 'observations':[r for r in dataset['observations'] if r['kind']=='settlement'],
-                'notes':['本人对局己方固定A，敌方固定B；382=胜、383=负。回放/观战不计本人结果。',
+                'notes':['协议胜方与己方分开记录；未确认己方或回放不计算本人胜负。',
                          '自动结果要求精确关联；未知和冲突结算不计入胜率。']}
 
     def shell_catalogue(self, mappings):

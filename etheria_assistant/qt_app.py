@@ -29,10 +29,10 @@ from inventory_widgets import GearFilterDialog
 from components import project_component, attribute_text as component_attribute_text, component_detail as component_detail_text
 from battle_attributes import decode_extra_attributes, pending_attributes, pending_text, extra_text
 
-VERSION='2.6.9'
+VERSION='2.7.0'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
-KINDS=['未分类','BP排位','竞技场','练习/测试']
+from battle_metadata import KINDS, result_text
 RESULTS={'等待结算':'unknown','胜利':'A','失败':'B','平局':'draw'}
 
 def label(text, name=None):
@@ -200,9 +200,11 @@ class MainWindow(QMainWindow):
                     key=unit_key(team,i,u); units[i]=project_unit(u,self.mappings,record['annotations'].get(key)); units[i]['annotation_key']=key
             ctx=self.archive.context(self.current_id)
             replay=self.latest.get('capture_context')=='replay'
-            result_label='结果未确认' if replay and ctx['winner']=='unknown' else next(k for k,v in RESULTS.items() if v==ctx['winner'])
-            self.battle_info.setText(f"{'历史查看' if self.browsing else '最新对局'} · {stamp(self.latest.get('capture_time'))} · {ctx['sample_kind']} · {result_label} · {'回放/观战' if replay else '己方视角'}")
-            self.record_info.setText(('回放记录 · 不计本人战绩 · ' if replay else '')+record['status'])
+            result_label=result_text(ctx)
+            self.battle_info.setText(f"{'历史查看' if self.browsing else '最新对局'} · {stamp(self.latest.get('capture_time'))} · {ctx['sample_kind']} · {result_label} · {ctx['side_reason']}")
+            self.record_info.setText(('回放记录 · 不计本人战绩 · ' if replay else '')+record['status']+' · '+ctx['mode_reason'])
+            names=[p['nickname'] for p in self.latest.get('participants',[])]
+            if names:self.record_info.setText(self.record_info.text()+' · 玩家：'+' / '.join(names)+'（A/B待对照）')
         elif self.unsaved_battle:
             self.latest=copy.deepcopy(self.unsaved_battle)
             self.battle_info.setText('自动保存失败 · 当前数据仍可导出，请检查磁盘和运行日志')
@@ -210,7 +212,12 @@ class MainWindow(QMainWindow):
         self.refresh_battle_navigation()
         for team,layout in self.team_layouts.items():
             replay=bool(self.latest and self.latest.get('capture_context')=='replay')
-            self.team_titles[team].setText(('记录 A 方' if team=='A' else '记录 B 方') if replay else ('⚔  己方队伍' if team=='A' else '⚔  敌方队伍'))
+            own=self.archive.context(self.current_id).get('own_team') if self.current_id else None
+            self.team_titles[team].setText(f'记录 {team} 方' if replay or not own else f'⚔  {"己方" if team==own else "敌方"}队伍 · {team} 方')
+            title=self.team_titles[team]
+            style='hint' if replay or not own else 'ownTeam' if team==own else 'enemyTeam'
+            if title.objectName()!=style:
+                title.setObjectName(style);title.style().unpolish(title);title.style().polish(title)
             self.clear_layout(layout)
             units=self.latest['teams'].get(team,[]) if self.latest else []
             if not units:layout.addWidget(label('暂无角色数据\n开始监听后，进入战斗将自动更新。','hint'))
@@ -247,7 +254,7 @@ class MainWindow(QMainWindow):
                     if key=='extra_damage_reduction':
                         metric.setToolTip(metric.toolTip()+' · 潜能贡献与涌泉效果分开记录，不按矩阵说明改写。')
                     elif key=='damage_result_bonus':
-                        metric.setToolTip(metric.toolTip()+' · 普通与相性增伤属同一区间；未下发的相性条件值不补算。')
+                        metric.setToolTip(metric.toolTip()+' · 普通与相性增伤属同一区间；破序之刃10%等未下发条件值不补算。')
                     column.addWidget(metric); grid.addWidget(cell,index//4,index%4)
                 c.addWidget(attributes)
                 equipment=QWidget(); eq=QVBoxLayout(equipment); eq.setContentsMargins(0,0,0,0); eq.setSpacing(6)
@@ -261,11 +268,11 @@ class MainWindow(QMainWindow):
                 card.ensurePolished();c.invalidate()
                 card.setMinimumHeight(card.sizeHint().height())
     def refresh_battle_navigation(self):
-        rows=self.archive.history_directory(); self.battle_navigation=[r['id'] for r in rows]
+        rows=self.archive.history_directory(self.history_filter.currentData()); self.battle_navigation=[r['id'] for r in rows]
         self.battle_jump.blockSignals(True); self.battle_jump.clear(); self.battle_jump.setPlaceholderText('选择已保存对局')
         results={'A':'胜利','B':'失败','unknown':'结果未知'}
         for row in rows:
-            text=f"{stamp(row['capture_time'])} · {results.get(row['winner'],'结果未知')} · {row['source']}"
+            text=f"{stamp(row['capture_time'])} · {row['sample_kind']} · {result_text(row)} · {row['source']}"
             self.battle_jump.addItem(text,row['id'])
         index=self.battle_jump.findData(self.current_id); self.battle_jump.setCurrentIndex(index); self.battle_jump.blockSignals(False)
         self.previous_battle.setEnabled(index>=0 and index<len(rows)-1)
@@ -278,7 +285,7 @@ class MainWindow(QMainWindow):
 
     def step_battle(self, direction):
         # Refresh to skip records removed since this view was opened.
-        ids=[r['id'] for r in self.archive.history_directory()]
+        ids=[r['id'] for r in self.archive.history_directory(self.history_filter.currentData())]
         if self.current_id not in ids:return
         index=ids.index(self.current_id)+direction
         if 0<=index<len(ids):self.browse_battle(ids[index])
@@ -288,7 +295,9 @@ class MainWindow(QMainWindow):
         if bid and bid!=self.current_id:self.browse_battle(bid)
 
     def back_to_history(self):
-        ids=[r['id'] for r in self.archive.history_directory()]
+        if self.current_id and self.current_id not in [r['id'] for r in self.archive.history_directory(self.history_filter.currentData())]:
+            self.history_filter.setCurrentIndex(0)
+        ids=[r['id'] for r in self.archive.history_directory(self.history_filter.currentData())]
         if self.current_id in ids:self.history_offset=(ids.index(self.current_id)//100)*100
         self.navigate(3)
         if self.current_id in self.history_ids:
@@ -300,9 +309,33 @@ class MainWindow(QMainWindow):
         d=Editor(self,'读取诊断 · 消息统计与阵容候选'); d.resize(800,650); d.save.hide()
         d.form.addRow(label('未知消息只保存编号和数量；阵容候选尚未确认消息含义，不计入战绩。','hint'))
         text=QPlainTextEdit(json.dumps(self.capture_diagnostics,ensure_ascii=False,indent=2)); text.setReadOnly(True); text.setMinimumHeight(380); d.form.addRow(text)
-        d.actions.insertWidget(1,self.action('导出读取诊断',lambda:self.write_json(self.capture_diagnostics,'etheria_capture_diagnostics.json'))); d.exec()
+        timer=QTimer(d);timer.timeout.connect(lambda:text.setPlainText(json.dumps(self.capture_diagnostics,ensure_ascii=False,indent=2)));timer.start(1000)
+        d.actions.insertWidget(1,self.action('确认模式候选',self.confirm_mode_candidate)); d.actions.insertWidget(1,self.action('导出读取诊断',lambda:self.write_json(self.capture_diagnostics,'etheria_capture_diagnostics.json'))); d.exec()
+
+    def confirm_mode_candidate(self):
+        candidates=self.capture_diagnostics.get('mode_candidates',[])
+        if not candidates:self.notify('尚无模式字段候选；请从进入对局前开始抓包。当前JSON没有模式原值。'); return
+        d=Editor(self,'确认模式编号 · 仅在多场对照一致后填写')
+        candidate=combo([f"{c['opcode']} {c['path']} = {c['value']}" for c in candidates]); kind=combo(['BP排位','竞技场','练习/测试','撤销该编号映射'])
+        d.form.addRow('开场候选',candidate); d.form.addRow('确认的类型',kind)
+        d.form.addRow(label('候选是小整数，并不代表一定是模式。请先用同模式两场及其他模式一场对照；同一候选映射会应用到后续及已有记录。','hint'))
+        def save():
+            if kind.currentText()=='撤销该编号映射':self.archive.remove_mode_mapping(candidates[candidate.currentIndex()])
+            else:self.archive.set_mode_mapping(candidates[candidate.currentIndex()],kind.currentText())
+            self.mappings=self.archive.mappings(load_mappings())
+            if self.job and self.job.thread.is_alive():self.job.engine.mappings=self.mappings
+            self.refresh_all()
+        d.on_save=save;d.exec()
 
     def render_capture_diagnostics(self, data):
+        data=copy.deepcopy(data)
+        bid=data.get('latest_record_id')
+        if bid:
+            try:
+                ctx=self.archive.context(bid)
+                data['local_projection']={key:ctx.get(key) for key in ('sample_kind','mode_origin','mode_reason','own_team','side_origin','side_reason')}
+                data['local_projection']['result']=result_text(ctx)
+            except ValueError:pass
         self.capture_diagnostics=data; counts=data.get('counts',{}); context='回放/观战' if data.get('capture_context')=='replay' else '本人对局'
         prefix=f"监听场景：{context} · 下行 {counts.get('game_packets',0)} 分组 · {counts.get('messages',0)} 消息 · 开场 {counts.get('battles',0)} · 回放 {counts.get('replays',0)}"
         if counts.get('invalid_replays'):reason=f"回放解析失败 {counts['invalid_replays']} 次，请导出诊断并保留本地抓包"
@@ -348,11 +381,15 @@ class MainWindow(QMainWindow):
         bid=bid or self.current_id
         if not bid: self.notify('请先选择一场已保存对局'); return
         ctx=self.archive.context(bid); d=Editor(self,'对局分类')
-        d.form.addRow('自动结果',label(next(k for k,v in RESULTS.items() if v==ctx['winner'])))
+        d.form.addRow('协议结算',label((ctx['winner']+' 方获胜') if ctx['winner'] in ('A','B') else '未确认'))
+        side=combo(['自动识别 / 待确认','A 方是我','B 方是我'])
+        if ctx['side_origin']=='manual':side.setCurrentIndex(1 if ctx['own_team']=='A' else 2)
+        side.setEnabled(ctx['sample_kind']!='回放/观战');d.form.addRow('己方身份',side)
+        d.form.addRow(label(ctx['side_reason'],'hint'))
         kind=combo(KINDS,ctx['sample_kind']); group=QLineEdit(ctx['dataset_group'])
         d.form.addRow('对局类型',kind); d.form.addRow('分组 / 赛季',group)
         def save():
-            self.archive.set_classification(bid,kind.currentText(),group.text()); self.refresh_all()
+            self.archive.set_classification(bid,kind.currentText(),group.text()); self.archive.set_perspective(bid,[None,'A','B'][side.currentIndex()]); self.refresh_all()
         d.on_save=save; d.exec()
     def hero_name(self,identifier):return self.mappings['heroes'].get(str(identifier),f'角色 #{identifier}')
     def build_stats(self):
@@ -522,21 +559,27 @@ class MainWindow(QMainWindow):
             self.gear_details.setPlainText(text+'\n\n原始记录：\n'+json.dumps(gear,ensure_ascii=False,indent=2))
     def build_history(self):
         layout=self.page(); row=QHBoxLayout(); self.history_info=label('','hint'); row.addWidget(self.history_info,1)
+        self.history_filter=QComboBox();self.history_filter.addItem('全部类型',None)
+        for name in KINDS:self.history_filter.addItem(name,name)
+        row.addWidget(self.history_filter);self.history_filter.currentIndexChanged.connect(self.change_history_filter)
         for text,fn in [('上一页',lambda:self.history_page(-1)),('下一页',lambda:self.history_page(1)),('打开',self.open_history),('删除选中',self.delete_history),('恢复最近删除',self.restore_history)]:row.addWidget(self.action(text,fn))
         layout.addLayout(row); self.history_table=table(['时间','来源','状态','对方队伍','类型','结果']); layout.addWidget(self.history_table,1)
         self.history_table.cellDoubleClicked.connect(lambda r,c:self.open_history()); QShortcut(QKeySequence('Delete'),self.history_table,activated=self.delete_history)
         row=QHBoxLayout()
         for text,fn in [('修改对局分类',self.context_selected),('导出分析数据集',lambda:self.write_json(self.archive.dataset(),'etheria_analysis_dataset.json')),('打开日志目录',self.open_directory),('备份数据库',self.backup),('查看结算观测',self.observations)]:row.addWidget(self.action(text,fn))
         layout.addLayout(row); layout.addWidget(label('Ctrl / Shift 多选，Ctrl+A 选择当前页；删除后不参与统计，可恢复最近一批。','hint'))
+    def change_history_filter(self):
+        self.history_offset=0; self.refresh_history(); self.refresh_battle_navigation()
+
     def refresh_history(self):
-        total,records=self.archive.history(100,self.history_offset)
-        if not records and self.history_offset and total:self.history_offset=max(0,((total-1)//100)*100); total,records=self.archive.history(100,self.history_offset)
+        total,records=self.archive.history(100,self.history_offset,self.history_filter.currentData())
+        if not records and self.history_offset and total:self.history_offset=max(0,((total-1)//100)*100); total,records=self.archive.history(100,self.history_offset,self.history_filter.currentData())
         self.history_ids=[r['id'] for r in records]; rows=[]
         for r in records:
-            c=self.archive.context(r['id']); rows.append([stamp(r['capture_time']),r['source'],r['status'],'敌方',c['sample_kind'],next(k for k,v in RESULTS.items() if v==c['winner'])])
+            c=self.archive.context(r['id']); rows.append([stamp(r['capture_time']),r['source'],r['status'],('B 方' if c['own_team']=='A' else 'A 方' if c['own_team']=='B' else '待确认'),c['sample_kind'],result_text(c)])
         fill(self.history_table,rows); self.history_info.setText(f'{total} 场记录 · 第 {self.history_offset//100+1} 页')
     def history_page(self,direction):
-        total,_=self.archive.history(1); offset=max(0,self.history_offset+direction*100)
+        total,_=self.archive.history(1,sample_kind=self.history_filter.currentData()); offset=max(0,self.history_offset+direction*100)
         if offset>=total and direction>0:return
         self.history_offset=offset; self.refresh_history()
     def selected_ids(self):return [self.history_ids[i.row()] for i in self.history_table.selectionModel().selectedRows() if i.row()<len(self.history_ids)]
@@ -600,7 +643,7 @@ class MainWindow(QMainWindow):
         form.addRow('游戏端口',self.port); self.topmost=QCheckBox('窗口置顶'); self.topmost.setChecked(bool(self.preferences.get('topmost',False))); form.addRow(self.topmost); self.topmost.toggled.connect(self.set_topmost)
         self.capture_scene=QComboBox(); self.capture_scene.addItem('本人对局','live'); self.capture_scene.addItem('他人回放 / 观战（不计本人战绩）','replay')
         self.capture_scene.setCurrentIndex(max(0,self.capture_scene.findData(self.preferences.get('capture_context','live')))); form.addRow('采集场景',self.capture_scene)
-        form.addRow(label('此项由你选择，不是协议自动识别。观看他人回放前选择回放场景，再开始监听。','hint'))
+        form.addRow(label('0x8421回放自动识别；其他观战封装可手动指定场景。模式编号未确认时保留未分类。','hint'))
         c.addWidget(self.action('保存设置',self.save_preferences,True)); c.addWidget(label('使用已安装的 Wireshark / dumpcap 和 Npcap。网卡刷新在后台执行，抓包只在你点击开始后运行。','hint'))
         c.addWidget(label('此版本不附带驱动或第三方抓包程序；可继续使用原安装。额外素材与服务支出：0 元。','hint'))
         saved=self.preferences.get('interface_id')

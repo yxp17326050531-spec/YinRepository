@@ -129,7 +129,7 @@ class DataTests(unittest.TestCase):
         archive.save_observation({'kind':'settlement','capture_time':103,'body_hex':'00','winner':'unknown','battle_capture_time':100},'test')
         verification=archive.validation_dataset()
         self.assertEqual(verification['schema'],'etheria-result-validation-v1')
-        self.assertEqual(verification['battles'][0]['opponent'],'B 队')
+        self.assertEqual(verification['battles'][0]['opponent'],'待确认')
         self.assertEqual(verification['battles'][0]['winner'],'A')
         self.assertEqual([r['kind'] for r in verification['observations']],['settlement'])
         with self.assertRaises(ValueError):archive.set_context('legacy','win','BP排位')
@@ -179,7 +179,7 @@ class DataTests(unittest.TestCase):
 
     def test_matchup_direction_mirrors_and_own_perspective(self):
         def match(winner,opponent='B 队'):
-            return {'winner':winner,'sample_kind':'BP排位','dataset_group':'', 'opponent':opponent,
+            return {'winner':winner,'sample_kind':'BP排位','dataset_group':'', 'opponent':opponent, 'own_team':'A',
                     'original':{'teams':{'A':[{'hero_id':1},{'hero_id':2},{'hero_id':2}],
                                          'B':[{'hero_id':1},{'hero_id':3}]}}}
         data={'battles':[match('A'),match('B'),match('unknown'),match('draw')]}

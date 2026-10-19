@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from battle_session import BattleSession, battle_identity
 from battle_attributes import decode_extra_attributes
+from battle_metadata import mode_info
 
 MAX_BODY = 2 * 1024 * 1024
 MAX_BLOCK = 16 * 1024 * 1024
@@ -365,7 +366,17 @@ def decode_battle(body, mappings):
     inner = outer.get(1)
     if not isinstance(inner, bytes):
         raise ValueError("对局缺少阵容字段")
-    return decode_roster(inner,mappings)
+    battle=decode_roster(inner,mappings)
+    candidates=[]
+    for prefix,payload,excluded in [('outer',body,{1}),('roster',inner,{2,3})]:
+        for field,wire,value in fields(payload):
+            if wire==0 and field<=32 and type(value) is int and 0<=value<=255 and field not in excluded:
+                item={'opcode':'0x6003','path':f'{prefix}.{field}','value':value}
+                if item not in candidates:candidates.append(item)
+    battle.update(source_opcode='0x6003',mode_candidates=candidates,
+                  protocol_shape=[{'field':f,'wire':w,'size':len(v) if isinstance(v,bytes) else None} for f,w,v in fields(body)])
+    battle['mode_detection']=mode_info(battle,mappings)
+    return battle
 
 
 def decode_roster(inner, mappings):
@@ -417,7 +428,7 @@ def decode_roster(inner, mappings):
 def decode_replay(body, mappings):
     """Observed 0x8421 envelope: field 2 -> field 2 -> the usual roster.
 
-    Player/account metadata is deliberately not copied into the archive.
+    Only the observed nickname path is copied; account metadata is excluded.
     Extra fields are retained as uninterpreted values, never a winner or log.
     """
     envelopes=[v for f,w,v in fields(body) if f==2 and w==2]
@@ -428,7 +439,24 @@ def decode_replay(body, mappings):
     battle=decode_roster(rosters[0],mappings)
     extras=[{'field':f,'wire':w,'value':v.hex() if isinstance(v,bytes) else v}
             for f,w,v in payload if f in (3,4,5)]
-    battle.update(capture_context='replay',source_opcode='0x8421',
+    # Allowlist only the observed nickname path; never copy player/account blobs.
+    names=[]
+    try:
+        for field,wire,header in payload:
+            if field!=1 or wire!=2:continue
+            for f,w,participant in fields(header):
+                if f!=8 or w!=2:continue
+                profiles=[v for f,w,v in fields(participant) if f==1 and w==2]
+                for profile in profiles:
+                    for f,w,value in fields(profile):
+                        if f==3 and w==2 and len(value)<=256:
+                            name=value.decode('utf-8')
+                            if 1<=len(name)<=64 and all(c.isprintable() for c in name) and name not in names:names.append(name)
+    except (ValueError,UnicodeDecodeError):
+        pass
+    battle.update(participants=[{'nickname':name,'team':None,'source_path':'2.1.8.1.3'} for name in names[:2]],
+                  participant_status='昵称已读取；对应A/B关系待对照' if names else '昵称未读取',
+                  capture_context='replay',source_opcode='0x8421',
                   status='回放阵容已读取 · 不计本人战绩 · 胜负与回合过程未确认',
                   replay_evidence={'roster_path':'2.2','extra_fields_raw':extras,
                                    'semantics':'额外字段保留原值；未确认动作、随机种子或胜负含义'},
@@ -649,7 +677,15 @@ class Engine:
                 'configured_port':self.port,'counts':dict(self.counts),
                 'inbound_opcodes':{hex(k):v for k,v in self.opcodes.items()},
                 'unhandled_opcodes':{hex(k):v for k,v in self.unknown_opcodes.items()},
+                'latest_record_id':(self.latest or {}).get('record_id'),
                 'latest_tracking':self.latest.get('tracking') if self.latest else None,
+                'mode_detection':mode_info(self.latest or {},self.mappings),
+                'mode_candidates':(self.latest or {}).get('mode_candidates',[]),
+                'protocol_shape':(self.latest or {}).get('protocol_shape',[]),
+                'identity':{'status':'A/B为协议方向，己方由本场确认或本地完整阵容指纹识别',
+                            'nickname_count':len((self.latest or {}).get('participants',[])),
+                            'nickname_side_status':(self.latest or {}).get('participant_status','当前消息未提供已确认昵称路径')},
+                'draft_messages':self.counts.get('draft_messages',0),
                 'lineup_candidates':self.candidates,
                 'notes':['只统计指定TCP端口的游戏下行消息；端口改变、UDP或其他封装不在已知解析范围。',
                          '未知消息仅统计编号和数量，不导出原始载荷、IP、MAC或账号凭据。',
@@ -702,6 +738,7 @@ class Engine:
                 self.inventory_observed.add(op)
                 self.emit('inventory_snapshot', self.inventory.snapshot(timestamp, self.inventory_observed))
             elif op == 0x5fc1:
+                self.counts['draft_messages']+=1
                 self.emit('observation', self.draft_observation(body, timestamp))
             elif op in (0x6001, 0x6002):
                 self.session(connection).boundary(timestamp)

@@ -8,7 +8,7 @@ import time
 import unittest
 from unittest.mock import patch
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QPlainTextEdit, QCheckBox, QLabel
+from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QPlainTextEdit, QCheckBox, QLabel, QComboBox
 from qt_app import MainWindow, Editor
 from core import decode_battle, load_mappings
 from storage import Archive
@@ -37,6 +37,31 @@ class QtTests(unittest.TestCase):
             finally:
                 if d.isVisible():d.reject()
         QTimer.singleShot(0,run)
+    def test_confirm_b_side_updates_result_labels_and_keeps_protocol_roster(self):
+        self.archive.set_context(self.bid,'A','BP排位')
+        original=copy.deepcopy(self.archive.get(self.bid)['original'])
+        def edit(d):
+            d.findChildren(QComboBox)[0].setCurrentText('B 方是我'); d.commit()
+        self.modal(edit);self.window.edit_context(self.bid)
+        self.assertIn('失败',self.window.battle_info.text())
+        self.assertIn('己方',self.window.team_titles['B'].text())
+        self.assertEqual(self.window.team_titles['B'].objectName(),'ownTeam')
+        self.assertEqual(self.archive.get(self.bid)['original'],original)
+        self.assertEqual(self.window.history_table.item(0,5).text(),'失败')
+
+    def test_history_type_filter_applies_to_navigation_and_return(self):
+        self.archive.set_classification(self.bid,'BP排位')
+        b=copy.deepcopy(self.battle);b['capture_time']+=1
+        arena=self.archive.save_battle(b,'arena');self.archive.set_classification(arena,'竞技场')
+        self.window.history_filter.setCurrentText('BP排位')
+        self.assertEqual(self.window.history_ids,[self.bid])
+        self.window.browse_battle(self.bid)
+        self.assertEqual(self.window.battle_jump.count(),1)
+        self.window.step_battle(-1);self.assertEqual(self.window.current_id,self.bid)
+        self.window.browse_battle(arena);self.window.back_to_history()
+        self.assertIsNone(self.window.history_filter.currentData())
+        self.assertIn(arena,self.window.selected_ids())
+
     def test_exact_name_save_and_scoped_manual_loadout(self):
         u=self.window.latest['teams']['A'][0]; hid=u['hero_id']; original=copy.deepcopy(self.battle)
         self.modal(lambda d:(d.findChild(QLineEdit).setText('我的皮肤名称'),d.commit()))
@@ -79,7 +104,7 @@ class QtTests(unittest.TestCase):
         self.assertIsNotNone(self.window.latest)
 
     def test_skin_name_is_not_merged_and_stats_respect_context(self):
-        self.archive.set_context(self.bid,'A','竞技场','S1'); self.archive.set_opponent(self.bid,'B 队')
+        self.archive.set_perspective(self.bid,'A'); self.archive.set_context(self.bid,'A','竞技场','S1'); self.archive.set_opponent(self.bid,'B 队')
         self.window.stats_kind.setCurrentText('竞技场'); self.window.stats_min.setValue(1); self.window.refresh_stats()
         self.assertGreater(self.window.stat_tables[0].rowCount(),0)
         self.window.stats_group.setText('other'); self.window.refresh_stats(); self.assertEqual(self.window.stat_tables[0].rowCount(),0)
