@@ -27,7 +27,7 @@ from equipment import (project_gear, attribute_text, matches_gear, normalize_fil
                        normalize_sort, sort_gear, gear_sort_value)
 from inventory_widgets import GearFilterDialog
 
-VERSION='2.6.0'
+VERSION='2.6.1'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 KINDS=['未分类','BP排位','竞技场','练习/测试']
@@ -175,7 +175,7 @@ class MainWindow(QMainWindow):
         for team in ['A','B']:
             card,c=self.card(); title=label('⚔  己方队伍' if team=='A' else '⚔  敌方队伍','ownTeam' if team=='A' else 'enemyTeam'); c.addWidget(title)
             self.team_titles[team]=title
-            roster=QVBoxLayout(); roster.setSpacing(0); c.addLayout(roster); self.team_layouts[team]=roster; teams.addWidget(card,1)
+            roster=QVBoxLayout(); roster.setSpacing(0); c.addLayout(roster); c.addStretch(); self.team_layouts[team]=roster; teams.addWidget(card,1)
         body.addLayout(teams)
         row=QBoxLayout(QBoxLayout.Direction.LeftToRight); self.dash_layout=row; self.dash_tables=[]
         for title,subtitle in [('低胜率对位','遇上这些角色时的队伍胜率'),('高胜率搭配','同队出场组合的队伍胜率')]:
@@ -198,7 +198,8 @@ class MainWindow(QMainWindow):
                     key=unit_key(team,i,u); units[i]=project_unit(u,self.mappings,record['annotations'].get(key)); units[i]['annotation_key']=key
             ctx=self.archive.context(self.current_id)
             replay=self.latest.get('capture_context')=='replay'
-            self.battle_info.setText(f"{'历史查看' if self.browsing else '最新对局'} · {stamp(self.latest.get('capture_time'))} · {ctx['sample_kind']} · {next(k for k,v in RESULTS.items() if v==ctx['winner'])} · {'回放/观战' if replay else '己方视角'}")
+            result_label='结果未确认' if replay and ctx['winner']=='unknown' else next(k for k,v in RESULTS.items() if v==ctx['winner'])
+            self.battle_info.setText(f"{'历史查看' if self.browsing else '最新对局'} · {stamp(self.latest.get('capture_time'))} · {ctx['sample_kind']} · {result_label} · {'回放/观战' if replay else '己方视角'}")
             self.record_info.setText(('回放记录 · 不计本人战绩 · ' if replay else '')+record['status'])
         elif self.unsaved_battle:
             self.latest=copy.deepcopy(self.unsaved_battle)
@@ -211,23 +212,35 @@ class MainWindow(QMainWindow):
             self.clear_layout(layout)
             units=self.latest['teams'].get(team,[]) if self.latest else []
             if not units:layout.addWidget(label('暂无角色数据\n开始监听后，进入战斗将自动更新。','hint'))
-            if units:
-                header=QWidget(); h=QHBoxLayout(header); h.setContentsMargins(4,6,4,8); h.setSpacing(8)
-                for title,width in [('角色',135),('生命',65),('攻击',51),('防御',51),('速度',63)]:
-                    w=label(title,'hint'); w.setFixedWidth(width); h.addWidget(w)
-                h.addWidget(label('智壳 / 矩阵效果','hint'),1); layout.addWidget(header)
             for unit in units:
                 card=QFrame(); card.setObjectName('heroRow'); c=QHBoxLayout(card); c.setContentsMargins(4,10,4,10); c.setSpacing(8)
-                names=QWidget(); names.setFixedWidth(135); n=QVBoxLayout(names); n.setContentsMargins(0,0,0,0); n.setSpacing(6)
+                names=QWidget(); names.setFixedWidth(125); n=QVBoxLayout(names); n.setContentsMargins(0,0,0,0); n.setSpacing(6)
                 name=button(unit['hero_name'],lambda u=unit:self.guarded(lambda:self.edit_hero(u))); name.setObjectName('link'); name.setToolTip('点击修改名称 · #'+str(unit['hero_id'])); n.addWidget(name)
                 actions=QHBoxLayout(); actions.setSpacing(6)
                 for title,fn in [('配装',self.edit_loadout),('详情',self.details)]:
                     edit=self.action(title,lambda u=unit,f=fn:f(u)); edit.setObjectName('smallAction'); actions.addWidget(edit)
                 n.addLayout(actions); c.addWidget(names)
-                for key,width in [('hp',65),('attack',51),('defense',51),('speed',63)]:
-                    value=unit['stats'].get(key); shown=((f'{value:.2f}' if key=='speed' else f'{value:g}') if isinstance(value,(int,float)) else '—')
-                    metric=label(shown,'speed' if key=='speed' else 'statValue'); metric.setFixedWidth(width); c.addWidget(metric)
+                attributes=QWidget(); attributes.setFixedWidth(276); grid=QGridLayout(attributes)
+                grid.setContentsMargins(0,0,0,0); grid.setHorizontalSpacing(8); grid.setVerticalSpacing(8)
+                fields=[('hp','生命'),('attack','攻击'),('defense','防御'),('speed','速度'),
+                        ('crit','暴击率'),('crit_damage','暴击伤害'),('effect_hit','效果命中'),('effect_resist','效果抵抗')]
+                for index,(key,title) in enumerate(fields):
+                    percentage=index>=4
+                    values=(unit.get('percent_attributes_tentative') or {}) if percentage else unit['stats']
+                    value=values.get(key)
+                    shown='—'
+                    if isinstance(value,(int,float)):
+                        shown=f'{value:g}%' if percentage else f'{value:.2f}' if key=='speed' else f'{value:g}'
+                    cell=QWidget(); cell.setFixedWidth((68,58,58,68)[index%4])
+                    column=QVBoxLayout(cell); column.setContentsMargins(0,0,0,0); column.setSpacing(2)
+                    heading=label(title,'attributeTitle'); heading.setWordWrap(False); column.addWidget(heading)
+                    metric=label(shown,'speed' if key=='speed' else 'statValue'); metric.setWordWrap(False)
+                    metric.setAccessibleName(f"{team}方 {unit['hero_id']} {title}")
+                    metric.setToolTip(title+'：'+shown+(' · 沿用已观测百分比规则；未下发显示 —' if percentage else ''))
+                    column.addWidget(metric); grid.addWidget(cell,index//4,index%4)
+                c.addWidget(attributes)
                 equipment=QWidget(); eq=QVBoxLayout(equipment); eq.setContentsMargins(0,0,0,0); eq.setSpacing(6)
+                eq.addWidget(label('智壳 / 矩阵效果','attributeTitle'))
                 eq.addWidget(label(shell_text(unit),'shell')); eq.addWidget(label(matrix_text(unit),'hint')); c.addWidget(equipment,1); layout.addWidget(card)
     def refresh_battle_navigation(self):
         rows=self.archive.history_directory(); self.battle_navigation=[r['id'] for r in rows]
@@ -273,9 +286,11 @@ class MainWindow(QMainWindow):
 
     def render_capture_diagnostics(self, data):
         self.capture_diagnostics=data; counts=data.get('counts',{}); context='回放/观战' if data.get('capture_context')=='replay' else '本人对局'
-        prefix=f"{context} · 游戏下行 {counts.get('game_packets',0)} 分组 · {counts.get('messages',0)} 消息 · {counts.get('battles',0)} 场开场"
-        if counts.get('invalid_openings'):reason=f"开场解析失败 {counts['invalid_openings']} 次，请导出诊断并保留本地抓包"
+        prefix=f"监听场景：{context} · 下行 {counts.get('game_packets',0)} 分组 · {counts.get('messages',0)} 消息 · 开场 {counts.get('battles',0)} · 回放 {counts.get('replays',0)}"
+        if counts.get('invalid_replays'):reason=f"回放解析失败 {counts['invalid_replays']} 次，请导出诊断并保留本地抓包"
+        elif counts.get('invalid_openings'):reason=f"开场解析失败 {counts['invalid_openings']} 次，请导出诊断并保留本地抓包"
         elif data.get('lineup_candidates'):reason=f"发现 {len(data['lineup_candidates'])} 条阵容候选，请查看读取诊断"
+        elif counts.get('replays'):reason='已读取回放阵容；回放不计本人战绩，胜负与回合过程未确认'
         elif counts.get('battles'):reason=f"已关联结算 {counts.get('linked_settlements',0)} 次 · 未关联 {counts.get('unlinked_settlements',0)+counts.get('ambiguous_settlements',0)} 次"
         elif counts.get('messages'):reason='已收到游戏消息，尚未识别开场；请在进入对局/回放之前开始监听'
         elif counts.get('game_packets') and counts.get('framing_discarded_bytes'):

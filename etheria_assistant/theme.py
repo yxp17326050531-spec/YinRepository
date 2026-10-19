@@ -47,6 +47,7 @@ QFrame#heroRow QWidget, QFrame#heroRow QLabel {background:transparent;}
 QLabel#ownTeam {color:#49d0fc; font-size:19px; font-weight:700; border-left:4px solid #24b6fa; padding-left:10px;}
 QLabel#enemyTeam {color:#ff596b; font-size:19px; font-weight:700; border-left:4px solid #ff425c; padding-left:10px;}
 QLabel#statValue {color:#e2ebf5; font-size:13px;}
+QLabel#attributeTitle {color:#8393aa; font-size:11px;}
 QPushButton#smallAction {padding:3px 5px; font-size:11px; background:#152c3b; border-color:#254255;}
 QPushButton#link {font-size:14px;}
 QDialog {background:#0d1c28;}

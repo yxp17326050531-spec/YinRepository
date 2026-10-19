@@ -6,12 +6,13 @@ Only inbound battle and local inventory messages are decoded. Nothing is uploade
 from __future__ import annotations
 
 import collections
+import hashlib
 import ipaddress
 import json
 import struct
 import time
 from pathlib import Path
-from battle_session import BattleSession
+from battle_session import BattleSession, battle_identity
 
 MAX_BODY = 2 * 1024 * 1024
 MAX_BLOCK = 16 * 1024 * 1024
@@ -209,7 +210,7 @@ def tcp_packet(link, data):
 
 
 class Framer:
-    ANCHORS = {1, 3, 4, 0x5fc1, 0x6001, 0x6002, 0x6003, 0x6004, 0x1122, 0x1129, 0x1132, 0x1133, 0x1134, 0x8100}
+    ANCHORS = {1, 3, 4, 0x5fc1, 0x6001, 0x6002, 0x6003, 0x6004, 0x8421, 0x1122, 0x1129, 0x1132, 0x1133, 0x1134, 0x8100}
 
     def __init__(self, emit, warn):
         self.buffer = bytearray()
@@ -355,6 +356,10 @@ def decode_battle(body, mappings):
     inner = outer.get(1)
     if not isinstance(inner, bytes):
         raise ValueError("对局缺少阵容字段")
+    return decode_roster(inner,mappings)
+
+
+def decode_roster(inner, mappings):
     teams = {'A': [], 'B': []}
     keys = {1: 'hp', 5: 'attack', 9: 'defense', 13: 'speed'}
     for group, wire, unit in fields(inner):
@@ -395,6 +400,34 @@ def decode_battle(body, mappings):
     if not teams['A'] or not teams['B']:
         raise ValueError("对局缺少一方阵容")
     return {'teams': teams, 'status': '对局数据已到达', 'schema': 'etheria-observed-v0.1'}
+
+
+def decode_replay(body, mappings):
+    """Observed 0x8421 envelope: field 2 -> field 2 -> the usual roster.
+
+    Player/account metadata is deliberately not copied into the archive.
+    Extra fields are retained as uninterpreted values, never a winner or log.
+    """
+    envelopes=[v for f,w,v in fields(body) if f==2 and w==2]
+    if len(envelopes)!=1:raise ValueError('回放缺少唯一的数据封装')
+    payload=fields(envelopes[0])
+    rosters=[v for f,w,v in payload if f==2 and w==2]
+    if len(rosters)!=1:raise ValueError('回放缺少唯一的阵容字段')
+    battle=decode_roster(rosters[0],mappings)
+    positions={'A':0,'B':0}
+    for group,wire,unit in fields(rosters[0]):
+        if group not in (2,3) or wire!=2:continue
+        team='A' if group==2 else 'B'
+        battle['teams'][team][positions[team]]['attributes_raw']=packed(record(unit).get(4,b''))
+        positions[team]+=1
+    extras=[{'field':f,'wire':w,'value':v.hex() if isinstance(v,bytes) else v}
+            for f,w,v in payload if f in (3,4,5)]
+    battle.update(capture_context='replay',source_opcode='0x8421',
+                  status='回放阵容已读取 · 不计本人战绩 · 胜负与回合过程未确认',
+                  replay_evidence={'roster_path':'2.2','extra_fields_raw':extras,
+                                   'semantics':'额外字段保留原值；未确认动作、随机种子或胜负含义'},
+                  payload_fingerprint=hashlib.sha256(envelopes[0]).hexdigest())
+    return battle
 
 
 class Inventory:
@@ -530,6 +563,7 @@ class Engine:
         self.flow_connections = {}
         self.opcodes, self.unknown_opcodes = collections.Counter(), collections.Counter()
         self.candidates = []
+        self.replay_records = collections.OrderedDict()
         self.last_timestamp = None
 
     def session(self, connection):
@@ -545,6 +579,27 @@ class Engine:
             self.latest = data
             self.active_battle = data['tracking']['association_eligible']
         self.emit(kind,data)
+
+    def replay_message(self, body, timestamp, connection):
+        battle=decode_replay(body,self.mappings)
+        fingerprint=battle['payload_fingerprint']
+        self.counts['replay_messages']+=1
+        if fingerprint in self.replay_records:
+            self.counts['duplicate_replays']+=1
+            battle=self.replay_records[fingerprint]
+            self.replay_records.move_to_end(fingerprint)
+        else:
+            battle.update(capture_time=timestamp,connection_id=connection)
+            battle['record_id']=battle_identity(battle)
+            battle['tracking']={'state':'replay_loaded','reason':'0x8421 回放响应，已解析双方阵容',
+                                'connection_id':connection,'capture_context':'replay',
+                                'roster_received':True,'settlement_received':False,'result_code':None,
+                                'updated_at':timestamp,'association_eligible':False,'protocol_match_id':None}
+            self.replay_records[fingerprint]=battle
+            while len(self.replay_records)>64:self.replay_records.popitem(last=False)
+            self.counts['replays']+=1
+        # A replay response never replaces a live session's settlement target.
+        self.session_event('battle',battle)
 
     def diagnostics(self):
         return {'schema':'etheria-capture-diagnostics-v1','capture_context':self.capture_context,
@@ -595,6 +650,8 @@ class Engine:
                 battle = decode_battle(body, self.mappings)
                 if session.start(battle,body,timestamp):self.counts['battles'] += 1
                 else:self.counts['duplicate_openings'] += 1
+            elif op == 0x8421:
+                self.replay_message(body,timestamp,connection)
             elif op in (0x1122, 0x1129, 0x1132, 0x1133, 0x1134):
                 self.inventory.update(op, body)
                 self.emit('inventory', self.inventory.rows())
@@ -624,6 +681,8 @@ class Engine:
             if op==0x6003:
                 self.counts['invalid_openings'] += 1
                 self.session(connection).invalidate(timestamp,'收到新开场但解析失败，停止关联旧场结算')
+            elif op==0x8421:
+                self.counts['invalid_replays']+=1
             self.warn(f'消息 {op:#x} 未能解析：{exc}')
 
     def packet(self, timestamp, link, data):

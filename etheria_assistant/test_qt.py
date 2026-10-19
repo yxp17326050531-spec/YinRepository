@@ -8,7 +8,7 @@ import time
 import unittest
 from unittest.mock import patch
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QPlainTextEdit, QCheckBox
+from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QPlainTextEdit, QCheckBox, QLabel
 from qt_app import MainWindow, Editor
 from core import decode_battle, load_mappings
 from storage import Archive
@@ -178,5 +178,43 @@ class QtTests(unittest.TestCase):
         self.assertEqual(self.window.live_id,replay_id)
         self.window.render_capture_diagnostics({'capture_context':'replay','counts':{'game_packets':10,'framing_discarded_bytes':20}})
         self.assertIn('消息边界未同步',self.window.capture_info.text())
+
+    def test_known_replay_response_is_visible_with_automatic_replay_labels(self):
+        from capture import CaptureJob
+        from test_replay import replay_body
+        events=[];job=CaptureJob(lambda k,d:events.append((k,d)),20001,load_mappings(),self.archive)
+        job.source='synthetic replay';job.engine.message(0x8421,replay_body(),2000000000)
+        job.engine.finish_capture()
+        for k,d in events:self.window.handle_event(k,d)
+        self.assertEqual(len(self.window.latest['teams']['A']),4)
+        self.assertEqual(self.window.team_titles['A'].text(),'记录 A 方')
+        self.assertIn('回放阵容已读取',self.window.record_info.text())
+        self.assertIn('结果未确认',self.window.battle_info.text())
+        self.assertIn('回放 1',self.window.capture_info.text())
+        self.assertNotIn('记录不完整',self.window.record_info.text())
+        self.window.show();self.app.processEvents()
+        values={w.accessibleName():w.text() for w in self.window.findChildren(QLabel) if w.isVisibleTo(self.window.stack.widget(0))}
+        self.assertEqual(values['A方 50200 暴击率'],'51.2%')
+        self.assertEqual(values['B方 50300 效果抵抗'],'22.2%')
+
+    def test_home_shows_all_attributes_with_zero_missing_and_over_100_percent(self):
+        b=copy.deepcopy(self.battle);b['capture_time']+=100
+        b['teams']['A'][0]['percent_attributes_tentative']={'crit':0,'crit_damage':423.8,'effect_hit':120.4}
+        b['teams']['B'][0].pop('percent_attributes_tentative',None)
+        bid=self.archive.save_battle(b,'synthetic attributes')
+        self.window.handle_event('battle',dict(b,archive_id=bid))
+        self.window.show()
+        def shown():
+            self.app.processEvents()
+            return {w.accessibleName():w.text() for w in self.window.findChildren(QLabel) if w.isVisibleTo(self.window.stack.widget(0))}
+        values=shown()
+        for title,value in [('生命','28696'),('攻击','4753'),('防御','1883'),('速度','291.00'),
+                            ('暴击率','0%'),('暴击伤害','423.8%'),('效果命中','120.4%'),('效果抵抗','—')]:
+            self.assertEqual(values['A方 30153 '+title],value)
+        for title in ('暴击率','暴击伤害','效果命中','效果抵抗'):
+            self.assertEqual(values['B方 30153 '+title],'—')
+        self.window.browse_battle(bid)
+        self.assertEqual(shown()['A方 30153 暴击伤害'],'423.8%')
+        self.assertEqual(self.archive.get(bid)['original'],b)
 
 if __name__=='__main__':unittest.main()
