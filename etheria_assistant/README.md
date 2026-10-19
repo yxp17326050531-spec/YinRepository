@@ -1,12 +1,12 @@
 # 伊瑟 · 对局助手 2.4.0
 
-源码持续维护于 `yxp17326050531-spec/YinRepository` 的 `etheria-desktop` 分支。首次用 `setup_git.cmd` 安装到 Git 工作目录，之后通过 `update.cmd` 增量更新。
+源码持续维护于 `yxp17326050531-spec/YinRepository` 的 `main` 分支。首次用 `setup_git.cmd` 安装到 Git 工作目录，之后通过 `update.cmd` 增量更新。
 
 本机运行的 PySide6 对局助手。界面按 B 预览调整为蓝黑底、青色强调、蓝/红双方标题、黄色速度和紧凑角色行；窄窗口上下排列队伍。
 
 ## 一次安装，以后增量更新
 
-下载仓库中的 `etheria_assistant/setup_git.cmd` 并双击。需要 Git for Windows、Python 3.10+ 和私有仓库访问权限；Git 首次访问可能打开浏览器登录 GitHub。脚本只克隆 `etheria-desktop` 分支，并在 `checkout/etheria_assistant` 内安装依赖。
+下载仓库中的 `etheria_assistant/setup_git.cmd` 并双击。需要 Git for Windows、Python 3.10+ 和私有仓库访问权限；Git 首次访问可能打开浏览器登录 GitHub。脚本只克隆 `main` 分支，并在 `checkout/etheria_assistant` 内安装依赖。
 
 安装完成后：
 
@@ -17,6 +17,20 @@
 - 程序和更新器共用锁，防止本版运行期间修改源码。升级旧版前仍需自己关闭旧程序。
 
 若是直接下载的源码目录，可先运行 `install_windows.cmd` 和 `start.cmd`；这种非 Git 目录不能增量更新。推荐通过 `setup_git.cmd` 安装一次。
+
+## 已用旧分支安装的电脑
+
+关闭程序，在 `checkout` 目录打开终端，依次执行以下命令，把已有安装切换为跟踪主分支（无需重新安装）：
+
+```bat
+git remote set-branches origin main
+git fetch origin
+git switch main
+git branch --set-upstream-to=origin/main main
+etheria_assistant\update.cmd
+```
+
+如果切换因本地改动而停止，先保存或提交改动再重试；不要强制覆盖。数据库和用户名称映射仍沿用原位置。
 
 ## 本版行为
 
@@ -39,4 +53,4 @@
 
 `python -m unittest discover -v`。无图形 Linux 环境用 `QT_QPA_PLATFORM=offscreen`。44+ 项协议、SQLite、Qt、结算和 Git 更新回归；Windows 实机抓包和 DPI 尚未在当前环境验证。
 
-后续直接修改本仓库的 `etheria-desktop` 分支；不要每次生成完整压缩包。可选 `build_windows.cmd` 仍可制作 EXE，日常迭代无需执行。
+后续直接修改本仓库的 `main` 分支；不要每次生成完整压缩包。可选 `build_windows.cmd` 仍可制作 EXE，日常迭代无需执行。

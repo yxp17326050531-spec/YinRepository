@@ -2,7 +2,7 @@
 
 本项目抓包需要运行在游戏所在的 Windows 电脑。桌面程序采用 Git 增量更新，不需要额外服务器或付费素材。
 
-1. 源码位置：`yxp17326050531-spec/YinRepository` 的 `etheria-desktop` 分支、`etheria_assistant/` 目录。
+1. 源码位置：`yxp17326050531-spec/YinRepository` 的 `main` 分支、`etheria_assistant/` 目录。
 2. 开发者修改有涉及的模块，运行测试，通过后提交到同一分支。
 3. 使用者关闭程序，运行 `update.cmd`。更新器使用上游分支 `git pull --ff-only`，有改动或分叉就停止。
 4. 依赖摘要变化时才调用 pip，之后对新提交运行本机测试。失败时保留错误，更新未完成，不自动启动；根据错误修复或切回已知版本。

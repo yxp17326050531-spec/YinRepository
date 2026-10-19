@@ -4,7 +4,7 @@ cd /d "%~dp0"
 where git >nul 2>nul
 if errorlevel 1 goto missing
 if exist "checkout" goto exists
-git clone --branch etheria-desktop --single-branch https://github.com/yxp17326050531-spec/YinRepository.git checkout
+git clone --branch main --single-branch https://github.com/yxp17326050531-spec/YinRepository.git checkout
 if errorlevel 1 goto failed
 cd checkout\etheria_assistant
 call install_windows.cmd
