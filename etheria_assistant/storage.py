@@ -11,6 +11,7 @@ from pathlib import Path
 import sqlite3
 import uuid
 from core import shell_effect_mapping, record
+from battle_session import battle_identity
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -33,10 +34,7 @@ def unit_key(team, index, unit):
 
 
 def battle_key(battle):
-    # Names/mapping versions must not create duplicate records for the same observation.
-    teams = {team: [{'id': u['hero_id'], 'slot': u.get('slot'), 'stats': u['stats'],
-                     'effects': u['effects_raw']} for u in units] for team, units in battle['teams'].items()}
-    return hashlib.sha256(encode([battle.get('capture_time'), teams]).encode()).hexdigest()
+    return battle_identity(battle)
 
 
 class Archive:
@@ -64,6 +62,8 @@ class Archive:
                     battle_id TEXT PRIMARY KEY REFERENCES battles(id),
                     winner TEXT NOT NULL, sample_kind TEXT NOT NULL,
                     dataset_group TEXT NOT NULL, updated_at TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS battle_tracking (
+                    battle_id TEXT PRIMARY KEY REFERENCES battles(id), value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS inventory_snapshots (
                     id TEXT PRIMARY KEY, capture_time REAL, saved_at TEXT NOT NULL,
                     source TEXT NOT NULL, data TEXT NOT NULL);
@@ -115,7 +115,17 @@ class Archive:
         with self.connect() as db:
             db.execute('INSERT OR IGNORE INTO battles(id,capture_time,saved_at,source,status,original) VALUES (?,?,?,?,?,?)',
                        (bid, battle.get('capture_time'), now(), source, battle['status'], encode(battle)))
-            db.execute('UPDATE battles SET status=? WHERE id=?', (battle['status'], bid))
+            tracking = battle.get('tracking')
+            old = db.execute('SELECT value FROM battle_tracking WHERE battle_id=?',(bid,)).fetchone()
+            old = json.loads(old['value']) if old else {}
+            newer = not old or (tracking or {}).get('updated_at',0)>=(old.get('updated_at') or 0)
+            if newer:
+                result = db.execute('SELECT winner FROM automatic_results WHERE battle_id=?',(bid,)).fetchone()
+                preserve = result and result['winner'] in ('A','B') and old.get('state')=='settled' and (tracking or {}).get('state') in ('active','awaiting_settlement','incomplete')
+                if not preserve:
+                    db.execute('UPDATE battles SET status=? WHERE id=?', (battle['status'], bid))
+                    if tracking:
+                        db.execute('INSERT OR REPLACE INTO battle_tracking VALUES (?,?)',(bid,encode(tracking)))
         return bid
 
     def history(self, limit=100, offset=0):
@@ -123,6 +133,16 @@ class Archive:
             total = db.execute('SELECT COUNT(*) FROM battles WHERE id NOT IN (SELECT battle_id FROM battle_trash)').fetchone()[0]
             rows = [dict(r) for r in db.execute('SELECT id,capture_time,saved_at,source,status,opponent FROM battles WHERE id NOT IN (SELECT battle_id FROM battle_trash) ORDER BY capture_time DESC,id LIMIT ? OFFSET ?', (limit, offset))]
         return total, rows
+
+    def history_directory(self):
+        """Lightweight navigation over all non-deleted records, without loading lineups."""
+        with self.connect() as db:
+            return [dict(r) for r in db.execute('''
+                SELECT b.id,b.capture_time,b.source,b.status,COALESCE(a.winner,c.winner,'unknown') AS winner FROM battles b
+                LEFT JOIN automatic_results a ON a.battle_id=b.id
+                LEFT JOIN battle_context c ON c.battle_id=b.id
+                WHERE b.id NOT IN (SELECT battle_id FROM battle_trash)
+                ORDER BY b.capture_time DESC,b.id''')]
 
     def is_deleted(self, bid):
         with self.connect() as db:
@@ -159,8 +179,10 @@ class Archive:
             if row is None:
                 raise ValueError('找不到这场对局')
             annotations = {r['unit_key']: json.loads(r['value']) for r in db.execute('SELECT * FROM annotations WHERE battle_id=?', (bid,))}
+            tracking = db.execute('SELECT value FROM battle_tracking WHERE battle_id=?',(bid,)).fetchone()
         return {'id': bid, 'original': json.loads(row['original']), 'status': row['status'],
-                'source': row['source'], 'opponent': row['opponent'], 'annotations': annotations}
+                'source': row['source'], 'opponent': row['opponent'], 'annotations': annotations,
+                'tracking':json.loads(tracking['value']) if tracking else None}
 
     def set_opponent(self, bid, value):
         if value not in ('待选择', 'A 队', 'B 队'):
@@ -261,6 +283,8 @@ class Archive:
     def _apply_settlement(db, data, source, observation_id):
         if data.get('kind') != 'settlement' or data.get('battle_capture_time') is None:
             return
+        if data.get('capture_context')=='replay' or data.get('association_status','linked')!='linked':
+            return
         try:
             code=record(bytes.fromhex(data.get('body_hex',''))).get(1)
         except (ValueError,TypeError,OverflowError):
@@ -271,8 +295,17 @@ class Archive:
         capture_time=data.get('capture_time')
         if not isinstance(capture_time,(int,float)) or capture_time < data['battle_capture_time']:
             return
-        matches=db.execute('SELECT id FROM battles WHERE capture_time=? AND source=?',
-                           (data['battle_capture_time'],source)).fetchall()
+        if data.get('battle_record_id'):
+            matches=db.execute('SELECT id,original FROM battles WHERE id=? AND capture_time=?',
+                               (data['battle_record_id'],data['battle_capture_time'])).fetchall()
+            if len(matches)==1:
+                original=json.loads(matches[0]['original'])
+                if original.get('capture_context')=='replay':
+                    return
+        else:
+            matches=db.execute('SELECT id,original FROM battles WHERE capture_time=? AND source=?',
+                               (data['battle_capture_time'],source)).fetchall()
+            if len(matches)==1 and json.loads(matches[0]['original']).get('capture_context')=='replay':return
         if len(matches)!=1:
             return
         bid=matches[0]['id']
@@ -369,19 +402,21 @@ class Archive:
             observation_rows.append({'id':row['id'],**data})
         return {'schema':'etheria-analysis-dataset-v1','exported_at':now(),
                 'battles':[{'id':r['id'],'original':json.loads(r['original']),
+                            'tracking':self.get(r['id'])['tracking'],
                             'opponent':'B 队',
                             'winner':self.context(r['id'])['winner'],'result_origin':self.context(r['id'])['result_origin'],
                             'sample_kind':r['sample_kind'] or '未分类','dataset_group':r['dataset_group'] or ''} for r in rows],
                 'observations':observation_rows,
                 'notes':['BP观测未确认预选/选取/禁用含义，未关联具体对局，不能计算pick/ban率。',
                          '阵容出场率分母为符合筛选条件的队伍数；未知胜负不计入胜率。',
-                         '己方固定A、敌方固定B；已关联结算382=胜、383=负，其他结果未知；类型及分组手动维护。']}
+                         '本人对局己方固定A、敌方固定B；已关联结算382=胜、383=负，其他结果未知；类型及分组手动维护。',
+                         '回放/观战记录不计本人统计；采集场景由用户选择，并非协议自动识别。']}
 
     def validation_dataset(self):
         dataset=self.dataset()
         return {**dataset,'schema':'etheria-result-validation-v1',
                 'observations':[r for r in dataset['observations'] if r['kind']=='settlement'],
-                'notes':['己方固定A，敌方固定B；382=胜、383=负。',
+                'notes':['本人对局己方固定A，敌方固定B；382=胜、383=负。回放/观战不计本人结果。',
                          '自动结果要求精确关联；未知和冲突结算不计入胜率。']}
 
     def shell_catalogue(self, mappings):

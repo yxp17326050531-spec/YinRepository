@@ -27,7 +27,7 @@ from equipment import (project_gear, attribute_text, matches_gear, normalize_fil
                        normalize_sort, sort_gear, gear_sort_value)
 from inventory_widgets import GearFilterDialog
 
-VERSION='2.5.1'
+VERSION='2.6.0'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 KINDS=['未分类','BP排位','竞技场','练习/测试']
@@ -102,6 +102,7 @@ class MainWindow(QMainWindow):
         super().__init__(); self.archive=archive or Archive(); self.preferences=self.archive.settings()
         self.mappings=self.archive.mappings(load_mappings()); self.events=queue.Queue()
         self.job=None; self.token=0; self.current_id=None; self.live_id=None; self.browsing=False
+        self.live_time=None; self.capture_diagnostics=self.preferences.get('last_capture_diagnostics',{})
         self.latest=None; self.unsaved_battle=None; self.storage_failed=False; self.inventory_rows=[]; self.history_offset=0; self.history_ids=[]
         saved=self.archive.latest_inventory(); self.bag_snapshot=saved['data'] if saved else None
         self.gear_filters=normalize_filters(self.preferences.get('gear_filters',{}))
@@ -157,11 +158,23 @@ class MainWindow(QMainWindow):
     def build_battle(self):
         layout=self.page(); bar=QHBoxLayout(); self.battle_info=label('等待进入战斗 · 可导入历史抓包','hint'); bar.addWidget(self.battle_info,1)
         bar.addWidget(self.action('返回最新',self.return_live)); bar.addWidget(self.action('对局分类',self.edit_context)); bar.addWidget(self.action('导出本场',self.export_battle)); layout.addLayout(bar)
+        nav=QHBoxLayout(); self.previous_battle=self.action('上一场 · 较早',lambda:self.step_battle(1)); nav.addWidget(self.previous_battle)
+        self.next_battle=self.action('下一场 · 较新',lambda:self.step_battle(-1)); nav.addWidget(self.next_battle)
+        self.battle_jump=QComboBox(); self.battle_jump.setMinimumContentsLength(18); self.battle_jump.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.battle_jump.currentIndexChanged.connect(self.jump_battle); nav.addWidget(self.battle_jump,1)
+        self.battle_position=label('','hint'); nav.addWidget(self.battle_position)
+        nav.addWidget(self.action('返回历史日志',self.back_to_history)); layout.addLayout(nav)
+        self.record_info=label('','hint'); layout.addWidget(self.record_info)
+        diagnostic=QHBoxLayout(); self.capture_info=label('尚未开始本次采集','hint'); diagnostic.addWidget(self.capture_info,1)
+        diagnostic.addWidget(self.action('读取诊断',self.show_capture_diagnostics)); layout.addLayout(diagnostic)
+        QShortcut(QKeySequence('Alt+Left'),self,activated=lambda:self.step_battle(1) if self.stack.currentIndex()==0 else None)
+        QShortcut(QKeySequence('Alt+Right'),self,activated=lambda:self.step_battle(-1) if self.stack.currentIndex()==0 else None)
         scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.Shape.NoFrame); layout.addWidget(scroll,1)
         content=QWidget(); body=QVBoxLayout(content); body.setContentsMargins(0,0,0,0); body.setSpacing(14); scroll.setWidget(content)
-        teams=QBoxLayout(QBoxLayout.Direction.LeftToRight); self.teams_layout=teams; teams.setSpacing(14); self.team_layouts={}
+        teams=QBoxLayout(QBoxLayout.Direction.LeftToRight); self.teams_layout=teams; teams.setSpacing(14); self.team_layouts={}; self.team_titles={}
         for team in ['A','B']:
             card,c=self.card(); title=label('⚔  己方队伍' if team=='A' else '⚔  敌方队伍','ownTeam' if team=='A' else 'enemyTeam'); c.addWidget(title)
+            self.team_titles[team]=title
             roster=QVBoxLayout(); roster.setSpacing(0); c.addLayout(roster); self.team_layouts[team]=roster; teams.addWidget(card,1)
         body.addLayout(teams)
         row=QBoxLayout(QBoxLayout.Direction.LeftToRight); self.dash_layout=row; self.dash_tables=[]
@@ -176,18 +189,25 @@ class MainWindow(QMainWindow):
             if item.widget():item.widget().hide(); item.widget().deleteLater()
     def render_battle(self):
         self.latest=None
+        self.record_info.setText('')
         if self.current_id and not self.archive.is_deleted(self.current_id):
             record=self.archive.get(self.current_id); self.latest=copy.deepcopy(record['original']); self.latest['status']=record['status']
+            self.latest['tracking']=record.get('tracking') or self.latest.get('tracking')
             for team,units in self.latest['teams'].items():
                 for i,u in enumerate(units):
                     key=unit_key(team,i,u); units[i]=project_unit(u,self.mappings,record['annotations'].get(key)); units[i]['annotation_key']=key
             ctx=self.archive.context(self.current_id)
-            self.battle_info.setText(f"{'历史查看' if self.browsing else '最新对局'} · {stamp(self.latest.get('capture_time'))} · {ctx['sample_kind']} · {next(k for k,v in RESULTS.items() if v==ctx['winner'])} · 己方视角")
+            replay=self.latest.get('capture_context')=='replay'
+            self.battle_info.setText(f"{'历史查看' if self.browsing else '最新对局'} · {stamp(self.latest.get('capture_time'))} · {ctx['sample_kind']} · {next(k for k,v in RESULTS.items() if v==ctx['winner'])} · {'回放/观战' if replay else '己方视角'}")
+            self.record_info.setText(('回放记录 · 不计本人战绩 · ' if replay else '')+record['status'])
         elif self.unsaved_battle:
             self.latest=copy.deepcopy(self.unsaved_battle)
             self.battle_info.setText('自动保存失败 · 当前数据仍可导出，请检查磁盘和运行日志')
         else:self.current_id=None; self.battle_info.setText('等待进入战斗 · 可导入历史抓包')
+        self.refresh_battle_navigation()
         for team,layout in self.team_layouts.items():
+            replay=bool(self.latest and self.latest.get('capture_context')=='replay')
+            self.team_titles[team].setText(('记录 A 方' if team=='A' else '记录 B 方') if replay else ('⚔  己方队伍' if team=='A' else '⚔  敌方队伍'))
             self.clear_layout(layout)
             units=self.latest['teams'].get(team,[]) if self.latest else []
             if not units:layout.addWidget(label('暂无角色数据\n开始监听后，进入战斗将自动更新。','hint'))
@@ -209,6 +229,60 @@ class MainWindow(QMainWindow):
                     metric=label(shown,'speed' if key=='speed' else 'statValue'); metric.setFixedWidth(width); c.addWidget(metric)
                 equipment=QWidget(); eq=QVBoxLayout(equipment); eq.setContentsMargins(0,0,0,0); eq.setSpacing(6)
                 eq.addWidget(label(shell_text(unit),'shell')); eq.addWidget(label(matrix_text(unit),'hint')); c.addWidget(equipment,1); layout.addWidget(card)
+    def refresh_battle_navigation(self):
+        rows=self.archive.history_directory(); self.battle_navigation=[r['id'] for r in rows]
+        self.battle_jump.blockSignals(True); self.battle_jump.clear(); self.battle_jump.setPlaceholderText('选择已保存对局')
+        results={'A':'胜利','B':'失败','unknown':'结果未知'}
+        for row in rows:
+            text=f"{stamp(row['capture_time'])} · {results.get(row['winner'],'结果未知')} · {row['source']}"
+            self.battle_jump.addItem(text,row['id'])
+        index=self.battle_jump.findData(self.current_id); self.battle_jump.setCurrentIndex(index); self.battle_jump.blockSignals(False)
+        self.previous_battle.setEnabled(index>=0 and index<len(rows)-1)
+        self.next_battle.setEnabled(index>0)
+        self.battle_position.setText(f'第 {len(rows)-index} / {len(rows)} 场' if index>=0 else f'共 {len(rows)} 场')
+
+    def browse_battle(self, bid):
+        if bid and not self.archive.is_deleted(bid):
+            self.current_id=bid; self.browsing=True; self.render_battle(); self.navigate(0)
+
+    def step_battle(self, direction):
+        # Refresh to skip records removed since this view was opened.
+        ids=[r['id'] for r in self.archive.history_directory()]
+        if self.current_id not in ids:return
+        index=ids.index(self.current_id)+direction
+        if 0<=index<len(ids):self.browse_battle(ids[index])
+
+    def jump_battle(self):
+        bid=self.battle_jump.currentData()
+        if bid and bid!=self.current_id:self.browse_battle(bid)
+
+    def back_to_history(self):
+        ids=[r['id'] for r in self.archive.history_directory()]
+        if self.current_id in ids:self.history_offset=(ids.index(self.current_id)//100)*100
+        self.navigate(3)
+        if self.current_id in self.history_ids:
+            row=self.history_ids.index(self.current_id); self.history_table.selectRow(row)
+            self.history_table.scrollToItem(self.history_table.item(row,0))
+
+    def show_capture_diagnostics(self):
+        if not self.capture_diagnostics:self.notify('先开始监听或导入抓包，再查看读取诊断'); return
+        d=Editor(self,'读取诊断 · 消息统计与阵容候选'); d.resize(800,650); d.save.hide()
+        d.form.addRow(label('未知消息只保存编号和数量；阵容候选尚未确认消息含义，不计入战绩。','hint'))
+        text=QPlainTextEdit(json.dumps(self.capture_diagnostics,ensure_ascii=False,indent=2)); text.setReadOnly(True); text.setMinimumHeight(380); d.form.addRow(text)
+        d.actions.insertWidget(1,self.action('导出读取诊断',lambda:self.write_json(self.capture_diagnostics,'etheria_capture_diagnostics.json'))); d.exec()
+
+    def render_capture_diagnostics(self, data):
+        self.capture_diagnostics=data; counts=data.get('counts',{}); context='回放/观战' if data.get('capture_context')=='replay' else '本人对局'
+        prefix=f"{context} · 游戏下行 {counts.get('game_packets',0)} 分组 · {counts.get('messages',0)} 消息 · {counts.get('battles',0)} 场开场"
+        if counts.get('invalid_openings'):reason=f"开场解析失败 {counts['invalid_openings']} 次，请导出诊断并保留本地抓包"
+        elif data.get('lineup_candidates'):reason=f"发现 {len(data['lineup_candidates'])} 条阵容候选，请查看读取诊断"
+        elif counts.get('battles'):reason=f"已关联结算 {counts.get('linked_settlements',0)} 次 · 未关联 {counts.get('unlinked_settlements',0)+counts.get('ambiguous_settlements',0)} 次"
+        elif counts.get('messages'):reason='已收到游戏消息，尚未识别开场；请在进入对局/回放之前开始监听'
+        elif counts.get('game_packets') and counts.get('framing_discarded_bytes'):
+            reason='已收到指定端口下行数据，但消息边界未同步；请查看诊断并保留抓包'
+        else:reason='尚未识别游戏消息，请检查网卡、端口与开始监听的时间'
+        self.capture_info.setText(prefix+' · '+reason)
+
     def edit_hero(self,u):
         d=Editor(self,f"角色编号 {u['hero_id']} · 名称映射"); entry=QLineEdit(u['hero_name']); d.form.addRow('名称',entry)
         d.form.addRow(label('只修改这个精确编号；皮肤编号独立保存，历史显示同步更新。','hint'))
@@ -397,7 +471,7 @@ class MainWindow(QMainWindow):
     def selected_ids(self):return [self.history_ids[i.row()] for i in self.history_table.selectionModel().selectedRows() if i.row()<len(self.history_ids)]
     def open_history(self):
         ids=self.selected_ids()
-        if ids:self.current_id=ids[0]; self.browsing=True; self.render_battle(); self.navigate(0)
+        if ids:self.browse_battle(ids[0])
     def context_selected(self):
         ids=self.selected_ids()
         if ids:self.edit_context(ids[0])
@@ -451,6 +525,9 @@ class MainWindow(QMainWindow):
         try:self.port.setValue(int(self.preferences.get('port',20001)))
         except (ValueError,TypeError):self.port.setValue(20001)
         form.addRow('游戏端口',self.port); self.topmost=QCheckBox('窗口置顶'); self.topmost.setChecked(bool(self.preferences.get('topmost',False))); form.addRow(self.topmost); self.topmost.toggled.connect(self.set_topmost)
+        self.capture_scene=QComboBox(); self.capture_scene.addItem('本人对局','live'); self.capture_scene.addItem('他人回放 / 观战（不计本人战绩）','replay')
+        self.capture_scene.setCurrentIndex(max(0,self.capture_scene.findData(self.preferences.get('capture_context','live')))); form.addRow('采集场景',self.capture_scene)
+        form.addRow(label('此项由你选择，不是协议自动识别。观看他人回放前选择回放场景，再开始监听。','hint'))
         c.addWidget(self.action('保存设置',self.save_preferences,True)); c.addWidget(label('使用已安装的 Wireshark / dumpcap 和 Npcap。网卡刷新在后台执行，抓包只在你点击开始后运行。','hint'))
         c.addWidget(label('此版本不附带驱动或第三方抓包程序；可继续使用原安装。额外素材与服务支出：0 元。','hint'))
         saved=self.preferences.get('interface_id')
@@ -460,7 +537,7 @@ class MainWindow(QMainWindow):
         path,_=QFileDialog.getOpenFileName(self,'选择 dumpcap',self.dumpcap.text(),'程序 (*.exe);;全部文件 (*)')
         if path:self.dumpcap.setText(path); self.refresh_interfaces()
     def save_preferences(self):
-        values={'dumpcap':self.dumpcap.text().strip(),'port':self.port.value(),'topmost':self.topmost.isChecked()}
+        values={'dumpcap':self.dumpcap.text().strip(),'port':self.port.value(),'topmost':self.topmost.isChecked(),'capture_context':self.capture_scene.currentData()}
         if self.interface.currentData():values.update(interface_id=self.interface.currentData(),interface_label=self.interface.currentText())
         self.archive.save_settings(values); self.preferences.update(values); self.notify('设置已保存')
     def refresh_interfaces(self):
@@ -482,8 +559,9 @@ class MainWindow(QMainWindow):
         self.start_job(dumpcap=self.dumpcap.text().strip(),interface=self.interface.currentData())
     def start_job(self,**kwargs):
         if self.job and self.job.thread.is_alive():return
-        self.save_preferences(); self.token+=1; token=self.token; self.browsing=False; self.current_id=None; self.live_id=None; self.unsaved_battle=None; self.storage_failed=False; self.render_battle()
-        self.job=CaptureJob(lambda k,d:self.events.put((token,k,d)),self.port.value(),self.mappings,self.archive)
+        self.save_preferences(); self.token+=1; token=self.token; self.browsing=False; self.current_id=None; self.live_id=None; self.live_time=None; self.unsaved_battle=None; self.storage_failed=False; self.render_battle()
+        self.capture_diagnostics={}; self.capture_info.setText('正在等待本次采集的数据…'); self.capture_scene.setEnabled(False)
+        self.job=CaptureJob(lambda k,d:self.events.put((token,k,d)),self.port.value(),self.mappings,self.archive,self.capture_scene.currentData())
         self.start_btn.setEnabled(False); self.import_btn.setEnabled(False); self.stop_btn.setEnabled(True); self.connection.setText('●  正在导入' if kwargs.get('path') else '●  正在监听'); self.navigate(0); self.job.start(**kwargs)
     def stop_capture(self):
         if self.job:self.job.stop(); self.connection.setText('●  正在停止')
@@ -505,22 +583,28 @@ class MainWindow(QMainWindow):
         elif kind=='battle':
             bid=data.get('archive_id')
             if bid and not self.archive.is_deleted(bid):
-                self.live_id=bid
-                if not self.browsing:self.current_id=bid; self.unsaved_battle=None; self.render_battle()
+                timestamp=data.get('capture_time') or 0
+                if self.live_time is None or timestamp>=self.live_time:
+                    self.live_id=bid; self.live_time=timestamp
+                    if not self.browsing:self.current_id=bid; self.unsaved_battle=None; self.render_battle()
+                if self.browsing and self.current_id==bid:self.render_battle()
+                elif self.browsing:self.refresh_battle_navigation()
                 self.refresh_history(); self.refresh_stats()
             elif not bid:
                 self.unsaved_battle=data
                 if not self.browsing:self.current_id=None; self.render_battle()
         elif kind=='inventory':self.inventory_rows=data; self.render_inventory()
         elif kind=='inventory_snapshot':self.bag_snapshot=data; self.inventory_rows=data.get('loadout_rows',self.inventory_rows); self.render_inventory()
+        elif kind=='diagnostics':self.render_capture_diagnostics(data)
         elif kind=='observation':
             if data.get('kind')=='settlement':
-                self.render_battle(); self.refresh_history(); self.refresh_stats(); self.notify('结算已自动同步')
+                self.render_battle(); self.refresh_history(); self.refresh_stats(); self.notify('结算已关联' if data.get('association_status','linked')=='linked' else '收到结算，但未计入本人结果；原因见读取诊断')
         elif kind=='counts':self.notify(f"分组 {data.get('packets',0)} · 游戏下行 {data.get('game_packets',0)} · 消息 {data.get('messages',0)} · 对局 {data.get('battles',0)}")
         elif kind=='storage_error':self.storage_failed=True; self.notify(str(data))
         elif kind=='warning':self.notify(str(data))
         elif kind=='error':QMessageBox.warning(self,'读取失败',str(data))
         elif kind=='done':
+            self.capture_scene.setEnabled(True)
             self.start_btn.setEnabled(True); self.import_btn.setEnabled(True); self.stop_btn.setEnabled(False); self.connection.setText('●  未监听'); self.refresh_all()
             self.notify('自动保存发生错误，请导出当前数据并查看日志' if self.storage_failed else '读取失败，已保存的数据保留，请查看日志' if data.get('failed') else '读取已结束，数据已保存')
     def refresh_all(self):self.render_battle(); self.render_inventory(); self.refresh_history(); self.render_mappings(); self.refresh_stats()

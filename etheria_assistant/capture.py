@@ -44,11 +44,11 @@ def matrix_text(unit):
 
 
 class CaptureJob:
-    def __init__(self, emit, port, mappings, archive=None):
+    def __init__(self, emit, port, mappings, archive=None, capture_context='live'):
         self.emit = emit
         self.archive = archive
         self.source = ''
-        self.engine = Engine(self.on_event, port, mappings)
+        self.engine = Engine(self.on_event, port, mappings,capture_context)
         self.stop_event = threading.Event()
         self.lock = threading.Lock()
         self.process = None
@@ -152,6 +152,10 @@ class CaptureJob:
                     if reader:
                         reader.join(timeout=1)
                     self.process.stderr.close()
+            self.engine.finish_capture('采集失败，尚未收到结算' if failed else '采集已停止，尚未收到结算')
+            if self.archive:
+                try:self.archive.save_settings({'last_capture_diagnostics':self.engine.diagnostics()})
+                except Exception as exc:self.emit('storage_error','诊断保存失败：'+str(exc))
             self.emit('done', {'stopped': self.stop_event.is_set(), 'offline': bool(path),
                                'failed': failed, 'counts': dict(self.engine.counts)})
             if self.archive:

@@ -11,6 +11,8 @@ def analyse(dataset, mappings, kinds=('BP排位',), dataset_group='', perspectiv
     opponents = defaultdict(Counter)
     matches, decided_matches, teams = 0, 0, 0
     for battle in dataset['battles']:
+        if battle['original'].get('capture_context')=='replay':
+            continue
         if battle['sample_kind'] not in kinds or (dataset_group and battle['dataset_group'] != dataset_group):
             continue
         own_team = 'A'  # User confirmed the local player is always team A.

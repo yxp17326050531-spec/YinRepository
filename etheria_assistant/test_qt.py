@@ -136,4 +136,47 @@ class QtTests(unittest.TestCase):
         self.window.gear_filters=normalize_filters({'subs':['16']});self.window.render_inventory()
         self.assertEqual([g['uid'] for g in self.window.gear_display],[1,4,2])
 
+    def test_continuous_history_navigation_skips_deleted_and_live_does_not_interrupt(self):
+        ids=[]
+        for i in range(4):
+            b=copy.deepcopy(self.battle);b['capture_time']+=i+1;ids.append(self.archive.save_battle(b,'navigation'))
+        self.archive.trash_battles([ids[1]])
+        self.window.browse_battle(ids[0]);self.window.step_battle(-1)
+        self.assertEqual(self.window.current_id,ids[2])
+        self.window.step_battle(1);self.assertEqual(self.window.current_id,ids[0])
+        index=self.window.battle_jump.findData(ids[3]);self.window.battle_jump.setCurrentIndex(index)
+        self.assertEqual(self.window.current_id,ids[3])
+        self.assertFalse(self.window.next_battle.isEnabled())
+        newer=copy.deepcopy(self.battle);newer['capture_time']+=20;newid=self.archive.save_battle(newer,'live')
+        self.window.handle_event('battle',dict(newer,archive_id=newid))
+        self.assertEqual(self.window.current_id,ids[3]);self.assertEqual(self.window.live_id,newid)
+        self.assertGreaterEqual(self.window.battle_jump.findData(newid),0)
+        self.assertTrue(self.window.next_battle.isEnabled())
+        self.window.return_live();self.assertEqual(self.window.current_id,newid)
+        self.window.step_battle(1);self.assertEqual(self.window.current_id,ids[3])
+        self.window.back_to_history();self.assertEqual(self.window.stack.currentIndex(),3)
+        self.assertIn(ids[3],self.window.selected_ids())
+
+    def test_navigation_crosses_history_page_boundary(self):
+        ids=[]
+        for i in range(103):
+            b=copy.deepcopy(self.battle);b['capture_time']+=i+1;ids.append(self.archive.save_battle(b,'pages'))
+        self.window.browse_battle(ids[1]);self.window.step_battle(1)
+        self.assertEqual(self.window.current_id,ids[0]);self.window.back_to_history()
+        self.assertEqual(self.window.history_offset,100);self.assertIn(ids[0],self.window.selected_ids())
+
+    def test_replay_capture_diagnostics_and_old_connection_event(self):
+        from capture import CaptureJob
+        events=[];job=CaptureJob(lambda k,d:events.append((k,d)),20001,load_mappings(),self.archive,'replay');job.source='replay'
+        job.engine.message(0x6003,battle_body(),2000000000)
+        for k,d in events:self.window.handle_event(k,d)
+        self.assertEqual(self.window.team_titles['A'].text(),'记录 A 方')
+        self.assertIn('不计本人战绩',self.window.record_info.text())
+        replay_id=self.window.current_id
+        old=copy.deepcopy(self.battle);old['capture_time']=100;oldid=self.archive.save_battle(old,'old')
+        self.window.handle_event('battle',dict(old,archive_id=oldid))
+        self.assertEqual(self.window.live_id,replay_id)
+        self.window.render_capture_diagnostics({'capture_context':'replay','counts':{'game_packets':10,'framing_discarded_bytes':20}})
+        self.assertIn('消息边界未同步',self.window.capture_info.text())
+
 if __name__=='__main__':unittest.main()

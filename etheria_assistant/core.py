@@ -11,6 +11,7 @@ import json
 import struct
 import time
 from pathlib import Path
+from battle_session import BattleSession
 
 MAX_BODY = 2 * 1024 * 1024
 MAX_BLOCK = 16 * 1024 * 1024
@@ -214,6 +215,22 @@ class Framer:
         self.buffer = bytearray()
         self.synced = False
         self.emit, self.warn = emit, warn
+        self.discarded_bytes = 0
+
+    @staticmethod
+    def lineup_anchor(body, complete):
+        # A different opcode may carry the same roster schema. Only a fully
+        # validated two-team payload can establish this unknown-message boundary.
+        if complete:
+            try:
+                decode_battle(body,{'heroes':{},'shell_effects':{},'shell_families':{},'matrix_effects':{}})
+                return True
+            except (ValueError,TypeError,KeyError,OverflowError):return False
+        if len(body)<3:return True  # Retain a short prefix until the next read.
+        if body[0]!=10:return False
+        try:_,pos=varint(body,1)
+        except ValueError:return len(body)<11
+        return pos==len(body) or body[pos] in (18,26)
 
     def feed(self, data, timestamp):
         self.buffer.extend(data)
@@ -222,7 +239,10 @@ class Framer:
             seq, op, size = struct.unpack_from('<III', self.buffer, pos)
             valid = op > 0 and size <= MAX_BODY
             if not self.synced:
-                valid = valid and op in self.ANCHORS
+                if valid and op not in self.ANCHORS:
+                    available=len(self.buffer)-pos-12
+                    valid = 0<size<=128*1024 and self.lineup_anchor(
+                        bytes(self.buffer[pos+12:pos+12+size]),available>=size)
                 # Heartbeats have a zero sequence in all observed samples.
                 if op in (1, 4):
                     valid = valid and seq == 0 and size == 0
@@ -231,6 +251,7 @@ class Framer:
             if not valid:
                 self.synced = False
                 pos += 1
+                self.discarded_bytes += 1
                 continue
             if len(self.buffer) - pos < 12 + size:
                 break
@@ -240,6 +261,7 @@ class Framer:
                     fields(body)
                 except ValueError:
                     pos += 1
+                    self.discarded_bytes += 1
                     continue
             self.synced = True
             self.emit(op, body, timestamp)
@@ -491,7 +513,7 @@ class Inventory:
 
 
 class Engine:
-    def __init__(self, emit, port=20001, mappings=None):
+    def __init__(self, emit, port=20001, mappings=None, capture_context='live'):
         self.emit, self.port = emit, port
         self.mappings = mappings or load_mappings()
         self.flows = collections.OrderedDict()
@@ -502,6 +524,42 @@ class Engine:
         self.inventory_observed = set()
         self.actor_aliases = {}
         self.active_battle = False
+        self.capture_context = 'replay' if capture_context=='replay' else 'live'
+        self.sessions = collections.OrderedDict()
+        self.connection_serial = 0
+        self.flow_connections = {}
+        self.opcodes, self.unknown_opcodes = collections.Counter(), collections.Counter()
+        self.candidates = []
+        self.last_timestamp = None
+
+    def session(self, connection):
+        if connection not in self.sessions:
+            self.sessions[connection] = BattleSession(connection,self.capture_context,self.session_event)
+            while len(self.sessions)>64:
+                _,old = self.sessions.popitem(last=False)
+                old.finish(self.last_timestamp,'连接记录超限，已结束旧会话')
+        return self.sessions[connection]
+
+    def session_event(self, kind, data):
+        if kind=='battle':
+            self.latest = data
+            self.active_battle = data['tracking']['association_eligible']
+        self.emit(kind,data)
+
+    def diagnostics(self):
+        return {'schema':'etheria-capture-diagnostics-v1','capture_context':self.capture_context,
+                'configured_port':self.port,'counts':dict(self.counts),
+                'inbound_opcodes':{hex(k):v for k,v in self.opcodes.items()},
+                'unhandled_opcodes':{hex(k):v for k,v in self.unknown_opcodes.items()},
+                'latest_tracking':self.latest.get('tracking') if self.latest else None,
+                'lineup_candidates':self.candidates,
+                'notes':['只统计指定TCP端口的游戏下行消息；端口改变、UDP或其他封装不在已知解析范围。',
+                         '未知消息仅统计编号和数量，不导出原始载荷、IP、MAC或账号凭据。',
+                         '未收到已知开场不等于服务器没有下发阵容；候选阵容不计入战绩。']}
+
+    def finish_capture(self, reason='采集结束，尚未收到结算'):
+        for session in list(self.sessions.values()):session.finish(self.last_timestamp,reason)
+        self.emit('diagnostics',self.diagnostics())
 
     def draft_observation(self, body, timestamp):
         r = record(body)
@@ -527,16 +585,16 @@ class Engine:
             self.last_warning = message
             self.emit('warning', message)
 
-    def message(self, op, body, timestamp):
+    def message(self, op, body, timestamp, connection='direct'):
         self.counts['messages'] += 1
+        self.last_timestamp = timestamp
+        if op in self.opcodes or len(self.opcodes)<512:self.opcodes[op] += 1
         try:
             if op == 0x6003:
+                session = self.session(connection)
                 battle = decode_battle(body, self.mappings)
-                battle['capture_time'] = timestamp
-                self.latest = battle
-                self.active_battle = True
-                self.counts['battles'] += 1
-                self.emit('battle', battle)
+                if session.start(battle,body,timestamp):self.counts['battles'] += 1
+                else:self.counts['duplicate_openings'] += 1
             elif op in (0x1122, 0x1129, 0x1132, 0x1133, 0x1134):
                 self.inventory.update(op, body)
                 self.emit('inventory', self.inventory.rows())
@@ -545,21 +603,27 @@ class Engine:
             elif op == 0x5fc1:
                 self.emit('observation', self.draft_observation(body, timestamp))
             elif op in (0x6001, 0x6002):
-                self.active_battle = False
-                if self.latest:
-                    self.latest = dict(self.latest, status='上一场数据；等待新对局')
-                    self.emit('battle', self.latest)
+                self.session(connection).boundary(timestamp)
             elif op == 0x6004:
-                self.emit('observation', {'schema':'etheria-settlement-observation-v1',
-                          'kind':'settlement', 'capture_time':timestamp,
-                          'body_hex':body.hex(), 'result_code':record(body).get(1),
-                          'winner':({382:'A',383:'B'}.get(record(body).get(1),'unknown') if self.latest and self.active_battle else 'unknown'),
-                          'battle_capture_time':self.latest.get('capture_time') if self.latest and self.active_battle else None})
-                self.active_battle = False
-                if self.latest:
-                    self.latest = dict(self.latest, status='对局结束（保留本场数据）')
-                    self.emit('battle', self.latest)
+                association = self.session(connection).settle(record(body).get(1),body,timestamp)
+                self.counts['settlements'] += 1
+                self.counts[association+'_settlements'] += 1
+            elif op not in (1,3,4):
+                if op in self.unknown_opcodes or len(self.unknown_opcodes)<512:self.unknown_opcodes[op] += 1
+                if len(self.candidates)<8 and len(body)<=128*1024:
+                    try:
+                        candidate = decode_battle(body,self.mappings)
+                    except (ValueError,TypeError,KeyError,OverflowError):
+                        candidate = None
+                    if candidate is not None:
+                        item = {'capture_time':timestamp,'opcode':hex(op),'connection_id':connection,
+                                'teams':candidate['teams'],'status':'结构符合开场，但消息含义未确认；不计入战绩'}
+                        self.candidates.append(item)
+                        self.emit('observation',{'kind':'lineup_candidate',**item})
         except (ValueError, TypeError, KeyError, OverflowError) as exc:
+            if op==0x6003:
+                self.counts['invalid_openings'] += 1
+                self.session(connection).invalidate(timestamp,'收到新开场但解析失败，停止关联旧场结算')
             self.warn(f'消息 {op:#x} 未能解析：{exc}')
 
     def packet(self, timestamp, link, data):
@@ -568,17 +632,32 @@ class Engine:
         if packet is None:
             return
         key, seq, flags, payload = packet
+        if key[3]==self.port and payload:self.counts['outbound_payload_packets'] += 1
         if key[1] != self.port:
             return
+        self.last_timestamp = timestamp
         self.counts['game_packets'] += 1
         if key not in self.flows or flags & 2:
-            self.flows[key] = TCPStream(self.message, self.warn)
+            if key in self.flow_connections:
+                self.session(self.flow_connections[key]).finish(timestamp,'连接重新建立，旧会话未闭合')
+            self.connection_serial += 1
+            connection = f'连接{self.connection_serial}'
+            self.flow_connections[key] = connection
+            self.flows[key] = TCPStream(lambda op,body,t,c=connection:self.message(op,body,t,c),
+                                       lambda message,c=connection:(self.session(c).invalidate(self.last_timestamp,'TCP数据缺口影响本场完整性'),self.warn(message)))
         self.flows.move_to_end(key)
         while len(self.flows) > 64:
-            self.flows.popitem(last=False)
+            oldkey,_ = self.flows.popitem(last=False)
+            oldconnection = self.flow_connections.pop(oldkey,None)
+            if oldconnection in self.sessions:self.sessions[oldconnection].finish(timestamp,'连接缓存超限')
+        framer=self.flows[key].framer; discarded=framer.discarded_bytes
         self.flows[key].feed(seq, flags, payload, timestamp)
+        current=self.flows[key].framer
+        self.counts['framing_discarded_bytes'] += current.discarded_bytes-discarded if current is framer else current.discarded_bytes
         if flags & 5:  # FIN/RST
+            self.session(self.flow_connections[key]).finish(timestamp,'连接关闭，尚未收到本场结算')
             self.flows.pop(key, None)
+            self.flow_connections.pop(key,None)
 
     def read(self, stream, stop=None):
         last_update = 0
@@ -589,11 +668,13 @@ class Engine:
             now = time.monotonic()
             if now - last_update > 0.5:
                 self.emit('counts', dict(self.counts))
+                self.emit('diagnostics',self.diagnostics())
                 last_update = now
         if not stop or not stop.is_set():
             if any(flow.pending or flow.framer.buffer for flow in self.flows.values()):
                 self.warn('抓包结尾有未完成的 TCP 数据或消息；已解析的完整消息保留')
         self.emit('counts', dict(self.counts))
+        self.finish_capture('采集已停止，尚未收到结算' if stop and stop.is_set() else '文件结束，尚未收到结算')
 
 
 if __name__ == '__main__':
