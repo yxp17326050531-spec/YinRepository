@@ -1,0 +1,87 @@
+"""Offscreen integration tests for real Qt widgets and persistence."""
+import copy
+import json
+import os
+os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+import tempfile
+import time
+import unittest
+from unittest.mock import patch
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QPlainTextEdit, QCheckBox
+from qt_app import MainWindow, Editor
+from core import decode_battle, load_mappings
+from storage import Archive
+from test_core import battle_body, pcapng, tcp, frame
+
+class QtTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):cls.app=QApplication.instance() or QApplication([])
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory(); self.archive=Archive(self.temp.name)
+        self.window=MainWindow(self.archive); self.window.navigate(0)
+        self.battle=decode_battle(battle_body(),load_mappings()); self.battle['capture_time']=1700000000.25
+        self.bid=self.archive.save_battle(self.battle,'Qt test'); self.window.current_id=self.bid; self.window.live_id=self.bid
+        self.window.refresh_all(); self.app.processEvents()
+    def tearDown(self):
+        self.window.close(); self.app.processEvents()
+        for h in self.archive.logger.handlers[:]:h.close(); self.archive.logger.removeHandler(h)
+        self.temp.cleanup()
+    def modal(self,operation):
+        def run():
+            d=QApplication.activeModalWidget()
+            self.assertIsInstance(d,Editor)
+            try:operation(d)
+            finally:
+                if d.isVisible():d.reject()
+        QTimer.singleShot(0,run)
+    def test_exact_name_save_and_scoped_manual_loadout(self):
+        u=self.window.latest['teams']['A'][0]; hid=u['hero_id']; original=copy.deepcopy(self.battle)
+        self.modal(lambda d:(d.findChild(QLineEdit).setText('我的皮肤名称'),d.commit()))
+        self.window.edit_hero(u)
+        self.assertEqual(self.window.latest['teams']['A'][0]['hero_name'],'我的皮肤名称')
+        self.assertEqual(self.archive.get(self.bid)['original'],original)
+        def edit(d):
+            d.findChild(QLineEdit).setText('伯爵')
+            checks=d.findChildren(QCheckBox); checks[0].setChecked(True)
+            d.findChildren(QPlainTextEdit)[0].setPlainText('狂怒,9\n洞悉穿刺,12'); d.commit()
+        self.modal(edit); self.window.edit_loadout(self.window.latest['teams']['A'][0])
+        annotation=list(self.archive.get(self.bid)['annotations'].values())[0]
+        self.assertEqual(annotation['shell'],'伯爵'); self.assertEqual(annotation['matrices'][0]['points'],9)
+        self.assertEqual(self.archive.get(self.bid)['original'],original)
+    def test_multiselect_delete_restore_and_late_event(self):
+        b=copy.deepcopy(self.battle); b['capture_time']+=1; second=self.archive.save_battle(b,'second')
+        self.window.refresh_history(); self.window.history_table.selectAll(); self.window.delete_history()
+        self.assertEqual(self.archive.history()[0],0); self.assertIsNone(self.window.latest)
+        self.window.handle_event('battle',dict(self.battle,archive_id=self.bid)); self.assertIsNone(self.window.latest)
+        self.window.restore_history(); self.assertEqual(self.archive.history()[0],2)
+        self.assertFalse(self.archive.is_deleted(second))
+    def test_worker_import_and_navigation_from_saved_archive(self):
+        path=os.path.join(self.temp.name,'sample.pcapng')
+        # Use the same packet fixtures as the parser regression tests.
+        with open(path,'wb') as f:f.write(pcapng(tcp(frame(0x6003,battle_body()),1000)))
+        self.window.start_job(path=path)
+        deadline=time.monotonic()+4
+        while (self.window.job.thread.is_alive() or not self.window.events.empty()) and time.monotonic()<deadline:
+            self.app.processEvents(); self.window.poll(); time.sleep(.01)
+        self.assertFalse(self.window.job.thread.is_alive()); self.assertTrue(self.window.start_btn.isEnabled())
+        self.assertIsNotNone(self.window.current_id)
+        for i in range(6):self.window.navigate(i); self.app.processEvents(); self.assertEqual(self.window.stack.currentIndex(),i)
+    def test_storage_failure_keeps_current_exportable_and_warning(self):
+        self.window.current_id=None
+        self.window.handle_event('storage_error','disk full')
+        self.window.handle_event('battle',self.battle)
+        self.assertEqual(self.window.latest['teams'],self.battle['teams'])
+        self.window.handle_event('done',{'failed':False})
+        self.assertIn('自动保存发生错误',self.window.statusBar().currentMessage())
+        self.assertIsNotNone(self.window.latest)
+
+    def test_skin_name_is_not_merged_and_stats_respect_context(self):
+        self.archive.set_context(self.bid,'A','竞技场','S1'); self.archive.set_opponent(self.bid,'B 队')
+        self.window.stats_kind.setCurrentText('竞技场'); self.window.stats_min.setValue(1); self.window.refresh_stats()
+        self.assertGreater(self.window.stat_tables[0].rowCount(),0)
+        self.window.stats_group.setText('other'); self.window.refresh_stats(); self.assertEqual(self.window.stat_tables[0].rowCount(),0)
+        self.archive.set_mapping('heroes',32101,'斐莫莉安'); self.window.mapping_changed()
+        self.assertEqual(self.window.hero_name(32101),'斐莫莉安'); self.assertEqual(self.window.hero_name(32102),load_mappings()['heroes'].get('32102','角色 #32102'))
+
+if __name__=='__main__':unittest.main()

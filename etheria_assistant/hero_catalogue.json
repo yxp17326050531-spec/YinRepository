@@ -1,0 +1,1644 @@
+{
+  "source": "https://website.xdcdn.net/form/website/bp_sim/heros.json",
+  "retrieved_date": "2026-10-19",
+  "exact_id_records": [
+    {
+      "id": 30051,
+      "i18n": {
+        "name": {
+          "en_US": "DokiDoki",
+          "ja_JP": "ドキ",
+          "ko_KR": "도키도키",
+          "zh_CN": "多琪",
+          "zh_TW": "多琪"
+        }
+      },
+      "avatar": null,
+      "type": 5,
+      "rare": 5
+    },
+    {
+      "id": 30101,
+      "i18n": {
+        "name": {
+          "en_US": "Helkid",
+          "ja_JP": "ヘルジッド",
+          "ko_KR": "헬키드",
+          "zh_CN": "赫尔基德",
+          "zh_TW": "赫爾基德"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 5
+    },
+    {
+      "id": 30151,
+      "i18n": {
+        "name": {
+          "en_US": "Massiah",
+          "ja_JP": "メシア",
+          "ko_KR": "메시아",
+          "zh_CN": "弥瑟亚",
+          "zh_TW": "彌瑟亞"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 5,
+      "rare": 5
+    },
+    {
+      "id": 30251,
+      "i18n": {
+        "name": {
+          "en_US": "Lilith",
+          "ja_JP": "リリス",
+          "ko_KR": "릴리스",
+          "zh_CN": "莉莉斯",
+          "zh_TW": "莉莉斯"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 3,
+      "rare": 5
+    },
+    {
+      "id": 30301,
+      "i18n": {
+        "name": {
+          "en_US": "Heinrich",
+          "ja_JP": "ハインリヒ",
+          "ko_KR": "하인리히",
+          "zh_CN": "海因里希",
+          "zh_TW": "海因里希"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 4,
+      "rare": 5
+    },
+    {
+      "id": 30351,
+      "i18n": {
+        "name": {
+          "en_US": "Xiada",
+          "ja_JP": "シャダ",
+          "ko_KR": "시아다",
+          "zh_CN": "夏妲",
+          "zh_TW": "夏妲"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 5
+    },
+    {
+      "id": 30401,
+      "i18n": {
+        "name": {
+          "en_US": "Lian",
+          "ja_JP": "煉",
+          "ko_KR": "리엔",
+          "zh_CN": "炼",
+          "zh_TW": "煉"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 5
+    },
+    {
+      "id": 30451,
+      "i18n": {
+        "name": {
+          "en_US": "Kloss",
+          "ja_JP": "クロス",
+          "ko_KR": "클로스",
+          "zh_CN": "克洛斯",
+          "zh_TW": "克洛斯"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 3,
+      "rare": 5
+    },
+    {
+      "id": 30501,
+      "i18n": {
+        "name": {
+          "en_US": "Tiamat",
+          "ja_JP": "ティアマト",
+          "ko_KR": "티아멧",
+          "zh_CN": "缇亚马特",
+          "zh_TW": "緹亞馬特"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 5
+    },
+    {
+      "id": 30601,
+      "i18n": {
+        "name": {
+          "en_US": "Rahu",
+          "ja_JP": "ラフ",
+          "ko_KR": "라후",
+          "zh_CN": "罗喉",
+          "zh_TW": "羅喉"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 3,
+      "rare": 5
+    },
+    {
+      "id": 30651,
+      "i18n": {
+        "name": {
+          "en_US": "Lily",
+          "ja_JP": "リリ",
+          "ko_KR": "릴리",
+          "zh_CN": "梨梨",
+          "zh_TW": "梨梨"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 4,
+      "rare": 5
+    },
+    {
+      "id": 30701,
+      "i18n": {
+        "name": {
+          "en_US": "Beyontin",
+          "ja_JP": "ヴィアティン",
+          "ko_KR": "비욘틴",
+          "zh_CN": "彼安汀",
+          "zh_TW": "彼安汀"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 5
+    },
+    {
+      "id": 30751,
+      "i18n": {
+        "name": {
+          "en_US": "Lingluo",
+          "ja_JP": "リョウラ",
+          "ko_KR": "링루오",
+          "zh_CN": "凌罗",
+          "zh_TW": "凌羅"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 5
+    },
+    {
+      "id": 30801,
+      "i18n": {
+        "name": {
+          "en_US": "Holden",
+          "ja_JP": "赫同",
+          "ko_KR": "홀든",
+          "zh_CN": "赫同",
+          "zh_TW": "赫同"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 5
+    },
+    {
+      "id": 30851,
+      "i18n": {
+        "name": {
+          "en_US": "Ninfoniel",
+          "ja_JP": "ニンフナ",
+          "ko_KR": "닝포니엘",
+          "zh_CN": "宁芙涅",
+          "zh_TW": "寧芙涅"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 5
+    },
+    {
+      "id": 30901,
+      "i18n": {
+        "name": {
+          "en_US": "Veronika",
+          "ja_JP": "ヴェロニカ",
+          "ko_KR": "베로니카",
+          "zh_CN": "维罗妮卡",
+          "zh_TW": "維羅妮卡"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 5
+    },
+    {
+      "id": 30951,
+      "i18n": {
+        "name": {
+          "en_US": "Liliam",
+          "ja_JP": "リラム",
+          "ko_KR": "릴리암",
+          "zh_CN": "莉拉姆",
+          "zh_TW": "莉拉姆"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 4,
+      "rare": 5
+    },
+    {
+      "id": 31001,
+      "i18n": {
+        "name": {
+          "en_US": "Rilmocha",
+          "ja_JP": "リルモカ",
+          "ko_KR": "릴모카",
+          "zh_CN": "莉露摩卡",
+          "zh_TW": "莉露摩卡"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 3,
+      "rare": 5
+    },
+    {
+      "id": 31051,
+      "i18n": {
+        "name": {
+          "en_US": "Celince",
+          "ja_JP": "シリンス",
+          "ko_KR": "셀린스",
+          "zh_CN": "席琳丝",
+          "zh_TW": "席琳絲"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 3,
+      "rare": 5
+    },
+    {
+      "id": 31101,
+      "i18n": {
+        "name": {
+          "en_US": "Hoyan",
+          "ja_JP": "赫妍",
+          "ko_KR": "호얀",
+          "zh_CN": "赫妍",
+          "zh_TW": "赫妍"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 3,
+      "rare": 5
+    },
+    {
+      "id": 31151,
+      "i18n": {
+        "name": {
+          "en_US": "Yeli",
+          "ja_JP": "ヨリ",
+          "ko_KR": "예리",
+          "zh_CN": "夜离",
+          "zh_TW": "夜離"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 5,
+      "rare": 5
+    },
+    {
+      "id": 31201,
+      "i18n": {
+        "name": {
+          "en_US": "Tsukiyo Mi",
+          "ja_JP": "月夜 見",
+          "ko_KR": "츠쿠요미",
+          "zh_CN": "月夜见",
+          "zh_TW": "月夜見"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 5
+    },
+    {
+      "id": 31251,
+      "i18n": {
+        "name": {
+          "en_US": "Freya",
+          "ja_JP": "フレイア",
+          "ko_KR": "프레야",
+          "zh_CN": "芙蕾雅",
+          "zh_TW": "芙蕾雅"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 3,
+      "rare": 5
+    },
+    {
+      "id": 31301,
+      "i18n": {
+        "name": {
+          "en_US": "Rosa",
+          "ja_JP": "ローザ",
+          "ko_KR": "로사",
+          "zh_CN": "荼蘼",
+          "zh_TW": "荼蘼"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 5
+    },
+    {
+      "id": 31351,
+      "i18n": {
+        "name": {
+          "en_US": "Mia",
+          "ja_JP": "ミア",
+          "ko_KR": "미아",
+          "zh_CN": "米娅",
+          "zh_TW": "米婭"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 5
+    },
+    {
+      "id": 31401,
+      "i18n": {
+        "name": {
+          "en_US": "Nahor",
+          "ja_JP": "ナホル",
+          "ko_KR": "나홀",
+          "zh_CN": "拿鹤",
+          "zh_TW": "拿鶴"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 5
+    },
+    {
+      "id": 31451,
+      "i18n": {
+        "name": {
+          "en_US": "Borgne",
+          "ja_JP": "ボルネ",
+          "ko_KR": "보그네",
+          "zh_CN": "博尔涅",
+          "zh_TW": "博爾涅"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 5
+    },
+    {
+      "id": 31501,
+      "i18n": {
+        "name": {
+          "en_US": "Fuqiu",
+          "ja_JP": "拂秋",
+          "ko_KR": "푸치우",
+          "zh_CN": "拂秋",
+          "zh_TW": "拂秋"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 3,
+      "rare": 5
+    },
+    {
+      "id": 31551,
+      "i18n": {
+        "name": {
+          "en_US": "Mio",
+          "ja_JP": "ミオ",
+          "ko_KR": "미오",
+          "zh_CN": "渺渺",
+          "zh_TW": "渺渺"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 5,
+      "rare": 5
+    },
+    {
+      "id": 31601,
+      "i18n": {
+        "name": {
+          "en_US": "Plume",
+          "ja_JP": "プリュム",
+          "ko_KR": "플룸",
+          "zh_CN": "逆翎",
+          "zh_TW": "逆翎"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 4,
+      "rare": 5
+    },
+    {
+      "id": 31651,
+      "i18n": {
+        "name": {
+          "en_US": "Kokardi",
+          "ja_JP": "クーカルディ",
+          "ko_KR": "코카르디",
+          "zh_CN": "柯卡尔迪",
+          "zh_TW": "柯卡爾迪"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 5
+    },
+    {
+      "id": 31701,
+      "i18n": {
+        "name": {
+          "en_US": "Nevette",
+          "ja_JP": "ネヴィーテ",
+          "ko_KR": "네베트",
+          "zh_CN": "奈薇忒",
+          "zh_TW": "奈薇忒"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 3,
+      "rare": 5
+    },
+    {
+      "id": 31751,
+      "i18n": {
+        "name": {
+          "en_US": "Batsby",
+          "ja_JP": "ベッツビー",
+          "ko_KR": "베즈비",
+          "zh_CN": "贝兹比",
+          "zh_TW": "貝茲比"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 5
+    },
+    {
+      "id": 31801,
+      "i18n": {
+        "name": {
+          "en_US": "Raymerry",
+          "ja_JP": "レイメリー",
+          "ko_KR": "레이메리",
+          "zh_CN": "瑞玛丽",
+          "zh_TW": "瑞瑪麗"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 5,
+      "rare": 5
+    },
+    {
+      "id": 31851,
+      "i18n": {
+        "name": {
+          "en_US": "Lowan",
+          "ja_JP": "ロアナ",
+          "ko_KR": "로완",
+          "zh_CN": "罗魍",
+          "zh_TW": "羅魍"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 4,
+      "rare": 5
+    },
+    {
+      "id": 31901,
+      "i18n": {
+        "name": {
+          "en_US": "Santik",
+          "ja_JP": "サンティック",
+          "ko_KR": "산티크",
+          "zh_CN": "桑提克",
+          "zh_TW": "桑提克"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 5
+    },
+    {
+      "id": 31951,
+      "i18n": {
+        "name": {
+          "en_US": "Airon",
+          "ja_JP": "アイロアン",
+          "ko_KR": "에이론",
+          "zh_CN": "艾罗安",
+          "zh_TW": "艾羅安"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 5
+    },
+    {
+      "id": 32001,
+      "i18n": {
+        "name": {
+          "en_US": "Palin",
+          "ja_JP": "ペイシス",
+          "ko_KR": "페일린",
+          "zh_CN": "佩希思",
+          "zh_TW": "佩希思"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 5
+    },
+    {
+      "id": 32051,
+      "i18n": {
+        "name": {
+          "en_US": "Kethos",
+          "ja_JP": "クロソス",
+          "ko_KR": "케토스",
+          "zh_CN": "克索司",
+          "zh_TW": "克索司"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 5
+    },
+    {
+      "id": 32101,
+      "i18n": {
+        "name": {
+          "en_US": "Fiamelia",
+          "ja_JP": "フェモリアン",
+          "ko_KR": "피아멜리아",
+          "zh_CN": "斐莫莉安",
+          "zh_TW": "斐莫莉安"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 5,
+      "rare": 5
+    },
+    {
+      "id": 32151,
+      "i18n": {
+        "name": {
+          "en_US": "Luvia",
+          "ja_JP": "ロヴェ",
+          "ko_KR": "루비아",
+          "zh_CN": "络薇",
+          "zh_TW": "絡薇"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 5
+    },
+    {
+      "id": 32201,
+      "i18n": {
+        "name": {
+          "en_US": "Gianc",
+          "ja_JP": "ジアンク",
+          "ko_KR": "지안크",
+          "zh_CN": "吉安克",
+          "zh_TW": "吉安克"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 5
+    },
+    {
+      "id": 32251,
+      "i18n": {
+        "name": {
+          "en_US": "Xuan Li",
+          "ja_JP": "玄驪",
+          "ko_KR": "셴리",
+          "zh_CN": "玄骊",
+          "zh_TW": "玄驪"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 4,
+      "rare": 5
+    },
+    {
+      "id": 32301,
+      "i18n": {
+        "name": {
+          "en_US": "Bornova",
+          "ja_JP": "ベノワ",
+          "ko_KR": "보르노바",
+          "zh_CN": "伯诺瓦",
+          "zh_TW": "伯諾瓦"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 3,
+      "rare": 5
+    },
+    {
+      "id": 32351,
+      "i18n": {
+        "name": {
+          "en_US": "Asal",
+          "ja_JP": "オサール",
+          "ko_KR": "아사르",
+          "zh_CN": "奥萨尔",
+          "zh_TW": "奧薩爾"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 3,
+      "rare": 5
+    },
+    {
+      "id": 32401,
+      "i18n": {
+        "name": {
+          "en_US": "Qano",
+          "ja_JP": "クイロ",
+          "ko_KR": "카노",
+          "zh_CN": "魁洛",
+          "zh_TW": "魁洛"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 5
+    },
+    {
+      "id": 32451,
+      "i18n": {
+        "name": {
+          "en_US": "Xuan Chi",
+          "ja_JP": "玄騏",
+          "ko_KR": "셴치",
+          "zh_CN": "玄骐",
+          "zh_TW": "玄騏"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 5,
+      "rare": 5
+    },
+    {
+      "id": 32501,
+      "i18n": {
+        "name": {
+          "en_US": "Sylvia",
+          "ja_JP": "シルヴィア",
+          "ko_KR": "실비아",
+          "zh_CN": "西尔维娅",
+          "zh_TW": "西爾婭"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 5
+    },
+    {
+      "id": 32551,
+      "i18n": {
+        "name": {
+          "en_US": "Nathenn",
+          "ja_JP": "ナハル",
+          "ko_KR": "네이선",
+          "zh_CN": "纳伽兰",
+          "zh_TW": "納伽蘭"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 3,
+      "rare": 5
+    },
+    {
+      "id": 40481,
+      "i18n": {
+        "name": {
+          "en_US": "Withered Shadow - Sania",
+          "ja_JP": "災禍の娘・サニア",
+          "ko_KR": "요괴 사니아",
+          "zh_CN": "孽女·善雅",
+          "zh_TW": "孽女·善雅"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 4,
+      "rare": 5
+    },
+    {
+      "id": 40516,
+      "i18n": {
+        "name": {
+          "en_US": "The Lumiwarden Diting",
+          "ja_JP": "光狩り・諦聴",
+          "ko_KR": "빛의 사냥꾼 디팅",
+          "zh_CN": "光狩谛听",
+          "zh_TW": "光狩諦聽"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 5
+    },
+    {
+      "id": 40571,
+      "i18n": {
+        "name": {
+          "en_US": "Khloros",
+          "ja_JP": "クロロス",
+          "ko_KR": "클로로스",
+          "zh_CN": "柯洛罗",
+          "zh_TW": "柯洛羅"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 5
+    },
+    {
+      "id": 40871,
+      "i18n": {
+        "name": {
+          "en_US": "Mizusumi Aya",
+          "ja_JP": "水澄綾",
+          "ko_KR": "미즈스미 아야",
+          "zh_CN": "水生绫",
+          "zh_TW": "水生綾"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 3,
+      "rare": 5
+    },
+    {
+      "id": 40901,
+      "i18n": {
+        "name": {
+          "en_US": "Senyu",
+          "ja_JP": "千羽",
+          "ko_KR": "센유",
+          "zh_CN": "千羽",
+          "zh_TW": "千羽"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 5
+    },
+    {
+      "id": 30201,
+      "i18n": {
+        "name": {
+          "en_US": "Oboro",
+          "ja_JP": "朧",
+          "ko_KR": "오보로",
+          "zh_CN": "胧",
+          "zh_TW": "朧"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 4
+    },
+    {
+      "id": 40127,
+      "i18n": {
+        "name": {
+          "en_US": "Victor",
+          "ja_JP": "ヴィクトル",
+          "ko_KR": "빅토르",
+          "zh_CN": "维克托",
+          "zh_TW": "維克托"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 4,
+      "rare": 4
+    },
+    {
+      "id": 40181,
+      "i18n": {
+        "name": {
+          "en_US": "Chiaki",
+          "ja_JP": "千明",
+          "ko_KR": "치아키",
+          "zh_CN": "千明",
+          "zh_TW": "千明"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 4
+    },
+    {
+      "id": 40186,
+      "i18n": {
+        "name": {
+          "en_US": "Chiaki the Echo",
+          "ja_JP": "幻音の千明",
+          "ko_KR": "환상의 멜로디 치아키",
+          "zh_CN": "幻音千明",
+          "zh_TW": "幻音千明"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 3,
+      "rare": 4
+    },
+    {
+      "id": 40301,
+      "i18n": {
+        "name": {
+          "en_US": "Tsutomu",
+          "ja_JP": "勉",
+          "ko_KR": "츠토무",
+          "zh_CN": "勉",
+          "zh_TW": "勉"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 3,
+      "rare": 4
+    },
+    {
+      "id": 40331,
+      "i18n": {
+        "name": {
+          "en_US": "RC-77",
+          "ja_JP": "RC-77",
+          "ko_KR": "RC-77",
+          "zh_CN": "RC-77",
+          "zh_TW": "RC-77"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 4
+    },
+    {
+      "id": 40391,
+      "i18n": {
+        "name": {
+          "en_US": "Kraken",
+          "ja_JP": "クラーケン",
+          "ko_KR": "크라켄",
+          "zh_CN": "克拉肯",
+          "zh_TW": "克拉肯"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 4
+    },
+    {
+      "id": 40421,
+      "i18n": {
+        "name": {
+          "en_US": "Yang",
+          "ja_JP": "ヤン",
+          "ko_KR": "양",
+          "zh_CN": "炀",
+          "zh_TW": "煬"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 4
+    },
+    {
+      "id": 40451,
+      "i18n": {
+        "name": {
+          "en_US": "Rin",
+          "ja_JP": "凛",
+          "ko_KR": "린",
+          "zh_CN": "阿凛",
+          "zh_TW": "阿凜"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 4
+    },
+    {
+      "id": 40456,
+      "i18n": {
+        "name": {
+          "en_US": "Rin the Unbowed",
+          "ja_JP": "修業・凛",
+          "ko_KR": "수련생 린",
+          "zh_CN": "砺行阿凛",
+          "zh_TW": "礪行阿凜"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 4
+    },
+    {
+      "id": 40491,
+      "i18n": {
+        "name": {
+          "en_US": "Sania",
+          "ja_JP": "サニア",
+          "ko_KR": "사니아",
+          "zh_CN": "善雅",
+          "zh_TW": "善雅"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 3,
+      "rare": 4
+    },
+    {
+      "id": 40511,
+      "i18n": {
+        "name": {
+          "en_US": "Diting",
+          "ja_JP": "諦聴",
+          "ko_KR": "디팅",
+          "zh_CN": "谛听",
+          "zh_TW": "諦聽"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 4,
+      "rare": 4
+    },
+    {
+      "id": 40541,
+      "i18n": {
+        "name": {
+          "en_US": "Dorothy",
+          "ja_JP": "ドロシー",
+          "ko_KR": "도로시",
+          "zh_CN": "多乐丝",
+          "zh_TW": "多樂絲"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 5,
+      "rare": 4
+    },
+    {
+      "id": 40546,
+      "i18n": {
+        "name": {
+          "en_US": "Dorothy the Wisher",
+          "ja_JP": "夢探しのドロシー",
+          "ko_KR": "꿈 이루미 도로시",
+          "zh_CN": "寻愿多乐丝",
+          "zh_TW": "尋願多樂絲"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 4
+    },
+    {
+      "id": 40601,
+      "i18n": {
+        "name": {
+          "en_US": "Gray",
+          "ja_JP": "グレイ",
+          "ko_KR": "그레이",
+          "zh_CN": "格雷",
+          "zh_TW": "格雷"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 3,
+      "rare": 4
+    },
+    {
+      "id": 40631,
+      "i18n": {
+        "name": {
+          "en_US": "Dinah",
+          "ja_JP": "ダイナ",
+          "ko_KR": "다이나",
+          "zh_CN": "黛纳",
+          "zh_TW": "黛納"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 4
+    },
+    {
+      "id": 40636,
+      "i18n": {
+        "name": {
+          "en_US": "Rimeheart Dinah",
+          "ja_JP": "凛心のダイナ",
+          "ko_KR": "차가운 심장 다이나",
+          "zh_CN": "凛心黛纳",
+          "zh_TW": "凜心黛納"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 4
+    },
+    {
+      "id": 40661,
+      "i18n": {
+        "name": {
+          "en_US": "Viper",
+          "ja_JP": "ヴァイパー",
+          "ko_KR": "바이퍼",
+          "zh_CN": "蝰蛇",
+          "zh_TW": "蝰蛇"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 4
+    },
+    {
+      "id": 40691,
+      "i18n": {
+        "name": {
+          "en_US": "Valerian",
+          "ja_JP": "ヴァレリアン",
+          "ko_KR": "발레리안",
+          "zh_CN": "缬草",
+          "zh_TW": "纈草"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 5,
+      "rare": 4
+    },
+    {
+      "id": 40721,
+      "i18n": {
+        "name": {
+          "en_US": "Marvell",
+          "ja_JP": "マーヴェル",
+          "ko_KR": "마벨",
+          "zh_CN": "马维尔",
+          "zh_TW": "馬維爾"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 5,
+      "rare": 4
+    },
+    {
+      "id": 40751,
+      "i18n": {
+        "name": {
+          "en_US": "Mizuki Makoto",
+          "ja_JP": "水月真",
+          "ko_KR": "미즈키 마코토",
+          "zh_CN": "水月真",
+          "zh_TW": "水月真"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 3,
+      "rare": 4
+    },
+    {
+      "id": 40781,
+      "i18n": {
+        "name": {
+          "en_US": "Hizuki Mari",
+          "ja_JP": "緋月まり",
+          "ko_KR": "히즈키 마리",
+          "zh_CN": "绯月鞠",
+          "zh_TW": "緋月鞠"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 4,
+      "rare": 4
+    },
+    {
+      "id": 40811,
+      "i18n": {
+        "name": {
+          "en_US": "Nell",
+          "ja_JP": "ネル",
+          "ko_KR": "넬",
+          "zh_CN": "妮璐",
+          "zh_TW": "妮璐"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 4,
+      "rare": 4
+    },
+    {
+      "id": 40841,
+      "i18n": {
+        "name": {
+          "en_US": "Sylph",
+          "ja_JP": "シルフ",
+          "ko_KR": "실프",
+          "zh_CN": "希尔芙",
+          "zh_TW": "希爾芙"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 4
+    },
+    {
+      "id": 46061,
+      "i18n": {
+        "name": {
+          "en_US": "Obol",
+          "ja_JP": "オボル",
+          "ko_KR": "오볼",
+          "zh_CN": "奥波尔",
+          "zh_TW": "奧波爾"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 4
+    },
+    {
+      "id": 46121,
+      "i18n": {
+        "name": {
+          "en_US": "Kazami Kazuyo",
+          "ja_JP": "風見一宵",
+          "ko_KR": "카자미 카즈요",
+          "zh_CN": "风见一宵",
+          "zh_TW": "風見一宵"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 4
+    },
+    {
+      "id": 46126,
+      "i18n": {
+        "name": {
+          "en_US": "Kazuyo the Reverie",
+          "ja_JP": "夢見る一宵",
+          "ko_KR": "몽상가 카즈요",
+          "zh_CN": "酣梦一宵",
+          "zh_TW": "酣夢一宵"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 3,
+      "rare": 4
+    },
+    {
+      "id": 46161,
+      "i18n": {
+        "name": {
+          "en_US": "Turandot",
+          "ja_JP": "トゥーランドット",
+          "ko_KR": "투란도트",
+          "zh_CN": "杜兰铎",
+          "zh_TW": "杜蘭鐸"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 4
+    },
+    {
+      "id": 46241,
+      "i18n": {
+        "name": {
+          "en_US": "Fangus",
+          "ja_JP": "ファンガス",
+          "ko_KR": "판구스",
+          "zh_CN": "方格斯",
+          "zh_TW": "方格斯"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 4
+    },
+    {
+      "id": 46306,
+      "i18n": {
+        "name": {
+          "en_US": "Cachi the Guard",
+          "ja_JP": "守りのカチ",
+          "ko_KR": "수호자 카츠",
+          "zh_CN": "戍守卡奇",
+          "zh_TW": "戍守卡奇"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 4,
+      "rare": 4
+    },
+    {
+      "id": 46001,
+      "i18n": {
+        "name": {
+          "en_US": "Andrew",
+          "ja_JP": "アンドリュー",
+          "ko_KR": "앤드류",
+          "zh_CN": "安德鲁",
+          "zh_TW": "安德魯"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 3
+    },
+    {
+      "id": 46006,
+      "i18n": {
+        "name": {
+          "en_US": "Andrew",
+          "ja_JP": "アンドリュー",
+          "ko_KR": "앤드류",
+          "zh_CN": "安德鲁",
+          "zh_TW": "安德魯"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 3
+    },
+    {
+      "id": 46081,
+      "i18n": {
+        "name": {
+          "en_US": "No. 41",
+          "ja_JP": "No.41",
+          "ko_KR": "No.41",
+          "zh_CN": "41号",
+          "zh_TW": "41號"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 5,
+      "rare": 3
+    },
+    {
+      "id": 46141,
+      "i18n": {
+        "name": {
+          "en_US": "Vice",
+          "ja_JP": "悪命",
+          "ko_KR": "바이스",
+          "zh_CN": "恶命",
+          "zh_TW": "惡命"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 5,
+      "rare": 3
+    },
+    {
+      "id": 46271,
+      "i18n": {
+        "name": {
+          "en_US": "Asshu",
+          "ja_JP": "アッシュ",
+          "ko_KR": "애쉬",
+          "zh_CN": "阿灰",
+          "zh_TW": "阿灰"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 3,
+      "rare": 3
+    },
+    {
+      "id": 46301,
+      "i18n": {
+        "name": {
+          "en_US": "Cachi",
+          "ja_JP": "カチ",
+          "ko_KR": "카츠",
+          "zh_CN": "卡奇",
+          "zh_TW": "卡奇"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 1,
+      "rare": 3
+    },
+    {
+      "id": 46331,
+      "i18n": {
+        "name": {
+          "en_US": "Sybil",
+          "ja_JP": "シビル",
+          "ko_KR": "시빌",
+          "zh_CN": "西比尔",
+          "zh_TW": "西比爾"
+        }
+      },
+      "avatar": {
+        "url": "",
+        "originalFormat": ""
+      },
+      "type": 2,
+      "rare": 3
+    }
+  ],
+  "notes": [
+    "仅按精确ID补名，既有已验证名称保留；不按尾数猜角色变体。"
+  ]
+}
