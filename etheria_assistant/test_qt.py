@@ -243,7 +243,7 @@ class QtTests(unittest.TestCase):
         self.window.navigate(2);self.window.inventory_tabs.setCurrentWidget(self.window.component_table)
         self.assertEqual(self.window.component_table.rowCount(),3)
         self.window.component_table.selectRow(1)
-        detail=json.loads(self.window.gear_details.toPlainText())
+        detail=json.loads(self.window.gear_details.toPlainText().split('原始记录：\n',1)[1])
         self.assertEqual(detail['uid'],42);self.assertEqual(detail['field3_raw'],0)
         self.window.gear_query.setText('90003')
         self.assertEqual(self.window.component_table.rowCount(),1)
@@ -252,5 +252,33 @@ class QtTests(unittest.TestCase):
         bid=self.archive.save_battle(b,'synthetic imprint');self.window.browse_battle(bid)
         self.window.show();self.app.processEvents()
         self.assertIn('刻影：屠夫',[w.text() for w in self.window.findChildren(QLabel) if w.isVisibleTo(self.window.stack.widget(0))])
+
+    def test_component_projection_search_detail_and_refresh_keeps_original(self):
+        raw={'uid':91,'config_id_raw':11048,'field3_raw':3,'field6_raw':1,
+             'attributes_raw':[(1240<<16)|(6<<8)|4,(430<<16)|(5<<8)|28]}
+        snapshot={'components':[raw], 'component_groups':[{'id_raw':3,'component_uids_raw':[0,0,0,91]}]}
+        before=copy.deepcopy(snapshot);self.window.bag_snapshot=snapshot
+        self.window.render_inventory();self.window.inventory_tabs.setCurrentWidget(self.window.component_table)
+        self.window.gear_query.setText('屠夫');self.assertEqual(self.window.component_table.rowCount(),1)
+        self.assertIn('迅影',self.window.component_table.item(0,1).text())
+        self.assertEqual(self.window.component_table.item(0,2).text(),'速度 +12.4')
+        self.window.component_table.selectRow(0);self.window.render_inventory()
+        text=self.window.gear_details.toPlainText()
+        self.assertIn('专属加成20%',text);self.assertIn('速度 +14.9',text);self.assertIn('速度 +5.2',text)
+        self.assertIn('已锁定',text);self.assertEqual(snapshot,before)
+        self.assertEqual(json.loads(text.split('原始记录：\n',1)[1]),raw)
+        self.window.gear_query.setText('不存在的元件');self.assertEqual(self.window.component_table.rowCount(),0)
+
+    def test_battle_details_shows_pending_raw_without_claiming_percent_semantics(self):
+        unit=copy.deepcopy(self.battle['teams']['B'][0])
+        raw=(1<<63)|(123<<8)|174;unit['attributes_raw']=[raw,171]
+        def inspect(dialog):
+            texts=[w.toPlainText() for w in dialog.findChildren(QPlainTextEdit)]
+            pending=next(text for text in texts if '对局字段对应关系待确认' in text)
+            self.assertIn(str(raw),pending);self.assertIn('#171',pending)
+            self.assertNotIn('12.3%',pending)
+            original=json.loads(next(text for text in texts if text.startswith('{')))
+            self.assertEqual(original['attributes_raw'],[raw,171])
+        self.modal(inspect);self.window.details(unit)
 
 if __name__=='__main__':unittest.main()

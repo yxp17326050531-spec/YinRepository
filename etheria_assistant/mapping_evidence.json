@@ -1161,5 +1161,75 @@
       "仅支持已观测登录快照，不承诺实时状态。",
       "不保存完整个人库存样本到代码仓库。"
     ]
+  },
+  "component_detail_observation": {
+    "source": "用户提供九件详情和一张装配对照图（20261019-074351至074621）",
+    "matched_detail_count": 9,
+    "matched_display_values": 36,
+    "confirmed_attribute_ids": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      9,
+      10,
+      11,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      22,
+      26,
+      27,
+      28,
+      29
+    ],
+    "confirmed_config_count": 9,
+    "confirmed_group_types": {
+      "1": "角斗士",
+      "3": "屠夫",
+      "4": "戍防官",
+      "8": "调音师"
+    },
+    "exclusive_bonus_percent": 20,
+    "exclusive_bonus_verified_types": [
+      1,
+      3,
+      4
+    ],
+    "field6_flag1_locked_samples": 2,
+    "field6_absent_unlocked_samples": 7,
+    "inventory_attribute_count": 206,
+    "decoded_attribute_count": 194,
+    "pending_attribute_ids": [
+      12,
+      23,
+      25
+    ],
+    "limitations": [
+      "不提交个人元件数组、UID清单或截图。",
+      "8..15位的元数据含义未知，显式零标志无截图对照。",
+      "元件字段与对局属性编号独立，需受控换装验证。"
+    ]
+  },
+  "battle_extra_attributes_observation": {
+    "source_file": "关于回放抓包数据.pcapng",
+    "opcode": "0x8421",
+    "unit_count": 8,
+    "attributes_per_unit": 59,
+    "unknown_attributes_per_unit": 51,
+    "both_sides_have_nonzero_unknown_values": true,
+    "pvp_damage_reduction_or_ignore_defense_tag_mapping": null,
+    "next_evidence": "同模式同角色同刻影，仅拆一件坚毅元件，前后各进入一场并连续抓包。",
+    "limitations": [
+      "不存整队属性或账户数据。",
+      "未知载荷及高位标记不命名，不将元件编号直接移用。"
+    ]
   }
 }

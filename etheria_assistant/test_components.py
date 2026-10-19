@@ -7,6 +7,7 @@ from core import Inventory, Engine, decode_battle, load_mappings
 from capture import CaptureJob, imprint_text
 from storage import Archive, project_unit
 from test_core import blob, scalar, vi, frame, tcp, pcapng, battle_body
+from components import decode_attribute, attribute_text, project_component, component_detail
 
 
 def component_message(uids=(41,42,43)):
@@ -20,6 +21,52 @@ def component_message(uids=(41,42,43)):
 
 
 class ComponentTests(unittest.TestCase):
+    def test_component_encoding_keeps_large_values_metadata_and_unknowns(self):
+        mappings=load_mappings()
+        # Synthetic HP is deliberately wider than 32 bits. Metadata is not a roll count.
+        raw=(345600<<16)|(9<<8)|2
+        attribute=decode_attribute(raw,mappings)
+        self.assertGreater(raw,2**32);self.assertEqual(attribute['metadata_raw'],9)
+        self.assertEqual(attribute_text(attribute),'生命 +3456')
+        self.assertEqual(attribute_text(decode_attribute((1270<<16)|4,mappings)),'速度 +12.7')
+        self.assertEqual(attribute_text(decode_attribute((460<<16)|28,mappings)),'速度 +4.6')
+        for tag in (14,29):
+            self.assertEqual(attribute_text(decode_attribute((123<<16)|tag,mappings)),'效果命中 +12.3%')
+        unknown=decode_attribute((321<<16)|250,mappings)
+        self.assertIsNone(unknown['value']);self.assertIn('待确认',attribute_text(unknown))
+
+    def test_exclusive_bonus_requires_matching_reference_and_keeps_two_speed_lines(self):
+        mappings=load_mappings()
+        item={'uid':21,'config_id_raw':11048,'field3_raw':3,'field6_raw':1,
+              'attributes_raw':[(1260<<16)|4,(420<<16)|28,(64<<16)|7]}
+        before=copy.deepcopy(item)
+        groups=[{'id_raw':3,'component_uids_raw':[0,0,0,21]}]
+        projected=project_component(item,groups,mappings)
+        self.assertEqual(projected['exclusive'],'屠夫');self.assertEqual(len(projected['attributes']),3)
+        self.assertTrue(projected['holders'][0]['bonus_active'])
+        text=component_detail(item,projected)
+        for part in ('速度 +12.6','速度 +4.2','速度 +15.1','速度 +5.0','首领增伤 +7.7%'):
+            self.assertIn(part,text)
+        self.assertEqual(item,before)
+        groups[0]['id_raw']=1
+        self.assertFalse(project_component(item,groups,mappings)['holders'][0]['bonus_active'])
+        self.assertEqual(project_component(item,[],mappings)['holders'],[])
+        # A matching unknown type does not silently enable the observed bonus.
+        item['field3_raw']=6;groups[0]['id_raw']=6
+        self.assertFalse(project_component(item,groups,mappings)['holders'][0]['bonus_active'])
+
+    def test_component_rounding_is_half_up_and_flags_stay_distinct(self):
+        mappings=load_mappings()
+        self.assertEqual(attribute_text(decode_attribute((195<<16)|1,mappings)),'攻击 +2')
+        self.assertEqual(attribute_text(decode_attribute((275<<16)|4,mappings)),'速度 +2.8')
+        item={'uid':1,'config_id_raw':99999,'attributes_raw':[]}
+        self.assertIn('待确认',project_component(item,[],mappings)['name'])
+        self.assertEqual(project_component(item,[],mappings)['lock'],'未见锁定标志')
+        item['field6_raw']=0
+        self.assertEqual(project_component(item,[],mappings)['lock'],'标志 0（待确认）')
+        item['field3_raw']=0
+        self.assertIn('#0',project_component(item,[],mappings)['exclusive'])
+
     def test_raw_records_keep_missing_distinct_from_zero_and_restore(self):
         inventory=Inventory(load_mappings());inventory.update(0x2961,component_message())
         snapshot=inventory.snapshot(100,[0x2961]);before=copy.deepcopy(snapshot)

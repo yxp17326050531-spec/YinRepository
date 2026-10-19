@@ -401,6 +401,7 @@ def decode_roster(inner, mappings):
         teams['A' if group == 2 else 'B'].append({
             'hero_id': hero, 'hero_name': mappings['heroes'].get(str(hero), f'角色 #{hero}'),
             'slot': f.get(2), 'stats': stats, 'percent_attributes_tentative': percents,
+            'attributes_raw': attrs,
             'shells': shells, 'matrix_effects_candidates': candidates,
             'imprints': mapped_imprints(effects,mappings),
             'effects_raw': effects, 'unknown_shell_effects': [e for e in effects if 38_000_000 <= e < 40_000_000 and not shell_effect_mapping(mappings,e)],
@@ -423,12 +424,6 @@ def decode_replay(body, mappings):
     rosters=[v for f,w,v in payload if f==2 and w==2]
     if len(rosters)!=1:raise ValueError('回放缺少唯一的阵容字段')
     battle=decode_roster(rosters[0],mappings)
-    positions={'A':0,'B':0}
-    for group,wire,unit in fields(rosters[0]):
-        if group not in (2,3) or wire!=2:continue
-        team='A' if group==2 else 'B'
-        battle['teams'][team][positions[team]]['attributes_raw']=packed(record(unit).get(4,b''))
-        positions[team]+=1
     extras=[{'field':f,'wire':w,'value':v.hex() if isinstance(v,bytes) else v}
             for f,w,v in payload if f in (3,4,5)]
     battle.update(capture_context='replay',source_opcode='0x8421',
@@ -582,7 +577,7 @@ class Inventory:
             extra={'components':[dict(v,attributes_raw=list(v['attributes_raw'])) for k,v in sorted(self.components.items())],
                    'component_groups':[dict(v,component_uids_raw=list(v['component_uids_raw'])) for k,v in sorted(self.component_groups.items())],
                    'components_capture_time':self.components_capture_time if self.components_capture_time is not None else timestamp,
-                   'component_status':'0x2961登录快照；按数量与装配引用定位，字段3/6及属性含义待详情对照，未接入实时变更'}
+                   'component_status':'0x2961登录快照；属性、专属与锁定按已对照样本投影，未知编号保留原值，未接入实时变更'}
         return {'schema': 'etheria-local-inventory-v1', 'capture_time': timestamp,
                 'observed_opcodes': sorted(observed), 'heroes': heroes,
                 'shells': shells, 'gear': gear, 'loadout_rows': self.rows(),

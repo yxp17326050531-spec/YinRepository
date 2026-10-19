@@ -1,5 +1,5 @@
 {
-  "version": "2.6.5",
+  "version": "2.6.6",
   "heroes": {
     "32601": "艾莉尔",
     "40692": "缬草",
@@ -420,5 +420,219 @@
   "matrix_confidence": {
     "3": "列表顺序推定",
     "21": "列表顺序推定"
+  },
+  "component_attributes": {
+    "1": {
+      "name": "攻击",
+      "divisor": 100,
+      "unit": "",
+      "digits": 0,
+      "confidence": "已对照样本"
+    },
+    "2": {
+      "name": "生命",
+      "divisor": 100,
+      "unit": "",
+      "digits": 0,
+      "confidence": "已对照样本"
+    },
+    "3": {
+      "name": "防御",
+      "divisor": 100,
+      "unit": "",
+      "digits": 0,
+      "confidence": "已对照样本"
+    },
+    "4": {
+      "name": "速度",
+      "divisor": 100,
+      "unit": "",
+      "digits": 1,
+      "confidence": "已对照样本"
+    },
+    "5": {
+      "name": "PVP增伤",
+      "divisor": 10,
+      "unit": "%",
+      "digits": 1,
+      "confidence": "已对照样本"
+    },
+    "6": {
+      "name": "PVP减伤",
+      "divisor": 10,
+      "unit": "%",
+      "digits": 1,
+      "confidence": "已对照样本"
+    },
+    "7": {
+      "name": "首领增伤",
+      "divisor": 10,
+      "unit": "%",
+      "digits": 1,
+      "confidence": "已对照样本"
+    },
+    "9": {
+      "name": "额外减伤",
+      "divisor": 10,
+      "unit": "%",
+      "digits": 1,
+      "confidence": "已对照样本"
+    },
+    "10": {
+      "name": "受护盾治疗效果",
+      "divisor": 10,
+      "unit": "%",
+      "digits": 1,
+      "confidence": "已对照样本"
+    },
+    "11": {
+      "name": "攻击加成",
+      "divisor": 10,
+      "unit": "%",
+      "digits": 1,
+      "confidence": "已对照样本"
+    },
+    "13": {
+      "name": "防御加成",
+      "divisor": 10,
+      "unit": "%",
+      "digits": 1,
+      "confidence": "已对照样本"
+    },
+    "14": {
+      "name": "效果命中",
+      "divisor": 10,
+      "unit": "%",
+      "digits": 1,
+      "confidence": "已对照样本"
+    },
+    "15": {
+      "name": "效果抵抗",
+      "divisor": 10,
+      "unit": "%",
+      "digits": 1,
+      "confidence": "已对照样本"
+    },
+    "16": {
+      "name": "暴击增伤",
+      "divisor": 10,
+      "unit": "%",
+      "digits": 1,
+      "confidence": "已对照样本"
+    },
+    "17": {
+      "name": "被暴击减伤",
+      "divisor": 10,
+      "unit": "%",
+      "digits": 1,
+      "confidence": "已对照样本"
+    },
+    "18": {
+      "name": "终极技能增伤",
+      "divisor": 10,
+      "unit": "%",
+      "digits": 1,
+      "confidence": "已对照样本"
+    },
+    "19": {
+      "name": "终极技能减伤",
+      "divisor": 10,
+      "unit": "%",
+      "digits": 1,
+      "confidence": "已对照样本"
+    },
+    "22": {
+      "name": "普攻增伤",
+      "divisor": 10,
+      "unit": "%",
+      "digits": 1,
+      "confidence": "已对照样本"
+    },
+    "26": {
+      "name": "无视防御",
+      "divisor": 10,
+      "unit": "%",
+      "digits": 1,
+      "confidence": "已对照样本"
+    },
+    "27": {
+      "name": "暴击伤害",
+      "divisor": 10,
+      "unit": "%",
+      "digits": 1,
+      "confidence": "已对照样本"
+    },
+    "28": {
+      "name": "速度",
+      "divisor": 100,
+      "unit": "",
+      "digits": 1,
+      "confidence": "已对照样本"
+    },
+    "29": {
+      "name": "效果命中",
+      "divisor": 10,
+      "unit": "%",
+      "digits": 1,
+      "confidence": "已对照样本"
+    }
+  },
+  "component_configs": {
+    "11033": {
+      "name": "强攻",
+      "rarity": "传说",
+      "confidence": "已对照样本"
+    },
+    "11034": {
+      "name": "追袭",
+      "rarity": "传说",
+      "confidence": "已对照样本"
+    },
+    "11035": {
+      "name": "精密",
+      "rarity": "传说",
+      "confidence": "已对照样本"
+    },
+    "11037": {
+      "name": "固锐",
+      "rarity": "传说",
+      "confidence": "已对照样本"
+    },
+    "11039": {
+      "name": "坚毅",
+      "rarity": "传说",
+      "confidence": "已对照样本"
+    },
+    "11048": {
+      "name": "迅影",
+      "rarity": "传说",
+      "confidence": "已对照样本"
+    },
+    "11046": {
+      "name": "启迪",
+      "rarity": "传说",
+      "confidence": "已对照样本"
+    },
+    "11043": {
+      "name": "晶刺",
+      "rarity": "传说",
+      "confidence": "已对照样本"
+    },
+    "11044": {
+      "name": "不屈",
+      "rarity": "传说",
+      "confidence": "已对照样本"
+    }
+  },
+  "component_imprints": {
+    "1": "角斗士",
+    "3": "屠夫",
+    "4": "戍防官",
+    "8": "调音师"
+  },
+  "component_exclusive_bonus": {
+    "1": 20,
+    "3": 20,
+    "4": 20
   }
 }

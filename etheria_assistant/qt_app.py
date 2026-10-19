@@ -26,8 +26,10 @@ from equipment import (project_gear, attribute_text, matches_gear, normalize_fil
                        filter_options, filter_summary, RARITIES, UNKNOWN, ATTRIBUTES,
                        normalize_sort, sort_gear, gear_sort_value)
 from inventory_widgets import GearFilterDialog
+from components import project_component, attribute_text as component_attribute_text, component_detail as component_detail_text
+from battle_attributes import pending_attributes, pending_text
 
-VERSION='2.6.5'
+VERSION='2.6.6'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 KINDS=['未分类','BP排位','竞技场','练习/测试']
@@ -243,6 +245,10 @@ class MainWindow(QMainWindow):
                 eq.addWidget(label('智壳 / 矩阵效果','attributeTitle'))
                 eq.addWidget(label(shell_text(unit),'shell')); eq.addWidget(label(matrix_text(unit),'hint'))
                 eq.addWidget(label(imprint_text(unit),'hint')); c.addWidget(equipment,1); layout.addWidget(card)
+                pending=pending_attributes(unit)
+                hint=label('增伤 / 减伤：待对照 · 点击详情','hint')
+                hint.setToolTip('对局属性原值未保存；可重新导入抓包。' if pending is None else f'已保留 {len(pending)} 项待对照属性；不以本号库存推算对手数据。')
+                eq.addWidget(hint)
     def refresh_battle_navigation(self):
         rows=self.archive.history_directory(); self.battle_navigation=[r['id'] for r in rows]
         self.battle_jump.blockSignals(True); self.battle_jump.clear(); self.battle_jump.setPlaceholderText('选择已保存对局')
@@ -318,7 +324,10 @@ class MainWindow(QMainWindow):
         def clear():self.archive.clear_annotation(bid,key); self.render_battle(); d.accept()
         d.on_save=save; d.actions.insertWidget(1,self.action('清除本场修正',clear)); d.exec()
     def details(self,u):
-        d=Editor(self,u['hero_name']+' · 原始数据'); d.save.hide(); text=QPlainTextEdit(json.dumps(u,ensure_ascii=False,indent=2)); text.setReadOnly(True); text.setMinimumHeight(240); d.form.addRow(text)
+        d=Editor(self,u['hero_name']+' · 原始数据'); d.save.hide()
+        pending=QPlainTextEdit(pending_text(u));pending.setReadOnly(True);pending.setMinimumHeight(140)
+        d.form.addRow('额外属性对照',pending)
+        text=QPlainTextEdit(json.dumps(u,ensure_ascii=False,indent=2)); text.setReadOnly(True); text.setMinimumHeight(240); d.form.addRow(text)
         candidates=shell_candidates(u,self.mappings)
         for effect in candidates:d.form.addRow(self.action(f'命名智壳效果 #{effect}',lambda e=effect:self.edit_mapping('shell_effects',str(e))))
         d.exec()
@@ -388,8 +397,8 @@ class MainWindow(QMainWindow):
         self.gear_filter_info=label('','hint'); layout.addWidget(self.gear_filter_info)
         tabs=QTabWidget(); self.inventory_tabs=tabs; self.gear_table=table(['源器编号','等级','排序数值','矩阵','点数','稀有度','初始副属性','主属性','副属性','装备关联']); self.loadout_table=table(['角色','精确编号','配装类型','智壳','矩阵'])
         tabs.addTab(self.gear_table,'源器背包'); tabs.addTab(self.loadout_table,'本号智壳与矩阵'); layout.addWidget(tabs,1)
-        self.component_table=table(['元件编号','配置编号（待对照）','属性项数','装配引用'])
-        tabs.addTab(self.component_table,'元件 · 原始数据')
+        self.component_table=table(['元件编号','名称 / 配置','基础主属性','基础副属性','专属刻影','装配引用','锁定标志'])
+        tabs.addTab(self.component_table,'元件背包')
         self.gear_details=QPlainTextEdit(); self.gear_details.setReadOnly(True); self.gear_details.setMaximumHeight(180); layout.addWidget(self.gear_details)
         self.gear_table.itemSelectionChanged.connect(self.gear_detail)
         self.component_table.itemSelectionChanged.connect(self.component_detail)
@@ -460,14 +469,16 @@ class MainWindow(QMainWindow):
         fill(self.loadout_table,loads)
         old_component_row=self.component_table.currentRow()
         selected_component=self.component_display[old_component_row]['uid'] if hasattr(self,'component_display') and 0<=old_component_row<len(self.component_display) else None
-        references={}
-        for group in snap.get('component_groups',[]):
-            for slot,uid in enumerate(group.get('component_uids_raw',[]),1):
-                if uid:references.setdefault(uid,[]).append(f"分组{group['id_raw']} · 槽{slot}")
         component_rows=[];self.component_display=[]
         for item in snap.get('components',[]):
-            values=[item['uid'],item.get('config_id_raw','—'),len(item.get('attributes_raw',[])),
-                    ' / '.join(references.get(item['uid'],[])) or '无已观测引用']
+            projection=project_component(item,snap.get('component_groups',[]),self.mappings)
+            attributes=projection['attributes']
+            values=[item['uid'],f"{projection['name']} / {item.get('config_id_raw','—')}",
+                    component_attribute_text(attributes[0]) if attributes else '未知',
+                    ' / '.join(component_attribute_text(a) for a in attributes[1:]) or '未知',
+                    projection['exclusive'],
+                    ' / '.join(f"{h['name']} · 槽{h['slot']}"+(' · 专属+20%' if h['bonus_active'] else '') for h in projection['holders']) or '无已观测引用',
+                    projection['lock']]
             if query and query not in ' '.join(map(str,values)).lower():continue
             component_rows.append(values);self.component_display.append(item)
         self.component_table.blockSignals(True);fill(self.component_table,component_rows)
@@ -485,8 +496,10 @@ class MainWindow(QMainWindow):
     def component_detail(self):
         row=self.component_table.currentRow()
         if not hasattr(self,'component_display') or not 0<=row<len(self.component_display):
-            self.gear_details.setPlainText('元件仅记录登录快照。选择元件查看原值；属性名称、字段3/6及装配分组类型尚待对照，源器分类和属性排序不作用于元件。');return
-        self.gear_details.setPlainText(json.dumps(self.component_display[row],ensure_ascii=False,indent=2))
+            self.gear_details.setPlainText('元件仅记录登录快照。表格显示基础值，选择元件查看对应刻影装配后的数值与原始记录；未知编号保留待确认。源器分类和属性排序不作用于元件。');return
+        item=self.component_display[row]
+        projection=project_component(item,(self.bag_snapshot or {}).get('component_groups',[]),self.mappings)
+        self.gear_details.setPlainText(component_detail_text(item,projection))
     def gear_detail(self):
         row=self.gear_table.currentRow()
         if 0<=row<len(self.gear_display):
