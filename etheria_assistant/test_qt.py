@@ -69,6 +69,7 @@ class QtTests(unittest.TestCase):
         events=[];job=CaptureJob(lambda k,d:events.append((k,d)),20001,load_mappings(),self.archive)
         bid=round_start(job,2000000000)
         job.engine.message(0x6004,scalar(1,383)+scalar(6,17),2000000010,'one')
+        self.archive.set_review(bid,'B')
         for kind,data in events:self.window.handle_event(kind,data)
         def edit(d):
             d.findChildren(QComboBox)[0].setCurrentText('B 方是我')
@@ -83,8 +84,35 @@ class QtTests(unittest.TestCase):
         self.assertIn('己方待确认',self.window.battle_info.text())
         self.archive.set_classification(bid,'回放/观战');self.window.refresh_all()
         self.assertIn('不计本人战绩',self.window.battle_info.text())
-        self.assertEqual(self.window.team_titles['B'].text(),'记录 B 方')
+        self.assertTrue(self.window.team_titles['B'].text().startswith('记录 B 方'))
         self.window.clear_player_identity();self.assertIsNone(self.archive.settings()['own_player_key'])
+
+    def test_small_portraits_matrix_colors_and_readable_metrics(self):
+        from artwork import portrait,matrix_color
+        self.assertFalse(portrait('heroes','瑞玛丽',48).isNull())
+        self.assertFalse(portrait('shells','琥珀',32).isNull())
+        for name in ('浴血之躯','不屈之誓','荆棘','奋进','时光驾驭','涌泉'):
+            self.assertFalse(portrait('matrices',name,24).isNull())
+        self.assertEqual(matrix_color('浴血之躯'),'#ff6475');self.assertEqual(matrix_color('不屈之誓'),'#ff6475')
+        self.assertEqual(matrix_color('荆棘'),'#ffd34e');self.assertEqual(matrix_color('时光驾驭'),'#6fb8ff')
+        self.assertEqual(matrix_color('涌泉'),'#8de56d')
+        self.window.show();self.app.processEvents()
+        metrics=[w for w in self.window.findChildren(QLabel) if w.objectName()=='statValue']
+        self.assertTrue(all(w.font().pixelSize()>=18 for w in metrics))
+
+    def test_review_dialog_sets_b_win_nicknames_and_own_replay_classification(self):
+        from core import decode_replay
+        from test_replay import replay_body
+        b=decode_replay(replay_body(),load_mappings());b['capture_time']=2000000000
+        bid=self.archive.save_battle(b,'synthetic replay');self.window.browse_battle(bid)
+        def edit(d):
+            own=next(c for c in d.findChildren(QCheckBox) if '计入所选分类' in c.text());own.setChecked(True)
+            boxes=d.findChildren(QComboBox);boxes[0].setCurrentText('B 方是我');boxes[1].setCurrentText('BP排位');boxes[2].setCurrentText('B 方获胜')
+            lines=d.findChildren(QLineEdit);lines[-1].setText('SyntheticLocal');d.commit()
+        self.modal(edit);self.window.edit_context(bid)
+        self.assertIn('胜利',self.window.battle_info.text());self.assertIn('己方',self.window.team_titles['B'].text())
+        self.assertIn('SyntheticLocal',self.window.team_titles['B'].text())
+        self.assertEqual(self.archive.context(bid)['sample_kind'],'BP排位')
 
     def test_exact_name_save_and_scoped_manual_loadout(self):
         u=self.window.latest['teams']['A'][0]; hid=u['hero_id']; original=copy.deepcopy(self.battle)
@@ -274,13 +302,15 @@ class QtTests(unittest.TestCase):
         def displayed():
             self.app.processEvents()
             return [w.text() for w in self.window.findChildren(QLabel) if w.isVisibleTo(self.window.stack.widget(0))]
-        self.assertIn('奋进 效果 · 档位待确认（已对照）',displayed())
+        self.assertTrue(any('奋进' in t and '档位待确认' in t for t in displayed()))
+        self.assertTrue(any('已对照' in w.toolTip() for w in self.window.findChildren(QLabel) if w.accessibleName()=='矩阵 奋进'))
         def save_unknown(d):
             points=d.findChild(QSpinBox);self.assertEqual(points.value(),0)
             self.assertEqual(points.text(),'待确认');d.commit()
         self.modal(save_unknown);self.window.edit_mapping('matrix_effects','1121')
         self.assertIsNone(self.archive.mappings(load_mappings())['matrix_effects']['1121']['threshold'])
-        self.assertIn('奋进 效果 · 档位待确认（用户映射）',displayed())
+        self.assertTrue(any('奋进' in t and '档位待确认' in t for t in displayed()))
+        self.assertTrue(any('用户映射' in w.toolTip() for w in self.window.findChildren(QLabel) if w.accessibleName()=='矩阵 奋进'))
         self.assertEqual(self.archive.get(bid)['original'],b)
 
     def test_component_tab_and_imprint_placeholder_keep_raw_values(self):

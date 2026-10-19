@@ -98,7 +98,8 @@ class DataTests(unittest.TestCase):
         engine.message(0x6004,scalar(1,382),120)
         linked=[d for kind,d in events if kind=='observation'][-1]
         self.assertEqual(linked['battle_capture_time'],110)
-        self.assertEqual(linked['winner'],'A')
+        self.assertEqual(linked['winner'],'unknown')
+        self.assertEqual(linked['settlement_candidate'],'A')
         engine.message(0x6002,b'',130)
         engine.message(0x6004,b'',140)
         self.assertIsNone([d for kind,d in events if kind=='observation'][-1]['battle_capture_time'])

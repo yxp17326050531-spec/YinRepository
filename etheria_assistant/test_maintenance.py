@@ -46,7 +46,7 @@ class MaintenanceTests(unittest.TestCase):
         with self.archive.connect() as db:
             self.assertEqual(json.loads(db.execute("SELECT value FROM mappings WHERE category='heroes' AND id='33151'").fetchone()[0]),'用户确认角色')
         self.archive.remove_mapping('heroes',33151)
-        self.assertEqual(project_unit(raw,self.archive.mappings(load_mappings()))['hero_name'],'角色 #33151')
+        self.assertEqual(project_unit(raw,self.archive.mappings(load_mappings()))['hero_name'],'什炎')
 
     def test_multiselect_delete_excludes_statistics_related_settlements_and_restores_metadata(self):
         entries=[self.save(100+i) for i in range(3)]

@@ -82,8 +82,8 @@ class BattleSession:
         if eligible and mismatch:reason = '开场与结算上下文编号不一致，停止关联'
         observation = {'schema':'etheria-settlement-observation-v2','kind':'settlement',
             'capture_time':timestamp,'body_hex':body.hex(),'result_code':code,
-            'winner':{382:'A',383:'B'}.get(code,'unknown') if linked else 'unknown',
-            'protocol_winner':{382:'A',383:'B'}.get(code,'unknown') if associated else 'unknown',
+            'winner':'unknown', 'protocol_winner':'unknown',
+            'settlement_candidate':{382:'A',383:'B'}.get(code,'unknown') if associated else 'unknown',
             'battle_capture_time':self.latest['capture_time'] if associated else None,
             'battle_record_id':self.latest['record_id'] if associated else None,
             'connection_id':self.connection,'capture_context':self.context,
@@ -96,7 +96,7 @@ class BattleSession:
             self.latest.setdefault('tracking',{}).update(settlement_received=True,result_code=code)
             state = 'settled' if associated and code in (382,383) else 'incomplete' if association=='ambiguous' else 'settled_unknown'
             self.publish(timestamp,state,reason if not associated else
-                         ('观战胜方已关联，不计本人战绩' if association=='replay' else '结果已关联') if code in (382,383)
+                         ('观战结算已关联，胜方待确认' if association=='replay' else '结算已关联，胜方待确认') if code in (382,383)
                          else f'未确认结算代码 {code}')
         elif self.state=='incomplete':
             self.unresolved = False

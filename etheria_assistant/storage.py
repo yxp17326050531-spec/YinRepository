@@ -81,6 +81,10 @@ class Archive:
                     battle_id TEXT PRIMARY KEY REFERENCES battles(id), own_team TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS battle_players (
                     battle_id TEXT PRIMARY KEY REFERENCES battles(id), value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS battle_labels (
+                    battle_id TEXT PRIMARY KEY REFERENCES battles(id), value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS battle_reviews (
+                    battle_id TEXT PRIMARY KEY REFERENCES battles(id), value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS battle_trash (
                     battle_id TEXT PRIMARY KEY REFERENCES battles(id),
                     deleted_at TEXT NOT NULL, batch_id TEXT NOT NULL);
@@ -121,6 +125,9 @@ class Archive:
         with self.connect() as db:
             db.execute('INSERT OR IGNORE INTO battles(id,capture_time,saved_at,source,status,original) VALUES (?,?,?,?,?,?)',
                        (bid, battle.get('capture_time'), now(), source, battle['status'], encode(battle)))
+            if battle.get('participants'):
+                db.execute('INSERT OR REPLACE INTO battle_labels VALUES (?,?)',
+                           (bid,encode(battle['participants'])))
             tracking = battle.get('tracking')
             old = db.execute('SELECT value FROM battle_tracking WHERE battle_id=?',(bid,)).fetchone()
             old = json.loads(old['value']) if old else {}
@@ -285,24 +292,44 @@ class Archive:
             mode_rows = db.execute("SELECT id,value FROM mappings WHERE category='battle_modes'").fetchall()
             private = db.execute('SELECT value FROM battle_players WHERE battle_id=?',(bid,)).fetchone()
             self_key = db.execute("SELECT value FROM settings WHERE key='own_player_key'").fetchone()
+            labels = db.execute('SELECT value FROM battle_labels WHERE battle_id=?',(bid,)).fetchone()
+            review = db.execute('SELECT value FROM battle_reviews WHERE battle_id=?',(bid,)).fetchone()
+            tracking = db.execute('SELECT value FROM battle_tracking WHERE battle_id=?',(bid,)).fetchone()
         if original is None:raise ValueError('找不到这场对局')
         battle=json.loads(original['original'])
         modes={'battle_modes':{r['id']:json.loads(r['value']) for r in mode_rows}}
         mode=mode_info(battle,modes)
         context = dict(row) if row else {'winner':'unknown','sample_kind':'未分类','dataset_group':''}
         context['result_origin'] = 'manual' if context['winner'] != 'unknown' else 'unknown'
-        if automatic:context.update(winner=automatic['winner'],result_origin='automatic')
+        review=json.loads(review['value']) if review else {}
+        context['settlement_candidate']=automatic['winner'] if automatic else 'unknown'
+        context['result_code']=(json.loads(tracking['value']).get('result_code') if tracking else None)
+        # The latest user counterexample invalidates unconditional 382=A / 383=B.
+        # Preserve legacy candidates for diagnosis, never report them as proven wins.
+        if automatic:context.update(winner='unknown',result_origin='unverified_code')
+        override=review.get('winner')
+        if override is not None:context.update(winner=override,result_origin='manual_review')
+        context['reviewed_winner']=override
         context['protocol_winner']=context['winner']
         players=json.loads(private['value']) if private else []
         own_key=json.loads(self_key['value']) if self_key else None
-        context['participants']=[{k:v for k,v in p.items() if k!='player_key'} for p in players] or battle.get('participants',[])
+        context['participants']=[{k:v for k,v in p.items() if k!='player_key'} for p in players] or (json.loads(labels['value']) if labels else battle.get('participants',[]))
+        manual_names=review.get('names',{})
+        if manual_names:
+            context['participants']=[p for p in context['participants'] if p.get('team') not in manual_names and p.get('nickname') not in manual_names.values()]
+            context['participants'] += [{'team':t,'nickname':n,'origin':'manual'} for t,n in manual_names.items()]
         context['team_names']={p['team']:p['nickname'] for p in context['participants'] if p.get('team') in ('A','B')}
         context['remember_identity_teams']=[t for t in ('A','B') if sum(p.get('team')==t for p in players)==1]
         context['can_remember_identity']=bool(context['remember_identity_teams'])
-        if mode['kind']=='回放/观战' or context['sample_kind']=='未分类':
+        personal=bool(review.get('own_replay') and side and context['sample_kind'] in ('BP排位','竞技场','练习/测试'))
+        context['personal_confirmed']=personal
+        context['review']=review
+        if mode['kind']=='回放/观战' and personal:
+            context['mode_origin']='manual';context['mode_reason']='已确认本人回放，计入所选分类'
+        elif mode['kind']=='回放/观战' or context['sample_kind']=='未分类':
             context['sample_kind']=mode['kind']; context['mode_origin']=mode['origin']
         else:context['mode_origin']='manual'
-        context['mode_reason']=mode['reason'] if context['mode_origin']!='manual' else '手动分类优先'
+        context['mode_reason']='已确认本人回放，计入所选分类' if personal and mode['kind']=='回放/观战' else mode['reason'] if context['mode_origin']!='manual' else '手动分类优先'
         if context['sample_kind']=='回放/观战':
             context.update(own_team=None,side_origin='replay',side_reason='回放不推断本人身份',winner='unknown')
         elif side:
@@ -317,6 +344,18 @@ class Archive:
         else:
             context.update(infer_side(battle,[(json.loads(r['original']),r['own_team']) for r in refs]))
         return context
+
+    def set_review(self, bid, winner=None, own_replay=False, names=None):
+        self.get(bid)
+        if winner not in (None,'A','B','draw','unknown'):raise ValueError('无效胜方')
+        clean={}
+        for team,name in (names or {}).items():
+            if team not in ('A','B') or not isinstance(name,str) or len(name.strip())>64 or not all(c.isprintable() for c in name):raise ValueError('昵称应为64字以内的可见文本')
+            if name.strip():clean[team]=name.strip()
+        value={'winner':winner,'own_replay':bool(own_replay),'names':clean,'updated_at':now()}
+        with self.connect() as db:
+            db.execute('INSERT OR REPLACE INTO battle_reviews VALUES (?,?)',(bid,encode(value)))
+            db.execute('INSERT INTO audit VALUES (?,?,?,?)',(now(),'battle_review',bid,encode(value)))
 
     def save_players(self, bid, players):
         """Private local identifiers stay outside original observations and exports."""
@@ -368,7 +407,7 @@ class Archive:
             db.execute('INSERT INTO audit VALUES (?,?,?,?)',(now(),'remove_mode_mapping',mode_key(candidate),'{}'))
 
     def set_classification(self, bid, sample_kind, dataset_group=''):
-        # Retain old manual metadata for compatibility; results have no UI editor.
+        # Retain legacy result metadata; per-record reviews are stored separately.
         with self.connect() as db:
             row=db.execute('SELECT winner FROM battle_context WHERE battle_id=?',(bid,)).fetchone()
         self.set_context(bid,row['winner'] if row else 'unknown',sample_kind,dataset_group)
@@ -522,7 +561,7 @@ class Archive:
             battle_rows.append({'id':r['id'],'original':json.loads(r['original']),
                 'tracking':self.get(r['id'])['tracking'],
                 'opponent':'B 队' if ctx['own_team']=='A' else 'A 队' if ctx['own_team']=='B' else '待确认',
-                **{k:ctx[k] for k in ('own_team','winner','protocol_winner','result_origin','sample_kind','dataset_group')},
+                **{k:ctx[k] for k in ('own_team','winner','protocol_winner','result_origin','sample_kind','dataset_group','personal_confirmed')},
                 'team_names':ctx['team_names']})
         return {'schema':'etheria-analysis-dataset-v1','exported_at':now(),
                 'battles':battle_rows,

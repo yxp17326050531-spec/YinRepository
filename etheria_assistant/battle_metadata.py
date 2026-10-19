@@ -29,11 +29,15 @@ def result_text(context):
         protocol = context.get('protocol_winner')
         if protocol in ('A', 'B'):
             return victor(protocol) + ' · 观战，不计本人战绩'
-        return '回放 · 结果未确认 · 不计战绩'
+        if protocol == 'draw':
+            return '平局 · 观战，不计本人战绩'
+        code=context.get('result_code')
+        return (f'观战 · 结算 {code} · 胜方待确认 · 不计战绩' if code is not None else '回放 · 结果未确认 · 不计战绩')
     if winner == 'draw':
         return '平局'
     if winner not in ('A', 'B'):
-        return '结果未确认'
+        code=context.get('result_code')
+        return f'结算 {code} · 胜方待确认' if code is not None else '结果未确认'
     own = context.get('own_team')
     if own not in ('A', 'B'):
         return victor(winner) + ' · 己方待确认'

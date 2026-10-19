@@ -28,7 +28,7 @@ class BattleSessions(unittest.TestCase):
         e=self.job.engine;e.message(0x6003,opening(30153),100,'one');e.message(0x6003,opening(32101),101,'two')
         e.message(0x6004,scalar(1,382),110,'one');e.message(0x6004,scalar(1,383),111,'two')
         rows=self.records()
-        self.assertEqual([self.archive.context(r['id'])['winner'] for r in rows],['B','A'])
+        self.assertEqual([self.archive.context(r['id'])['settlement_candidate'] for r in rows],['B','A'])
         self.assertTrue(all(self.archive.get(r['id'])['tracking']['state']=='settled' for r in rows))
     def test_malformed_new_opening_cannot_settle_previous_battle(self):
         e=self.job.engine;e.message(0x6003,opening(),100);bid=self.records()[0]['id']
@@ -41,13 +41,13 @@ class BattleSessions(unittest.TestCase):
         e.message(0x6002,b'',101)
         self.assertEqual(self.archive.get(bid)['tracking']['state'],'awaiting_settlement')
         e.message(0x6004,scalar(1,382),102)
-        self.assertEqual(self.archive.context(bid)['winner'],'A')
+        self.assertEqual(self.archive.context(bid)['settlement_candidate'],'A')
     def test_overlapping_openings_quarantine_ambiguous_result_then_recover(self):
         e=self.job.engine;e.message(0x6003,opening(),100);e.message(0x6003,opening(32101),200)
         e.message(0x6004,scalar(1,382),210)
         self.assertTrue(all(self.archive.context(r['id'])['winner']=='unknown' for r in self.records()))
         e.message(0x6003,opening(),300);e.message(0x6004,scalar(1,383),310)
-        self.assertEqual(self.archive.context(self.records()[0]['id'])['winner'],'B')
+        self.assertEqual(self.archive.context(self.records()[0]['id'])['settlement_candidate'],'B')
     def test_duplicate_opening_is_one_record_and_does_not_assume_identity(self):
         e=self.job.engine;e.message(0x6003,opening(),100);e.message(0x6003,opening(),101)
         self.assertEqual(len(self.records()),1);self.assertEqual(e.latest['capture_time'],100)
@@ -59,7 +59,7 @@ class BattleSessions(unittest.TestCase):
         for t,code in [(100,382),(200,383)]:
             e.message(0x6003,opening(),t);e.message(0x6004,scalar(1,code),t+10)
         self.assertEqual(len(self.records()),2)
-        self.assertEqual([self.archive.context(r['id'])['winner'] for r in self.records()],['B','A'])
+        self.assertEqual([self.archive.context(r['id'])['settlement_candidate'] for r in self.records()],['B','A'])
     def test_replay_is_saved_without_personal_result_or_statistics(self):
         job=CaptureJob(lambda *a:None,20001,load_mappings(),self.archive,capture_context='replay');job.source='replay'
         job.engine.message(0x6003,opening(),100);job.engine.message(0x6004,scalar(1,382),110)
@@ -100,7 +100,7 @@ class BattleSessions(unittest.TestCase):
         other.engine.message(0x6003,opening(),100);other.engine.last_timestamp=120;other.engine.finish_capture()
         row=self.archive.get(bid)
         self.assertEqual(row['tracking']['state'],'settled');self.assertEqual(row['original'],original)
-        self.assertEqual(self.archive.context(bid)['winner'],'A')
+        self.assertEqual(self.archive.context(bid)['settlement_candidate'],'A')
 
 
 if __name__=='__main__':unittest.main()

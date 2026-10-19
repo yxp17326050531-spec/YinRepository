@@ -1,0 +1,1342 @@
+{
+  "schema": "etheria-ui-art-v1",
+  "source": "用户提供的游戏图鉴，按可读名称裁取；不含账号、库存和截图界面",
+  "heroes": {
+    "多琪": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        0,
+        0,
+        96,
+        96
+      ]
+    },
+    "弥瑟亚": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        96,
+        0,
+        96,
+        96
+      ]
+    },
+    "渺渺": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        192,
+        0,
+        96,
+        96
+      ]
+    },
+    "夜离": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        288,
+        0,
+        96,
+        96
+      ]
+    },
+    "瑞玛丽": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        384,
+        0,
+        96,
+        96
+      ]
+    },
+    "斐莫莉安": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        480,
+        0,
+        96,
+        96
+      ]
+    },
+    "玄骐": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        576,
+        0,
+        96,
+        96
+      ]
+    },
+    "皮耶娜": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        672,
+        0,
+        96,
+        96
+      ]
+    },
+    "海因里希": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        768,
+        0,
+        96,
+        96
+      ]
+    },
+    "梨梨": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        864,
+        0,
+        96,
+        96
+      ]
+    },
+    "孽女·善雅": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        960,
+        0,
+        96,
+        96
+      ]
+    },
+    "莉拉姆": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        1056,
+        0,
+        96,
+        96
+      ]
+    },
+    "逆翎": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        0,
+        96,
+        96,
+        96
+      ]
+    },
+    "罗魍": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        96,
+        96,
+        96,
+        96
+      ]
+    },
+    "玄骊": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        192,
+        96,
+        96,
+        96
+      ]
+    },
+    "莎朗": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        288,
+        96,
+        96,
+        96
+      ]
+    },
+    "艾莉尔": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        384,
+        96,
+        96,
+        96
+      ]
+    },
+    "葵诺丝": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        480,
+        96,
+        96,
+        96
+      ]
+    },
+    "纳伽兰": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        576,
+        96,
+        96,
+        96
+      ]
+    },
+    "莉莉斯": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        672,
+        96,
+        96,
+        96
+      ]
+    },
+    "克洛斯": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        768,
+        96,
+        96,
+        96
+      ]
+    },
+    "罗喉": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        864,
+        96,
+        96,
+        96
+      ]
+    },
+    "席琳丝": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        960,
+        96,
+        96,
+        96
+      ]
+    },
+    "莉露摩卡": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        1056,
+        96,
+        96,
+        96
+      ]
+    },
+    "芙蕾雅": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        0,
+        192,
+        96,
+        96
+      ]
+    },
+    "赫妍": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        96,
+        192,
+        96,
+        96
+      ]
+    },
+    "拂秋": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        192,
+        192,
+        96,
+        96
+      ]
+    },
+    "水生绫": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        288,
+        192,
+        96,
+        96
+      ]
+    },
+    "奈薇忒": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        384,
+        192,
+        96,
+        96
+      ]
+    },
+    "伯诺瓦": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        480,
+        192,
+        96,
+        96
+      ]
+    },
+    "奥萨尔": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        576,
+        192,
+        96,
+        96
+      ]
+    },
+    "欧里亚斯": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        672,
+        192,
+        96,
+        96
+      ]
+    },
+    "络薇": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        768,
+        192,
+        96,
+        96
+      ]
+    },
+    "闪萝": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        864,
+        192,
+        96,
+        96
+      ]
+    },
+    "夏妲": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        960,
+        192,
+        96,
+        96
+      ]
+    },
+    "缇亚马特": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        1056,
+        192,
+        96,
+        96
+      ]
+    },
+    "凌罗": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        0,
+        288,
+        96,
+        96
+      ]
+    },
+    "月夜见": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        96,
+        288,
+        96,
+        96
+      ]
+    },
+    "荼蘼": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        192,
+        288,
+        96,
+        96
+      ]
+    },
+    "博尔涅": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        288,
+        288,
+        96,
+        96
+      ]
+    },
+    "拿鹤": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        384,
+        288,
+        96,
+        96
+      ]
+    },
+    "宁芙涅": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        480,
+        288,
+        96,
+        96
+      ]
+    },
+    "贝兹比": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        576,
+        288,
+        96,
+        96
+      ]
+    },
+    "佩希思": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        672,
+        288,
+        96,
+        96
+      ]
+    },
+    "吉安克": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        768,
+        288,
+        96,
+        96
+      ]
+    },
+    "魁洛": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        864,
+        288,
+        96,
+        96
+      ]
+    },
+    "丹弗里": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        960,
+        288,
+        96,
+        96
+      ]
+    },
+    "克索司": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        1056,
+        288,
+        96,
+        96
+      ]
+    },
+    "赫尔基德": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        0,
+        384,
+        96,
+        96
+      ]
+    },
+    "炼": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        96,
+        384,
+        96,
+        96
+      ]
+    },
+    "彼安汀": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        192,
+        384,
+        96,
+        96
+      ]
+    },
+    "柯洛罗": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        288,
+        384,
+        96,
+        96
+      ]
+    },
+    "维罗妮卡": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        384,
+        384,
+        96,
+        96
+      ]
+    },
+    "米娅": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        480,
+        384,
+        96,
+        96
+      ]
+    },
+    "赫同": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        576,
+        384,
+        96,
+        96
+      ]
+    },
+    "柯卡尔迪": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        672,
+        384,
+        96,
+        96
+      ]
+    },
+    "光狩谛听": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        768,
+        384,
+        96,
+        96
+      ]
+    },
+    "桑提克": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        864,
+        384,
+        96,
+        96
+      ]
+    },
+    "千羽": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        960,
+        384,
+        96,
+        96
+      ]
+    },
+    "艾罗安": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        1056,
+        384,
+        96,
+        96
+      ]
+    },
+    "西尔维娅": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        0,
+        480,
+        96,
+        96
+      ]
+    },
+    "什炎": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        96,
+        480,
+        96,
+        96
+      ]
+    },
+    "多乐丝": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        192,
+        480,
+        96,
+        96
+      ]
+    },
+    "缬草": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        288,
+        480,
+        96,
+        96
+      ]
+    },
+    "马维尔": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        384,
+        480,
+        96,
+        96
+      ]
+    },
+    "凛心黛纳": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        480,
+        480,
+        96,
+        96
+      ]
+    },
+    "维克托": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        576,
+        480,
+        96,
+        96
+      ]
+    },
+    "谛听": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        672,
+        480,
+        96,
+        96
+      ]
+    },
+    "戍守卡奇": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        768,
+        480,
+        96,
+        96
+      ]
+    },
+    "妮璐": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        864,
+        480,
+        96,
+        96
+      ]
+    },
+    "绯月鞠": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        960,
+        480,
+        96,
+        96
+      ]
+    },
+    "旭光妮璐": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        1056,
+        480,
+        96,
+        96
+      ]
+    },
+    "幻音千明": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        0,
+        576,
+        96,
+        96
+      ]
+    },
+    "勉": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        96,
+        576,
+        96,
+        96
+      ]
+    },
+    "善雅": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        192,
+        576,
+        96,
+        96
+      ]
+    },
+    "格雷": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        288,
+        576,
+        96,
+        96
+      ]
+    },
+    "酣梦一宵": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        384,
+        576,
+        96,
+        96
+      ]
+    },
+    "水月真": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        480,
+        576,
+        96,
+        96
+      ]
+    },
+    "胧": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        576,
+        576,
+        96,
+        96
+      ]
+    },
+    "RC-77": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        672,
+        576,
+        96,
+        96
+      ]
+    },
+    "克拉肯": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        768,
+        576,
+        96,
+        96
+      ]
+    },
+    "炀": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        864,
+        576,
+        96,
+        96
+      ]
+    },
+    "蝰蛇": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        960,
+        576,
+        96,
+        96
+      ]
+    },
+    "奥波尔": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        1056,
+        576,
+        96,
+        96
+      ]
+    },
+    "砺行阿凛": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        0,
+        672,
+        96,
+        96
+      ]
+    },
+    "希尔芙": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        96,
+        672,
+        96,
+        96
+      ]
+    },
+    "千明": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        192,
+        672,
+        96,
+        96
+      ]
+    },
+    "阿凛": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        288,
+        672,
+        96,
+        96
+      ]
+    },
+    "寻愿多乐丝": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        384,
+        672,
+        96,
+        96
+      ]
+    },
+    "黛纳": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        480,
+        672,
+        96,
+        96
+      ]
+    },
+    "风见一宵": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        576,
+        672,
+        96,
+        96
+      ]
+    },
+    "杜兰铎": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        672,
+        672,
+        96,
+        96
+      ]
+    },
+    "方格斯": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        768,
+        672,
+        96,
+        96
+      ]
+    },
+    "西尔维亚": {
+      "atlas": "heroes.jpg",
+      "rect": [
+        0,
+        480,
+        96,
+        96
+      ]
+    }
+  },
+  "shells": {
+    "超新星": {
+      "atlas": "shells.jpg",
+      "rect": [
+        0,
+        0,
+        64,
+        64
+      ]
+    },
+    "缄默法则": {
+      "atlas": "shells.jpg",
+      "rect": [
+        64,
+        0,
+        64,
+        64
+      ]
+    },
+    "金狮子": {
+      "atlas": "shells.jpg",
+      "rect": [
+        128,
+        0,
+        64,
+        64
+      ]
+    },
+    "天角兽": {
+      "atlas": "shells.jpg",
+      "rect": [
+        192,
+        0,
+        64,
+        64
+      ]
+    },
+    "万魔法典": {
+      "atlas": "shells.jpg",
+      "rect": [
+        256,
+        0,
+        64,
+        64
+      ]
+    },
+    "白獠武者": {
+      "atlas": "shells.jpg",
+      "rect": [
+        320,
+        0,
+        64,
+        64
+      ]
+    },
+    "千兆字节": {
+      "atlas": "shells.jpg",
+      "rect": [
+        384,
+        0,
+        64,
+        64
+      ]
+    },
+    "匠": {
+      "atlas": "shells.jpg",
+      "rect": [
+        448,
+        0,
+        64,
+        64
+      ]
+    },
+    "墨月": {
+      "atlas": "shells.jpg",
+      "rect": [
+        0,
+        64,
+        64,
+        64
+      ]
+    },
+    "万圣节": {
+      "atlas": "shells.jpg",
+      "rect": [
+        64,
+        64,
+        64,
+        64
+      ]
+    },
+    "伯爵": {
+      "atlas": "shells.jpg",
+      "rect": [
+        128,
+        64,
+        64,
+        64
+      ]
+    },
+    "灯塔": {
+      "atlas": "shells.jpg",
+      "rect": [
+        192,
+        64,
+        64,
+        64
+      ]
+    },
+    "胡狼卫士": {
+      "atlas": "shells.jpg",
+      "rect": [
+        256,
+        64,
+        64,
+        64
+      ]
+    },
+    "启示录": {
+      "atlas": "shells.jpg",
+      "rect": [
+        320,
+        64,
+        64,
+        64
+      ]
+    },
+    "琥珀": {
+      "atlas": "shells.jpg",
+      "rect": [
+        384,
+        64,
+        64,
+        64
+      ]
+    },
+    "最强音": {
+      "atlas": "shells.jpg",
+      "rect": [
+        448,
+        64,
+        64,
+        64
+      ]
+    },
+    "死神脚步": {
+      "atlas": "shells.jpg",
+      "rect": [
+        0,
+        128,
+        64,
+        64
+      ]
+    },
+    "噬身之蛇": {
+      "atlas": "shells.jpg",
+      "rect": [
+        64,
+        128,
+        64,
+        64
+      ]
+    },
+    "宝剑七": {
+      "atlas": "shells.jpg",
+      "rect": [
+        128,
+        128,
+        64,
+        64
+      ]
+    },
+    "寅虎": {
+      "atlas": "shells.jpg",
+      "rect": [
+        192,
+        128,
+        64,
+        64
+      ]
+    },
+    "冠军巨鳄": {
+      "atlas": "shells.jpg",
+      "rect": [
+        256,
+        128,
+        64,
+        64
+      ]
+    },
+    "月魄灵兔": {
+      "atlas": "shells.jpg",
+      "rect": [
+        320,
+        128,
+        64,
+        64
+      ]
+    },
+    "厄鸦": {
+      "atlas": "shells.jpg",
+      "rect": [
+        384,
+        128,
+        64,
+        64
+      ]
+    },
+    "天才球手": {
+      "atlas": "shells.jpg",
+      "rect": [
+        448,
+        128,
+        64,
+        64
+      ]
+    }
+  },
+  "matrices": {
+    "攻势": {
+      "atlas": "matrices.png",
+      "rect": [
+        0,
+        0,
+        48,
+        48
+      ]
+    },
+    "涌泉": {
+      "atlas": "matrices.png",
+      "rect": [
+        48,
+        0,
+        48,
+        48
+      ]
+    },
+    "金刚": {
+      "atlas": "matrices.png",
+      "rect": [
+        96,
+        0,
+        48,
+        48
+      ]
+    },
+    "疾驰": {
+      "atlas": "matrices.png",
+      "rect": [
+        144,
+        0,
+        48,
+        48
+      ]
+    },
+    "戍卫": {
+      "atlas": "matrices.png",
+      "rect": [
+        192,
+        0,
+        48,
+        48
+      ]
+    },
+    "战意": {
+      "atlas": "matrices.png",
+      "rect": [
+        240,
+        0,
+        48,
+        48
+      ]
+    },
+    "荆棘": {
+      "atlas": "matrices.png",
+      "rect": [
+        288,
+        0,
+        48,
+        48
+      ]
+    },
+    "治愈": {
+      "atlas": "matrices.png",
+      "rect": [
+        0,
+        48,
+        48,
+        48
+      ]
+    },
+    "奋进": {
+      "atlas": "matrices.png",
+      "rect": [
+        48,
+        48,
+        48,
+        48
+      ]
+    },
+    "收割": {
+      "atlas": "matrices.png",
+      "rect": [
+        96,
+        48,
+        48,
+        48
+      ]
+    },
+    "狂怒": {
+      "atlas": "matrices.png",
+      "rect": [
+        144,
+        48,
+        48,
+        48
+      ]
+    },
+    "溢流": {
+      "atlas": "matrices.png",
+      "rect": [
+        192,
+        48,
+        48,
+        48
+      ]
+    },
+    "亵渎": {
+      "atlas": "matrices.png",
+      "rect": [
+        240,
+        48,
+        48,
+        48
+      ]
+    },
+    "猛毒": {
+      "atlas": "matrices.png",
+      "rect": [
+        288,
+        48,
+        48,
+        48
+      ]
+    },
+    "逐光": {
+      "atlas": "matrices.png",
+      "rect": [
+        0,
+        96,
+        48,
+        48
+      ]
+    },
+    "乘势追击": {
+      "atlas": "matrices.png",
+      "rect": [
+        48,
+        96,
+        48,
+        48
+      ]
+    },
+    "浴血之躯": {
+      "atlas": "matrices.png",
+      "rect": [
+        96,
+        96,
+        48,
+        48
+      ]
+    },
+    "时光驾驭": {
+      "atlas": "matrices.png",
+      "rect": [
+        144,
+        96,
+        48,
+        48
+      ]
+    },
+    "洞悉穿刺": {
+      "atlas": "matrices.png",
+      "rect": [
+        192,
+        96,
+        48,
+        48
+      ]
+    },
+    "不屈之誓": {
+      "atlas": "matrices.png",
+      "rect": [
+        240,
+        96,
+        48,
+        48
+      ]
+    },
+    "沸腾打击": {
+      "atlas": "matrices.png",
+      "rect": [
+        288,
+        96,
+        48,
+        48
+      ]
+    },
+    "暴烈利刃": {
+      "atlas": "matrices.png",
+      "rect": [
+        0,
+        144,
+        48,
+        48
+      ]
+    },
+    "灵子黑疫": {
+      "atlas": "matrices.png",
+      "rect": [
+        48,
+        144,
+        48,
+        48
+      ]
+    },
+    "巨壁屏障": {
+      "atlas": "matrices.png",
+      "rect": [
+        96,
+        144,
+        48,
+        48
+      ]
+    },
+    "疾影强袭": {
+      "atlas": "matrices.png",
+      "rect": [
+        144,
+        144,
+        48,
+        48
+      ]
+    },
+    "迅光天击": {
+      "atlas": "matrices.png",
+      "rect": [
+        192,
+        144,
+        48,
+        48
+      ]
+    },
+    "进化荫庇": {
+      "atlas": "matrices.png",
+      "rect": [
+        240,
+        144,
+        48,
+        48
+      ]
+    },
+    "浴血": {
+      "atlas": "matrices.png",
+      "rect": [
+        96,
+        96,
+        48,
+        48
+      ]
+    },
+    "不屈": {
+      "atlas": "matrices.png",
+      "rect": [
+        240,
+        96,
+        48,
+        48
+      ]
+    },
+    "时光": {
+      "atlas": "matrices.png",
+      "rect": [
+        144,
+        96,
+        48,
+        48
+      ]
+    }
+  }
+}

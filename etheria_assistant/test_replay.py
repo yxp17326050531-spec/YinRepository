@@ -60,7 +60,7 @@ class ReplayTests(unittest.TestCase):
         live=self.archive.history_directory()[0]['id']
         e.message(0x8421,replay_body(),110,'one');replay=self.archive.history_directory()[0]['id']
         e.message(0x6004,scalar(1,382),120,'one');e.finish_capture()
-        self.assertEqual(self.archive.context(live)['winner'],'A')
+        self.assertEqual(self.archive.context(live)['settlement_candidate'],'A')
         self.assertEqual(self.archive.context(replay)['winner'],'unknown')
         self.assertEqual(self.archive.get(replay)['tracking']['state'],'replay_loaded')
     def test_replay_only_does_not_accept_live_result(self):
@@ -80,7 +80,7 @@ class ReplayTests(unittest.TestCase):
         e.message(0x8421,replay_body(roster=False),110)
         e.message(0x6004,scalar(1,382),120)
         rows=self.archive.history_directory()
-        self.assertEqual(len(rows),1);self.assertEqual(self.archive.context(rows[0]['id'])['winner'],'A')
+        self.assertEqual(len(rows),1);self.assertEqual(self.archive.context(rows[0]['id'])['settlement_candidate'],'A')
         self.assertEqual(e.counts['invalid_replays'],1)
         with self.assertRaises(ValueError):decode_replay(blob(2,b'')+blob(2,b''),load_mappings())
     def test_first_segmented_message_offline_import_and_repeat_import(self):

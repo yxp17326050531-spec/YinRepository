@@ -49,6 +49,7 @@ class PlayerIdentityTests(unittest.TestCase):
         first=round_start(self.job);self.settle()
         self.archive.set_perspective(first,'A',remember=True)
         second=round_start(self.job,200,swapped=True,name='RenamedPlayer');self.settle(stamp=210)
+        self.archive.set_review(second,'A')
         ctx=self.archive.context(second)
         self.assertEqual(ctx['own_team'],'B');self.assertEqual(ctx['side_origin'],'player_identity')
         self.assertEqual(result_text(ctx),'失败');self.assertEqual(ctx['team_names']['B'],'RenamedPlayer')
@@ -64,6 +65,7 @@ class PlayerIdentityTests(unittest.TestCase):
         self.assertNotIn('_local_players',text)
     def test_known_local_player_absent_never_becomes_personal_loss_or_guessed_mode(self):
         bid=round_start(self.job);self.settle(code=383)
+        self.archive.set_review(bid,'B')
         self.archive.save_settings({'own_player_key':hashlib.sha256(b'different synthetic player').hexdigest()})
         ctx=self.archive.context(bid)
         self.assertEqual(ctx['sample_kind'],'未分类');self.assertIsNone(ctx['own_team'])
@@ -73,6 +75,7 @@ class PlayerIdentityTests(unittest.TestCase):
     def test_explicit_observer_retains_protocol_victor_without_personal_result(self):
         job=CaptureJob(lambda *a:None,20001,load_mappings(),self.archive,'replay')
         bid=round_start(job);self.settle(job,383)
+        self.archive.set_review(bid,'B')
         ctx=self.archive.context(bid)
         self.assertEqual(ctx['winner'],'unknown');self.assertEqual(ctx['protocol_winner'],'B')
         self.assertIn('SyntheticTwo',result_text(ctx))

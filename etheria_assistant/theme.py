@@ -1,6 +1,6 @@
-"""Original, asset-free dark competitive theme."""
+"""Dark competitive theme with small local reference artwork."""
 STYLE = '''
-QWidget { background:#09141e; color:#dce5f0; font-family:"Microsoft YaHei UI","Noto Sans CJK SC","sans-serif"; font-size:13px; }
+QWidget { background:#09141e; color:#dce5f0; font-family:"Microsoft YaHei UI","Noto Sans CJK SC","sans-serif"; font-size:14px; }
 QMainWindow, QScrollArea, QStackedWidget {background:#09141e;}
 QFrame#sidebar {background:#0c1925; border-right:1px solid #253044;}
 QLabel#brand {font-size:20px; font-weight:700; color:#f0f5fc;}
@@ -8,7 +8,7 @@ QLabel#title {font-size:22px; font-weight:700;}
 QLabel#hint {color:#8393aa; background:transparent;}
 QLabel#eyebrow {color:#56d8bf; font-size:11px; font-weight:700; letter-spacing:2px;}
 QLabel#metric {font-size:24px; font-weight:700; color:#eaf2ff; background:transparent;}
-QLabel#speed {color:#ffcc42; font-size:15px; font-weight:700; background:transparent;}
+QLabel#speed {color:#ffcc42; font-size:20px; font-weight:700; background:transparent;}
 QLabel#hero {font-size:16px; font-weight:700; background:transparent;}
 QLabel#avatar {background:#26394a; color:#70deca; border:1px solid #385468; border-radius:10px; font-size:20px; font-weight:700;}
 QFrame#card {background:#0d1c28; border:1px solid #1d3546; border-radius:6px;}
@@ -46,10 +46,13 @@ QFrame#heroRow {background:transparent; border:0; border-top:1px solid #1d3546;}
 QFrame#heroRow QWidget, QFrame#heroRow QLabel {background:transparent;}
 QLabel#ownTeam {color:#49d0fc; font-size:19px; font-weight:700; border-left:4px solid #24b6fa; padding-left:10px;}
 QLabel#enemyTeam {color:#ff596b; font-size:19px; font-weight:700; border-left:4px solid #ff425c; padding-left:10px;}
-QLabel#statValue {color:#e2ebf5; font-size:13px;}
-QLabel#attributeTitle {color:#8393aa; font-size:11px;}
-QPushButton#smallAction {padding:3px 5px; font-size:11px; background:#152c3b; border-color:#254255;}
-QPushButton#link {font-size:14px;}
+QLabel#statValue {color:#e2ebf5; font-size:18px; font-weight:600;}
+QLabel#attributeTitle {color:#a1b1c5; font-size:13px;}
+QPushButton#smallAction {padding:4px 7px; font-size:12px; background:#152c3b; border-color:#254255;}
+QPushButton#link {font-size:18px;}
+QLabel#shell {font-size:15px; font-weight:600;}
+QLabel#matrixName {font-size:15px;}
+QLabel#artIcon {background:#192e3b; border-radius:5px; color:#9de5d6; font-size:18px;}
 QDialog {background:#0d1c28;}
 QCheckBox {spacing:8px;}
 '''

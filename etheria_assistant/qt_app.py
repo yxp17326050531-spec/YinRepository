@@ -22,6 +22,7 @@ from core import load_mappings, shell_config_name, matrix_name
 from storage import Archive, project_unit, unit_key, shell_candidates
 from analytics import analyse, rank_statistics
 from theme import STYLE
+from battle_widgets import unit_card
 from equipment import (project_gear, attribute_text, matches_gear, normalize_filters,
                        filter_options, filter_summary, RARITIES, UNKNOWN, ATTRIBUTES,
                        normalize_sort, sort_gear, gear_sort_value)
@@ -29,14 +30,13 @@ from inventory_widgets import GearFilterDialog
 from components import project_component, attribute_text as component_attribute_text, component_detail as component_detail_text
 from battle_attributes import decode_extra_attributes, pending_attributes, pending_text, extra_text
 
-VERSION='2.7.1'
+VERSION='2.8.0'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 from battle_metadata import KINDS, result_text
-RESULTS={'等待结算':'unknown','胜利':'A','失败':'B','平局':'draw'}
 
 def label(text, name=None):
-    w=QLabel(str(text)); w.setWordWrap(True)
+    w=QLabel(str(text)); w.setWordWrap(True);w.setTextFormat(Qt.TextFormat.PlainText)
     if name:w.setObjectName(name)
     return w
 
@@ -204,18 +204,22 @@ class MainWindow(QMainWindow):
             replay=self.latest['view_context']=='replay'
             result_label=result_text(ctx)
             self.battle_info.setText(f"{'历史查看' if self.browsing else '最新对局'} · {stamp(self.latest.get('capture_time'))} · {ctx['sample_kind']} · {result_label} · {ctx['side_reason']}")
-            self.record_info.setText(('回放记录 · 不计本人战绩 · ' if replay else '')+record['status']+' · '+ctx['mode_reason'])
+            source='本场已校正' if ctx['result_origin']=='manual_review' else '结算含义待核对' if ctx['result_origin']=='unverified_code' else '历史手动标注' if ctx['result_origin']=='manual' else '尚无确认结果'
+            self.record_info.setText(('回放记录 · 不计本人战绩 · ' if replay else '')+record['status']+' · '+source)
             names=[(p.get('team')+' 方：' if p.get('team') else '方向待确认：')+p['nickname'] for p in self.latest.get('participants',[])]
             if names:self.record_info.setText(self.record_info.text()+' · '+' / '.join(names))
+            else:self.record_info.setText(self.record_info.text()+' · 昵称未采集，可在对局分类补填')
         elif self.unsaved_battle:
             self.latest=copy.deepcopy(self.unsaved_battle)
             self.battle_info.setText('自动保存失败 · 当前数据仍可导出，请检查磁盘和运行日志')
         else:self.current_id=None; self.battle_info.setText('等待进入战斗 · 可导入历史抓包')
         self.refresh_battle_navigation()
         for team,layout in self.team_layouts.items():
-            replay=bool(self.latest and (self.latest.get('capture_context')=='replay' or self.latest.get('view_context')=='replay'))
+            replay=bool(self.latest and self.latest.get('view_context',self.latest.get('capture_context'))=='replay')
             own=self.archive.context(self.current_id).get('own_team') if self.current_id else None
-            self.team_titles[team].setText(f'记录 {team} 方' if replay or not own else f'⚔  {"己方" if team==own else "敌方"}队伍 · {team} 方')
+            heading=f'记录 {team} 方' if replay or not own else f'⚔  {"己方" if team==own else "敌方"}队伍 · {team} 方'
+            nickname=self.archive.context(self.current_id).get('team_names',{}).get(team) if self.current_id else None
+            self.team_titles[team].setText(heading+(' · '+nickname if nickname else ''))
             title=self.team_titles[team]
             style='hint' if replay or not own else 'ownTeam' if team==own else 'enemyTeam'
             if title.objectName()!=style:
@@ -224,51 +228,7 @@ class MainWindow(QMainWindow):
             units=self.latest['teams'].get(team,[]) if self.latest else []
             if not units:layout.addWidget(label('暂无角色数据\n开始监听后，进入战斗将自动更新。','hint'))
             for unit in units:
-                card=QFrame(); card.setObjectName('heroRow'); c=QHBoxLayout(card); c.setContentsMargins(4,10,4,10); c.setSpacing(8)
-                names=QWidget(); names.setFixedWidth(125); n=QVBoxLayout(names); n.setContentsMargins(0,0,0,0); n.setSpacing(6)
-                name=button(unit['hero_name'],lambda u=unit:self.guarded(lambda:self.edit_hero(u))); name.setObjectName('link'); name.setToolTip('点击修改名称 · #'+str(unit['hero_id'])); n.addWidget(name)
-                actions=QHBoxLayout(); actions.setSpacing(6)
-                for title,fn in [('配装',self.edit_loadout),('详情',self.details)]:
-                    edit=self.action(title,lambda u=unit,f=fn:f(u)); edit.setObjectName('smallAction'); actions.addWidget(edit)
-                n.addLayout(actions); c.addWidget(names)
-                attributes=QWidget(); attributes.setFixedWidth(276); grid=QGridLayout(attributes)
-                grid.setContentsMargins(0,0,0,0); grid.setHorizontalSpacing(8); grid.setVerticalSpacing(8)
-                fields=[('hp','生命'),('attack','攻击'),('defense','防御'),('speed','速度'),
-                        ('crit','暴击率'),('crit_damage','暴击伤害'),('effect_hit','效果命中'),('effect_resist','效果抵抗'),
-                        ('pvp_damage_bonus','PVP增伤'),('pvp_damage_reduction','PVP减伤'),
-                        ('extra_damage_reduction','额外减伤'),('ignore_defense','无视防御'),
-                        ('damage_result_bonus','结果增伤'),('damage_result_reduction','结果减伤')]
-                extra_values=decode_extra_attributes(unit.get('attributes_raw'))
-                for index,(key,title) in enumerate(fields):
-                    percentage=index>=4
-                    values=extra_values if index>=8 else (unit.get('percent_attributes_tentative') or {}) if percentage else unit['stats']
-                    value=values.get(key)
-                    shown='—'
-                    if isinstance(value,(int,float)):
-                        shown=f'{value:g}%' if percentage else f'{value:.2f}' if key=='speed' else f'{value:g}'
-                    cell=QWidget(); cell.setFixedWidth((68,58,58,68)[index%4])
-                    column=QVBoxLayout(cell); column.setContentsMargins(0,0,0,0); column.setSpacing(2)
-                    heading=label(title,'attributeTitle'); heading.setWordWrap(False); column.addWidget(heading)
-                    metric=label(shown,'speed' if key=='speed' else 'statValue'); metric.setWordWrap(False)
-                    metric.setAccessibleName(f"{team}方 {unit['hero_id']} {title}")
-                    tooltip_title={'damage_result_bonus':'伤害结果增伤','damage_result_reduction':'伤害结果减伤'}.get(key,title)
-                    metric.setToolTip(tooltip_title+'：'+shown+(' · 对局开场总值，已对照科技/元件同类合计；未下发显示 —' if key in ('pvp_damage_bonus','pvp_damage_reduction') else ' · 对局开场已下发值，不保证包含全部矩阵/技能；不同减伤字段不相加；未下发显示 —' if index>=8 else ' · 沿用已观测百分比规则；未下发显示 —' if percentage else ''))
-                    if key=='extra_damage_reduction':
-                        metric.setToolTip(metric.toolTip()+' · 潜能贡献与涌泉效果分开记录，不按矩阵说明改写。')
-                    elif key=='damage_result_bonus':
-                        metric.setToolTip(metric.toolTip()+' · 普通与相性增伤属同一区间；破序之刃10%等未下发条件值不补算。')
-                    column.addWidget(metric); grid.addWidget(cell,index//4,index%4)
-                c.addWidget(attributes)
-                equipment=QWidget(); eq=QVBoxLayout(equipment); eq.setContentsMargins(0,0,0,0); eq.setSpacing(6)
-                eq.addWidget(label('智壳 / 矩阵效果','attributeTitle'))
-                eq.addWidget(label(shell_text(unit),'shell')); eq.addWidget(label(matrix_text(unit),'hint'))
-                eq.addWidget(label(imprint_text(unit),'hint')); c.addWidget(equipment,1); layout.addWidget(card)
-                pending=pending_attributes(unit)
-                hint=label('更多增减伤属性 · 点击详情' if extra_values else '增减伤未采集 · 点击详情','hint')
-                hint.setToolTip('对局属性原值未保存；可重新导入抓包。' if pending is None else f'总值直接读取双方各自的对局属性；另有 {len(pending)} 项待对照。')
-                eq.addWidget(hint)
-                card.ensurePolished();c.invalidate()
-                card.setMinimumHeight(card.sizeHint().height())
+                layout.addWidget(unit_card(unit,team,self.action,self.edit_hero,self.edit_loadout,self.details))
     def refresh_battle_navigation(self):
         rows=self.archive.history_directory(self.history_filter.currentData()); self.battle_navigation=[r['id'] for r in rows]
         self.battle_jump.blockSignals(True); self.battle_jump.clear(); self.battle_jump.setPlaceholderText('选择已保存对局')
@@ -382,25 +342,39 @@ class MainWindow(QMainWindow):
     def edit_context(self,bid=None):
         bid=bid or self.current_id
         if not bid: self.notify('请先选择一场已保存对局'); return
-        ctx=self.archive.context(bid); d=Editor(self,'对局分类')
-        protocol=ctx.get('protocol_winner','unknown')
-        d.form.addRow('协议结算',label((protocol+' 方获胜') if protocol in ('A','B') else '未确认'))
+        ctx=self.archive.context(bid); d=Editor(self,'对局分类与结果校正')
+        code=ctx.get('result_code')
+        d.form.addRow('原始结算',label(f'代码 {code}（代码不直接等于A/B胜方）' if code is not None else '未读取到可用结算'))
         side=combo(['自动识别 / 待确认','A 方是我','B 方是我'])
         if ctx['side_origin']=='manual':side.setCurrentIndex(1 if ctx['own_team']=='A' else 2)
-        side.setEnabled(ctx['sample_kind']!='回放/观战' or ctx['mode_origin']=='identity');d.form.addRow('己方身份',side)
+        d.form.addRow('己方身份',side)
+        own_replay=QCheckBox('这是我本人的对局／回放，计入所选分类')
+        own_replay.setChecked(ctx.get('personal_confirmed',False));d.form.addRow(own_replay)
         remember=QCheckBox('记住所选玩家为本号，后续按身份自动判断方向')
         def enable_identity():
             valid=side.isEnabled() and side.currentIndex()>0 and [None,'A','B'][side.currentIndex()] in ctx.get('remember_identity_teams',[])
             remember.setEnabled(valid)
             if not valid:remember.setChecked(False)
-        side.currentIndexChanged.connect(enable_identity);enable_identity();d.form.addRow(remember)
+        def enable_side():
+            side.setEnabled(ctx['sample_kind']!='回放/观战' or own_replay.isChecked());enable_identity()
+        side.currentIndexChanged.connect(enable_identity);own_replay.toggled.connect(enable_side);enable_side();d.form.addRow(remember)
         d.form.addRow(label(ctx['side_reason'],'hint'))
         kind=combo(KINDS,ctx['sample_kind']); group=QLineEdit(ctx['dataset_group'])
         d.form.addRow('对局类型',kind); d.form.addRow('分组 / 赛季',group)
+        winner=QComboBox()
+        for text,value in [('未确认／清除本场校正',None),('A 方获胜','A'),('B 方获胜','B'),('平局','draw'),('确认无法判断','unknown')]:winner.addItem(text,value)
+        winner.setCurrentIndex(max(0,winner.findData(ctx.get('reviewed_winner'))));d.form.addRow('本场胜方',winner)
+        nick_a=QLineEdit(ctx.get('team_names',{}).get('A',''));nick_b=QLineEdit(ctx.get('team_names',{}).get('B',''))
+        nick_a.setPlaceholderText('未采集，可手动填写');nick_b.setPlaceholderText('未采集，可手动填写')
+        d.form.addRow('A 方昵称',nick_a);d.form.addRow('B 方昵称',nick_b)
+        d.form.addRow(label('本场校正独立保存，不改原始数据。自己的回放须选择己方和排位／竞技场等分类；没有胜负依据时保留未确认。','hint'))
         def save():
             own=[None,'A','B'][side.currentIndex()]
+            if len(group.text().strip())>100:raise ValueError('统计分组最多100字')
+            if own_replay.isChecked() and (own not in ('A','B') or kind.currentText() not in ('BP排位','竞技场','练习/测试')):raise ValueError('请先确认己方A/B，并选择排位、竞技场或练习分类')
             if remember.isChecked() and kind.currentText()=='回放/观战':raise ValueError('请先选择本人对局类型，再记住本号身份')
-            self.archive.set_perspective(bid,own,remember.isChecked()); self.archive.set_classification(bid,kind.currentText(),group.text()); self.refresh_all()
+            self.archive.set_review(bid,winner.currentData(),own_replay.isChecked(),{'A':nick_a.text(),'B':nick_b.text()})
+            self.archive.set_perspective(bid,own,remember.isChecked());self.archive.set_classification(bid,kind.currentText(),group.text());self.refresh_all()
         d.on_save=save; d.exec()
     def hero_name(self,identifier):return self.mappings['heroes'].get(str(identifier),f'角色 #{identifier}')
     def build_stats(self):

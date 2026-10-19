@@ -7,6 +7,7 @@ datas = [(str(project / name), '.') for name in (
     'RESULT_CANDIDATES.json', 'README.md', 'STATISTICS_PLAN.md',
     'SHARING_AND_UI.md', 'RESULT_VALIDATION.md', 'MAPPING_NOTES.md',
     'VALIDATION.md', 'MIGRATION.md', 'THIRD_PARTY_NOTICES.md')]
+datas.append((str(project / 'assets'), 'assets'))
 binaries = []
 
 # Optional reviewed capture runtime. No driver or third-party executable is
