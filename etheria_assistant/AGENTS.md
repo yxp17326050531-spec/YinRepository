@@ -52,5 +52,7 @@
 
 - 2.10.0队伍标题胜负标记须使用已有本场确认结果，未知双方均显示待确认；校正和撤销同步刷新，不按A/B位置默认胜负。宽窄窗口往返切换后须恢复布局，保留全部十四项与历史/映射/配装入口。
 
-- 发布版使用release_tools.py和Windows本机构建；不得将Linux产物称作Windows EXE。先回归、冻结启动检查，再打ZIP/校验和；发布锁定准确构建提交，不覆盖已有Release。私有仓库保持私有，不自动启用可能计费的云端构建。
+- 发布版使用release_tools.py和Windows本机构建；不得把Linux ELF改名当Windows EXE；交叉编译包必须使用真实PE GUI启动器和Windows运行库，未在Windows运行不得声称实机验证。先回归、冻结启动检查，再打ZIP/校验和；发布锁定准确构建提交，不覆盖已有Release。私有仓库保持私有，不自动启用可能计费的云端构建。
 - 发布资源须明确白名单，不将mapping_evidence.json、VALIDATION.md、RESULT_VALIDATION.md等分析证据或数据库/抓包/日志带入运行包。默认不捆绑dumpcap；显式--with-capture只接受审查清单、匹配哈希与x64运行库，禁止Npcap/WinPcap驱动和DLL；Npcap由用户官方安装。iOS暂缓。
+
+- build_portable.py是可复现的Windows应用本地运行库方案；依赖哈希固定，启动器为无CRT依赖的WinAPI程序。保持GUI子系统、Unicode路径与参数转发、完整_internal分发、Qt插件闭包和不带个人资料。便携包的源码资源检查不等于执行了Windows DLL。

@@ -90,3 +90,9 @@ Npcap官网明确说明免费版不得对外再分发；需要将Npcap集成进�
 ### iOS暂缓
 
 Qt for Python现有iOS部署工具，但当前Windows目录包、dumpcap进程与Npcap驱动无法直接搬到iPhone。需要macOS/Xcode签名部署、触控布局及另行设计手机端采集链路；本阶段先维护Windows发布版。
+
+## 可下载便携目录版
+
+build_portable.py可在Linux等主机交叉编译portable_launcher.c为真正的Windows x64 GUI PE，配合官方Windows嵌入式Python3.14.8和Windows版PySide6/Shiboken6.12.0组装目录版。需安装构建工具ziglang==0.14.1及pefile，把脚本INPUTS列出的三个官方文件放在inputs目录，再运行python build_portable.py --inputs 路径 --output 全新输出目录。输入必须通过固定SHA256校验；输出不接受与已有目录混合。
+
+这是应用自带Windows解释器的EXE入口，不是把Linux可执行文件改后缀，也不是Windows实机测试的替代。启动器只依赖Windows系统DLL，Qt及C++运行库保留为独立文件。最终ZIP包含运行资源、许可证、BUILD_MANIFEST.json，外侧SHA256SUMS.txt核对整个包。用户只需解压并双击入口EXE，保留_internal；实时捕获继续复用系统Wireshark与Npcap。

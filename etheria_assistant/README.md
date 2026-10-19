@@ -8,7 +8,7 @@
 
 在更新后的Windows x64 Git工作目录运行build_windows.cmd。全部回归、PyInstaller构建及冻结程序启动检查成功后，release目录生成完整ZIP、SHA256SUMS.txt和release.json；接收者解压即可运行，无需Python。不要只分享EXE或混用不同版本的_internal目录。源码update.cmd不适用于冻结目录版。
 
-如需上传GitHub Release，安装GitHub CLI并完成gh auth login，再运行publish_release.cmd；脚本核对ZIP与准确构建提交，拒绝覆盖现有版本。当前仓库为私有，Release下载仍受仓库权限限制；流程不会更改可见性，也不自动启动云端构建。当前Linux维护环境仅验证脚本及源码启动，没有生成Windows EXE，不将准备好构建流程描述为二进制已发布。
+如需上传GitHub Release，安装GitHub CLI并完成gh auth login，再运行publish_release.cmd；脚本核对ZIP与准确构建提交，拒绝覆盖现有版本。当前仓库为私有，Release下载仍受仓库权限限制；流程不会更改可见性，也不自动启动云端构建。PyInstaller方案须在Windows执行；另提供build_portable.py，在其他主机交叉编译真正的Windows x64 GUI启动器，搭配官方Windows嵌入式Python与Windows版PySide6轮子生成目录包。便携包无需系统Python；已完成PE格式、归档和资源检查，不将这些检查称作Windows实机验证。
 
 免费默认包复用系统已有Wireshark/dumpcap及Npcap，设置页提供官方安装说明、下载入口和重新检测。Npcap驱动须另行安装；不捆绑免费安装器或从系统拷出的DLL。以后可用经审查的vendor/dumpcap清单及--with-capture打包同版本dumpcap/DLL，细节见SHARING_AND_UI.md。
 
@@ -205,3 +205,11 @@ etheria_assistant\update.cmd
 `python -m unittest discover -v`。无图形 Linux 环境用 `QT_QPA_PLATFORM=offscreen`。129 项协议、SQLite、日志清理、Qt、库存、回放、结算和 Git 更新回归；Windows 实机抓包和 DPI 尚未在当前环境验证。
 
 后续直接修改本仓库的 `main` 分支；不要每次生成完整压缩包。可选 `build_windows.cmd` 仍可制作 EXE，日常迭代无需执行。
+
+## Windows便携EXE目录包
+
+build_portable.py使用原生WinAPI GUI启动器（portable_launcher.c）和独立Windows运行库；输入固定为Python3.14.8嵌入式amd64 ZIP、PySide6-Essentials6.12.0及Shiboken6.12.0的Windows轮子，核对官方SHA256。构建工具为Zig0.14.1与pefile，仅构建端使用。DLL按QtCore/Gui/Widgets及图像、平台、样式插件的依赖闭包收取，不包含Qt开发工具或无关QML模块。
+
+接收者完整解压后运行EtheriaAssistant.exe，保留_internal；无需安装Python，不会写入系统Python环境。实际程序、图片和映射按明确依赖收取，原始数据与分析证据不入包。原生启动器转发参数与退出码，不调用shell，不申请管理员权限。Python早期异常写入本机startup-error.log。
+
+已生成并检查2.10.0便携包：Windows x64 GUI PE、ZIP CRC、逐文件SHA256、运行资源与隐私排除均通过；打包后的源码和资源在维护主机Qt上启动检查通过。当前环境无法启动Wine服务，Windows原生DLL与网卡运行仍未实机验证。目录包不是单独一个可任意拷走的EXE。
