@@ -11,6 +11,8 @@ EXTRA_ATTRIBUTES = {
     174: ('pvp_damage_reduction', 'PVP减伤'),
     41: ('extra_damage_reduction', '额外减伤'),
     58: ('ignore_defense', '无视防御'),
+    80: ('damage_result_bonus', '伤害结果增伤'),
+    83: ('damage_result_reduction', '伤害结果减伤'),
     179: ('boss_damage_bonus', '首领增伤'),
     180: ('crit_damage_bonus', '暴击增伤'),
     183: ('crit_damage_reduction', '被暴击减伤'),
@@ -42,10 +44,12 @@ def pending_attributes(unit):
 
 def extra_text(unit):
     values = decode_extra_attributes(unit.get('attributes_raw'))
-    lines = ['对局开场属性总值（已含同类科技、元件等贡献，不再次叠加库存）：']
+    lines = ['对局开场已下发属性（同一字段直接显示，不再次叠加库存）：']
     lines.extend(f'{name}：{values[key]:g}%' if key in values else f'{name}：—'
                  for key, name in EXTRA_ATTRIBUTES.values())
-    lines.append('这是阵容消息下发的开场数值；不推算条件技能触发后的伤害。')
+    lines.extend(['PVP字段已对照科技与元件的合计；其他字段不保证含全部矩阵或技能效果。',
+                  '额外减伤与伤害结果减伤分别显示，不相加为最终减伤率。',
+                  '这是阵容消息下发的开场数值；不推算条件技能触发后的伤害。'])
     return '\n'.join(lines)
 
 

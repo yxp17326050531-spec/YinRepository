@@ -1283,5 +1283,60 @@
       "没有确认条件技能或战斗中的实时属性变化。",
       "只保留映射与最小对照证据，不提交个人阵容、完整属性数组或抓包。"
     ]
+  },
+  "controlled_shell_result_attributes": {
+    "source_files": [
+      "etheria_battle减伤琥珀.json",
+      "etheria_battle增伤琥珀（普通增伤）.json",
+      "etheria_battle同属性增伤.json"
+    ],
+    "friendly_units": 2,
+    "enemy_units": 4,
+    "unchanged_control_units": 5,
+    "manual_annotations_empty": true,
+    "effects_unchanged_across_three": true,
+    "changed_tags": [
+      13,
+      80,
+      83
+    ],
+    "verified_tags": {
+      "80": "普通伤害结果增伤",
+      "83": "伤害结果减伤"
+    },
+    "result_magnitude_percent_by_state": {
+      "减伤": [
+        0,
+        7.5
+      ],
+      "普通增伤": [
+        6.5,
+        0
+      ],
+      "同属性": [
+        0,
+        0
+      ]
+    },
+    "component_extra_reduction_unchanged_percent": 7.2,
+    "other_friendly_fields_47_94_unchanged": true,
+    "limitations": [
+      "同属性未观察到独立新阵容属性，未验证触发条件。",
+      "速度也有小幅变化，未误归入增减伤。",
+      "额外减伤41与伤害结果减伤83分别显示，不推定乘区。",
+      "不提交完整阵容、属性数组或截图。"
+    ]
+  },
+  "matrix_description_scope_observation": {
+    "source_image": "image(20261019-083127).png",
+    "description_fountain_reduction_percent": 25,
+    "observed_tag41_magnitude_percent": 10,
+    "difference_unresolved": true,
+    "outgoing_healing_shield_descriptions_percent": [
+      25,
+      12
+    ],
+    "policy": "PVP合计已验证；其他字段只显示开场已下发值，不按说明补算、不声称全部矩阵技能已计入。",
+    "fields_47_94": "仍未消歧，按角色独立比较，不与施加方效果混加。"
   }
 }

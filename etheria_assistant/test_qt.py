@@ -284,8 +284,9 @@ class QtTests(unittest.TestCase):
     def test_home_and_details_show_both_teams_totals_once_missing_and_zero(self):
         b=copy.deepcopy(self.battle);b['capture_time']+=100
         b['teams']['A'][0]['attributes_raw']=[(121<<8)|171,(1<<63)|(187<<8)|174,
-                                            (1<<63)|(73<<8)|41,(116<<8)|58,(88<<8)|179]
-        b['teams']['B'][0]['attributes_raw']=[171,(1<<63)|(55<<8)|174]
+                                            (1<<63)|(73<<8)|41,(116<<8)|58,(88<<8)|179,
+                                            (63<<8)|80,(1<<63)|(74<<8)|83]
+        b['teams']['B'][0]['attributes_raw']=[171,(1<<63)|(55<<8)|174,83]
         before=copy.deepcopy(b)
         # A local bag must never add its values to transmitted totals or an opponent.
         self.window.bag_snapshot={'components':[{'uid':9,'attributes_raw':[(900<<16)|5]}]}
@@ -294,12 +295,14 @@ class QtTests(unittest.TestCase):
         values={w.accessibleName():w for w in self.window.findChildren(QLabel) if w.isVisibleTo(self.window.stack.widget(0))}
         for team,key,value in [('A','PVP增伤','12.1%'),('A','PVP减伤','18.7%'),
                                ('A','额外减伤','7.3%'),('A','无视防御','11.6%'),
-                               ('B','PVP增伤','0%'),('B','PVP减伤','5.5%'),('B','额外减伤','—')]:
+                               ('A','结果增伤','6.3%'),('A','结果减伤','7.4%'),
+                               ('B','PVP增伤','0%'),('B','PVP减伤','5.5%'),('B','额外减伤','—'),
+                               ('B','结果增伤','—'),('B','结果减伤','0%')]:
             self.assertEqual(values[f'{team}方 30153 {key}'].text(),value)
         self.assertIn('对局开场总值',values['A方 30153 PVP增伤'].toolTip())
-        # The overview's lower tables must not compress the three attribute rows.
+        # The overview's lower tables must not compress any attribute row.
         self.window.resize(1536,960);self.app.processEvents()
-        for name in ('生命','暴击率','PVP增伤'):
+        for name in ('生命','暴击率','PVP增伤','结果增伤'):
             metric=values[f'A方 30153 {name}']
             self.assertGreaterEqual(metric.height(),metric.sizeHint().height())
         def inspect(dialog):
@@ -307,7 +310,21 @@ class QtTests(unittest.TestCase):
             totals=next(t for t in texts if '不再次叠加库存' in t)
             self.assertIn('首领增伤：8.8%',totals)
             self.assertIn('PVP减伤：18.7%',totals)
+            self.assertIn('伤害结果增伤：6.3%',totals)
+            self.assertIn('伤害结果减伤：7.4%',totals)
         self.modal(inspect);self.window.details(self.window.latest['teams']['A'][0])
         self.assertEqual(self.archive.get(bid)['original'],before)
+        # Navigating while visible creates children before style polishing.
+        # Repeated renders must reserve the styled height, including the frame.
+        for width,height in ((1536,960),(1050,700),(1536,960)):
+            self.window.resize(width,height);self.window.browse_battle(bid);self.app.processEvents()
+            self.app.processEvents()  # Complete nested layout requests after direction changes.
+            for metric in self.window.findChildren(QLabel):
+                if metric.accessibleName() and metric.isVisibleTo(self.window.stack.widget(0)):
+                    self.assertGreaterEqual(metric.height(),metric.sizeHint().height(),metric.accessibleName())
+            for roster in self.window.team_layouts.values():
+                cards=[roster.itemAt(i).widget() for i in range(roster.count())]
+                for first,second in zip(cards,cards[1:]):
+                    self.assertGreaterEqual(second.y(),first.y()+first.height())
 
 if __name__=='__main__':unittest.main()

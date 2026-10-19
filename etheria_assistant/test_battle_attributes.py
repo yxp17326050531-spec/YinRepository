@@ -80,5 +80,34 @@ class BattleAttributeTests(unittest.TestCase):
         unit.pop('attributes_raw')
         self.assertEqual(project_unit(unit,load_mappings())['extra_attributes'],{})
 
+    def test_shell_result_damage_and_component_reduction_are_separate_in_live_and_replay(self):
+        base=self.roster()
+        from core import fields,record
+        teams=[]
+        extra=[(64<<8)|80,(1<<63)|(76<<8)|83,(1<<63)|(82<<8)|41]
+        for team,wire,unit in fields(base):
+            data=record(unit)
+            teams.append(blob(team,scalar(1,data[1])+blob(4,data[4]+b''.join(vi(n) for n in extra))))
+        roster=b''.join(teams)
+        for battle in (decode_battle(blob(1,roster),load_mappings()),
+                       decode_replay(blob(2,blob(2,roster)),load_mappings())):
+            for team in ('A','B'):
+                unit=battle['teams'][team][0];values=unit['extra_attributes']
+                self.assertEqual(values['damage_result_bonus'],6.4)
+                self.assertEqual(values['damage_result_reduction'],7.6)
+                self.assertEqual(values['extra_damage_reduction'],8.2)
+                self.assertNotIn('final_damage_reduction',values)
+                self.assertTrue(all(n in unit['attributes_raw'] for n in extra))
+                text=extra_text(unit)
+                for part in ('伤害结果增伤：6.4%','伤害结果减伤：7.6%','额外减伤：8.2%',
+                             '不相加为最终减伤率','不保证含全部矩阵'):
+                    self.assertIn(part,text)
+
+    def test_unknown_condition_has_no_invented_value_and_duplicates_stay_pending(self):
+        raw=[80,(1<<63)|(71<<8)|83,(1<<63)|(72<<8)|83,(86<<8)|188]
+        self.assertEqual(decode_extra_attributes(raw),{'damage_result_bonus':0})
+        self.assertEqual([r['tag'] for r in pending_attributes({'attributes_raw':raw})],[83,83,188])
+        self.assertNotIn('同属性增伤',extra_text({'attributes_raw':raw}))
+
 
 if __name__=='__main__':unittest.main()
