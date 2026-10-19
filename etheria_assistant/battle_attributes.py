@@ -1,26 +1,61 @@
-"""Uninterpreted roster attributes for controlled equipment comparisons.
+"""Roster totals verified by wear/remove/restore comparisons.
 
-These tags are a different namespace from component attribute IDs. High bits
-are not assumed to be a sign, tier, or percent representation.
+Battle tags differ from component IDs. Only the explicitly verified tags use
+the observed bit-63 marker/magnitude encoding; unknown values stay untouched.
 """
-KNOWN_TAGS = frozenset((1, 5, 9, 13, 17, 20, 23, 26))
+from collections import Counter
+
+BASE_TAGS = frozenset((1, 5, 9, 13, 17, 20, 23, 26))
+EXTRA_ATTRIBUTES = {
+    171: ('pvp_damage_bonus', 'PVP增伤'),
+    174: ('pvp_damage_reduction', 'PVP减伤'),
+    41: ('extra_damage_reduction', '额外减伤'),
+    58: ('ignore_defense', '无视防御'),
+    179: ('boss_damage_bonus', '首领增伤'),
+    180: ('crit_damage_bonus', '暴击增伤'),
+    183: ('crit_damage_reduction', '被暴击减伤'),
+    191: ('ultimate_damage_reduction', '终极技能减伤'),
+    194: ('basic_damage_bonus', '普攻增伤'),
+    91: ('shield_bonus', '护盾量'),
+}
+MAGNITUDE_MASK = (1 << 63) - 1
+
+
+def decode_extra_attributes(raw):
+    """Use transmitted totals once. Duplicate known tags are ambiguous, not additive."""
+    if raw is None:
+        return {}
+    counts = Counter(value & 255 for value in raw)
+    return {EXTRA_ATTRIBUTES[value & 255][0]: ((value & MAGNITUDE_MASK) >> 8) / 10
+            for value in raw if (value & 255) in EXTRA_ATTRIBUTES and counts[value & 255] == 1}
 
 
 def pending_attributes(unit):
     raw = unit.get('attributes_raw')
     if raw is None:
         return None
+    counts = Counter(value & 255 for value in raw)
     return [{'tag': value & 255, 'raw': value, 'upper_raw': value >> 8}
-            for value in raw if (value & 255) not in KNOWN_TAGS]
+            for value in raw if (value & 255) not in BASE_TAGS and
+            ((value & 255) not in EXTRA_ATTRIBUTES or counts[value & 255] != 1)]
+
+
+def extra_text(unit):
+    values = decode_extra_attributes(unit.get('attributes_raw'))
+    lines = ['对局开场属性总值（已含同类科技、元件等贡献，不再次叠加库存）：']
+    lines.extend(f'{name}：{values[key]:g}%' if key in values else f'{name}：—'
+                 for key, name in EXTRA_ATTRIBUTES.values())
+    lines.append('这是阵容消息下发的开场数值；不推算条件技能触发后的伤害。')
+    return '\n'.join(lines)
 
 
 def pending_text(unit):
     rows = pending_attributes(unit)
-    intro = '增伤 / 减伤 / 无视防御：对局字段对应关系待确认。'
+    intro = '其他属性待对照；已确认增减伤在上方单独显示。'
     if rows is None:
         return intro + '\n此旧记录未保存属性整数，需重新导入抓包或采集一场新对局。'
     if not rows:
-        return intro + '\n本次阵容没有下发八项已知属性以外的属性整数；缺失不代表0。'
+        return intro + '\n本次阵容没有其他待对照属性；缺失不代表0。'
     lines = [intro, f'保留 {len(rows)} 项待对照属性。编号与元件编号独立，载荷不是已确认百分比。']
     lines.extend(f"#{r['tag']} · 原值 {r['raw']} · 高8位以上载荷 {r['upper_raw']}" for r in rows)
     return '\n'.join(lines)

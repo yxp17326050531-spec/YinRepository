@@ -13,6 +13,7 @@ import struct
 import time
 from pathlib import Path
 from battle_session import BattleSession, battle_identity
+from battle_attributes import decode_extra_attributes
 
 MAX_BODY = 2 * 1024 * 1024
 MAX_BLOCK = 16 * 1024 * 1024
@@ -402,6 +403,7 @@ def decode_roster(inner, mappings):
             'hero_id': hero, 'hero_name': mappings['heroes'].get(str(hero), f'角色 #{hero}'),
             'slot': f.get(2), 'stats': stats, 'percent_attributes_tentative': percents,
             'attributes_raw': attrs,
+            'extra_attributes': decode_extra_attributes(attrs),
             'shells': shells, 'matrix_effects_candidates': candidates,
             'imprints': mapped_imprints(effects,mappings),
             'effects_raw': effects, 'unknown_shell_effects': [e for e in effects if 38_000_000 <= e < 40_000_000 and not shell_effect_mapping(mappings,e)],

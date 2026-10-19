@@ -12,6 +12,7 @@ import sqlite3
 import uuid
 from core import shell_effect_mapping, record, mapped_imprints
 from battle_session import battle_identity
+from battle_attributes import decode_extra_attributes
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -474,6 +475,7 @@ def project_unit(unit, mappings, annotation=None):
     out['shells'] = []
     out['matrix_effects_candidates'] = []
     out['imprints'] = mapped_imprints(unit['effects_raw'],mappings)
+    out['extra_attributes'] = decode_extra_attributes(unit.get('attributes_raw'))
     for effect in unit['effects_raw']:
         shell = shell_effect_mapping(mappings, effect)
         if shell and shell not in out['shells']:

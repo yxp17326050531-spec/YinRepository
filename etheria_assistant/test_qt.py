@@ -271,14 +271,43 @@ class QtTests(unittest.TestCase):
 
     def test_battle_details_shows_pending_raw_without_claiming_percent_semantics(self):
         unit=copy.deepcopy(self.battle['teams']['B'][0])
-        raw=(1<<63)|(123<<8)|174;unit['attributes_raw']=[raw,171]
+        raw=(1<<63)|(123<<8)|188;unit['attributes_raw']=[raw,201]
         def inspect(dialog):
             texts=[w.toPlainText() for w in dialog.findChildren(QPlainTextEdit)]
-            pending=next(text for text in texts if '对局字段对应关系待确认' in text)
-            self.assertIn(str(raw),pending);self.assertIn('#171',pending)
+            pending=next(text for text in texts if '其他属性待对照' in text)
+            self.assertIn(str(raw),pending);self.assertIn('#201',pending)
             self.assertNotIn('12.3%',pending)
             original=json.loads(next(text for text in texts if text.startswith('{')))
-            self.assertEqual(original['attributes_raw'],[raw,171])
+            self.assertEqual(original['attributes_raw'],[raw,201])
         self.modal(inspect);self.window.details(unit)
+
+    def test_home_and_details_show_both_teams_totals_once_missing_and_zero(self):
+        b=copy.deepcopy(self.battle);b['capture_time']+=100
+        b['teams']['A'][0]['attributes_raw']=[(121<<8)|171,(1<<63)|(187<<8)|174,
+                                            (1<<63)|(73<<8)|41,(116<<8)|58,(88<<8)|179]
+        b['teams']['B'][0]['attributes_raw']=[171,(1<<63)|(55<<8)|174]
+        before=copy.deepcopy(b)
+        # A local bag must never add its values to transmitted totals or an opponent.
+        self.window.bag_snapshot={'components':[{'uid':9,'attributes_raw':[(900<<16)|5]}]}
+        bid=self.archive.save_battle(b,'synthetic totals');self.window.browse_battle(bid)
+        self.window.show();self.app.processEvents()
+        values={w.accessibleName():w for w in self.window.findChildren(QLabel) if w.isVisibleTo(self.window.stack.widget(0))}
+        for team,key,value in [('A','PVP增伤','12.1%'),('A','PVP减伤','18.7%'),
+                               ('A','额外减伤','7.3%'),('A','无视防御','11.6%'),
+                               ('B','PVP增伤','0%'),('B','PVP减伤','5.5%'),('B','额外减伤','—')]:
+            self.assertEqual(values[f'{team}方 30153 {key}'].text(),value)
+        self.assertIn('对局开场总值',values['A方 30153 PVP增伤'].toolTip())
+        # The overview's lower tables must not compress the three attribute rows.
+        self.window.resize(1536,960);self.app.processEvents()
+        for name in ('生命','暴击率','PVP增伤'):
+            metric=values[f'A方 30153 {name}']
+            self.assertGreaterEqual(metric.height(),metric.sizeHint().height())
+        def inspect(dialog):
+            texts=[w.toPlainText() for w in dialog.findChildren(QPlainTextEdit)]
+            totals=next(t for t in texts if '不再次叠加库存' in t)
+            self.assertIn('首领增伤：8.8%',totals)
+            self.assertIn('PVP减伤：18.7%',totals)
+        self.modal(inspect);self.window.details(self.window.latest['teams']['A'][0])
+        self.assertEqual(self.archive.get(bid)['original'],before)
 
 if __name__=='__main__':unittest.main()

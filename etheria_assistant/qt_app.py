@@ -27,9 +27,9 @@ from equipment import (project_gear, attribute_text, matches_gear, normalize_fil
                        normalize_sort, sort_gear, gear_sort_value)
 from inventory_widgets import GearFilterDialog
 from components import project_component, attribute_text as component_attribute_text, component_detail as component_detail_text
-from battle_attributes import pending_attributes, pending_text
+from battle_attributes import decode_extra_attributes, pending_attributes, pending_text, extra_text
 
-VERSION='2.6.6'
+VERSION='2.6.7'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 KINDS=['未分类','BP排位','竞技场','练习/测试']
@@ -225,10 +225,13 @@ class MainWindow(QMainWindow):
                 attributes=QWidget(); attributes.setFixedWidth(276); grid=QGridLayout(attributes)
                 grid.setContentsMargins(0,0,0,0); grid.setHorizontalSpacing(8); grid.setVerticalSpacing(8)
                 fields=[('hp','生命'),('attack','攻击'),('defense','防御'),('speed','速度'),
-                        ('crit','暴击率'),('crit_damage','暴击伤害'),('effect_hit','效果命中'),('effect_resist','效果抵抗')]
+                        ('crit','暴击率'),('crit_damage','暴击伤害'),('effect_hit','效果命中'),('effect_resist','效果抵抗'),
+                        ('pvp_damage_bonus','PVP增伤'),('pvp_damage_reduction','PVP减伤'),
+                        ('extra_damage_reduction','额外减伤'),('ignore_defense','无视防御')]
+                extra_values=decode_extra_attributes(unit.get('attributes_raw'))
                 for index,(key,title) in enumerate(fields):
                     percentage=index>=4
-                    values=(unit.get('percent_attributes_tentative') or {}) if percentage else unit['stats']
+                    values=extra_values if index>=8 else (unit.get('percent_attributes_tentative') or {}) if percentage else unit['stats']
                     value=values.get(key)
                     shown='—'
                     if isinstance(value,(int,float)):
@@ -238,7 +241,7 @@ class MainWindow(QMainWindow):
                     heading=label(title,'attributeTitle'); heading.setWordWrap(False); column.addWidget(heading)
                     metric=label(shown,'speed' if key=='speed' else 'statValue'); metric.setWordWrap(False)
                     metric.setAccessibleName(f"{team}方 {unit['hero_id']} {title}")
-                    metric.setToolTip(title+'：'+shown+(' · 沿用已观测百分比规则；未下发显示 —' if percentage else ''))
+                    metric.setToolTip(title+'：'+shown+(' · 对局开场总值，已含同类科技/元件等贡献；未下发显示 —' if index>=8 else ' · 沿用已观测百分比规则；未下发显示 —' if percentage else ''))
                     column.addWidget(metric); grid.addWidget(cell,index//4,index%4)
                 c.addWidget(attributes)
                 equipment=QWidget(); eq=QVBoxLayout(equipment); eq.setContentsMargins(0,0,0,0); eq.setSpacing(6)
@@ -246,9 +249,10 @@ class MainWindow(QMainWindow):
                 eq.addWidget(label(shell_text(unit),'shell')); eq.addWidget(label(matrix_text(unit),'hint'))
                 eq.addWidget(label(imprint_text(unit),'hint')); c.addWidget(equipment,1); layout.addWidget(card)
                 pending=pending_attributes(unit)
-                hint=label('增伤 / 减伤：待对照 · 点击详情','hint')
-                hint.setToolTip('对局属性原值未保存；可重新导入抓包。' if pending is None else f'已保留 {len(pending)} 项待对照属性；不以本号库存推算对手数据。')
+                hint=label('更多增减伤属性 · 点击详情' if extra_values else '增减伤未采集 · 点击详情','hint')
+                hint.setToolTip('对局属性原值未保存；可重新导入抓包。' if pending is None else f'总值直接读取双方各自的对局属性；另有 {len(pending)} 项待对照。')
                 eq.addWidget(hint)
+                card.setMinimumHeight(c.sizeHint().height())
     def refresh_battle_navigation(self):
         rows=self.archive.history_directory(); self.battle_navigation=[r['id'] for r in rows]
         self.battle_jump.blockSignals(True); self.battle_jump.clear(); self.battle_jump.setPlaceholderText('选择已保存对局')
@@ -325,6 +329,8 @@ class MainWindow(QMainWindow):
         d.on_save=save; d.actions.insertWidget(1,self.action('清除本场修正',clear)); d.exec()
     def details(self,u):
         d=Editor(self,u['hero_name']+' · 原始数据'); d.save.hide()
+        totals=QPlainTextEdit(extra_text(u));totals.setReadOnly(True);totals.setMinimumHeight(180)
+        d.form.addRow('增伤 / 减伤总值',totals)
         pending=QPlainTextEdit(pending_text(u));pending.setReadOnly(True);pending.setMinimumHeight(140)
         d.form.addRow('额外属性对照',pending)
         text=QPlainTextEdit(json.dumps(u,ensure_ascii=False,indent=2)); text.setReadOnly(True); text.setMinimumHeight(240); d.form.addRow(text)

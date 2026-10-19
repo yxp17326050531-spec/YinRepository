@@ -1231,5 +1231,57 @@
       "不存整队属性或账户数据。",
       "未知载荷及高位标记不命名，不将元件编号直接移用。"
     ]
+  },
+  "controlled_component_battle_totals": {
+    "source_files": [
+      "etheria_battle元件穿01.json",
+      "etheria_battle元件没穿01.json",
+      "etheria_battle元件穿02.json"
+    ],
+    "sequence": [
+      "穿戴",
+      "拆下",
+      "恢复"
+    ],
+    "friendly_unit_count": 3,
+    "attributes_per_unit": 59,
+    "restored_friendly_attributes_exact": true,
+    "restored_friendly_effects_exact": true,
+    "first_pair_enemy_units_unchanged": 4,
+    "third_enemy_roster_changed": true,
+    "manual_annotations_empty": true,
+    "technology_screenshot": "image(20261019-081504).png",
+    "technology_pvp_bonus_percent": 4,
+    "technology_pvp_reduction_percent": 4,
+    "verified_battle_tags": {
+      "171": "PVP增伤",
+      "174": "PVP减伤",
+      "41": "额外减伤",
+      "58": "无视防御",
+      "179": "首领增伤",
+      "180": "暴击增伤",
+      "183": "被暴击减伤",
+      "191": "终极技能减伤",
+      "194": "普攻增伤",
+      "91": "护盾量"
+    },
+    "pvp_bonus_delta_percentage_points": [
+      8,
+      7.7,
+      8
+    ],
+    "pvp_reduction_delta_percentage_points": [
+      13.8,
+      14.9,
+      14.5
+    ],
+    "decoding": "仅已对照tag：((raw & ((1<<63)-1)) >> 8) / 10；原值不变。",
+    "display_policy": "直接读取开场总值，不再次加科技/元件/库存。",
+    "limitations": [
+      "47/94同步变化尚未消歧；其余未对照tag及重复编号保持未知。",
+      "第三场敌方阵容不同，不声称敌方恢复一致。",
+      "没有确认条件技能或战斗中的实时属性变化。",
+      "只保留映射与最小对照证据，不提交个人阵容、完整属性数组或抓包。"
+    ]
   }
 }
