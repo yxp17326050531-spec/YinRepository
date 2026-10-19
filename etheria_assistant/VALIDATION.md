@@ -1,3 +1,9 @@
+# 2.6.3 Windows迁移日志清理顺序修复
+
+复现迁移测试的日志锁：unittest在tearDown之后才执行addCleanup；原先在tearDown删除临时目录，迁移Archive的runtime.log尚未由其addCleanup关闭。模拟Windows禁止删除打开日志的规则后，旧代码可稳定复现一次清理错误。现在在setUp先注册目录清理，使后注册的迁移日志清理按LIFO先执行，主Archive日志仍由tearDown关闭。
+
+新增一项永久回归测试，直接运行旧库迁移测试并在删除临时目录前拒绝仍打开的日志；保留日志流引用以避免依赖垃圾回收。全套80项测试通过，并额外对整个测试套件模拟Windows的SQLite/日志删除限制：1197个数据库连接、66次日志文件打开均最终关闭，65次目录删除检查通过。未在Windows实机重跑，不跳过失败测试或忽略删除错误。
+
 # 2.6.2 Windows临时数据库占用修复
 
 定位到4个测试中5处直接使用sqlite3连接的事务上下文，没有显式关闭连接；生产存储的Archive.connect和backup目标连接原本已在finally关闭。修复前在Linux执行这4个测试虽通过，保留全部连接引用后检查仍有5个连接可执行SQL，与Windows删除仍打开文件时报WinError 32的原因一致。

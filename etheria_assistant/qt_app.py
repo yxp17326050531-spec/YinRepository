@@ -27,7 +27,7 @@ from equipment import (project_gear, attribute_text, matches_gear, normalize_fil
                        normalize_sort, sort_gear, gear_sort_value)
 from inventory_widgets import GearFilterDialog
 
-VERSION='2.6.2'
+VERSION='2.6.3'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 KINDS=['未分类','BP排位','竞技场','练习/测试']

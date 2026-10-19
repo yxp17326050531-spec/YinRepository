@@ -23,12 +23,14 @@ def gear_messages():
 class DataTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
+        # unittest runs tearDown before addCleanup callbacks. Register removal
+        # first so the legacy archive's later log cleanup runs before removal.
+        self.addCleanup(self.temp.cleanup)
         self.archive=Archive(self.temp.name)
 
     def tearDown(self):
         for handler in self.archive.logger.handlers[:]:
             handler.close();self.archive.logger.removeHandler(handler)
-        self.temp.cleanup()
 
     def test_inventory_is_saved_before_ui_and_restored_without_attribute_guessing(self):
         observations=[]

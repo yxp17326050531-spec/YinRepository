@@ -9,6 +9,7 @@
 - 数据、日志、pcap、凭据、虚拟环境不得提交。内置名称只是默认值，用户映射必须优先。
 - 运行 `QT_QPA_PLATFORM=offscreen python -m unittest discover -v`（Windows 可直接 python）；只增加行为回归，避免重复测试实现。
 - 测试中的sqlite3连接必须显式close或使用contextlib.closing；连接本身的with仅提交/回滚，不关闭文件。写入夹具还须保留事务提交，避免Windows临时目录清理出现WinError 32。
+- unittest先tearDown再执行addCleanup，后者按LIFO执行。临时目录删除必须排在额外Archive的日志关闭之后；有附加资源清理时，在setUp先注册目录清理，不能在tearDown提前删除目录。保留Windows日志锁模拟回归检查。
 - 免费素材和依赖；额外付费预算为零。不要自动启用付费服务。
 
 - 强化增量：0x1132 field3 按 UID 合并字段，0x1134 field2 为等级、field3 为 UID 列表；缺失字段不是零，保留已存矩阵/标志。离线回放不得使用时间更晚的库存作基础。

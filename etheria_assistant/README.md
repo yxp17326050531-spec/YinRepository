@@ -1,4 +1,4 @@
-# 伊瑟 · 对局助手 2.6.2
+# 伊瑟 · 对局助手 2.6.3
 
 源码持续维护于 `yxp17326050531-spec/YinRepository` 的 `main` 分支。首次用 `setup_git.cmd` 安装到 Git 工作目录，之后通过 `update.cmd` 增量更新。
 
@@ -31,6 +31,10 @@ etheria_assistant\update.cmd
 ```
 
 如果切换因本地改动而停止，先保存或提交改动再重试；不要强制覆盖。数据库和用户名称映射仍沿用原位置。
+
+## Windows 迁移日志清理修复（2.6.3）
+
+修复旧库迁移测试的runtime.log释放顺序：先关闭迁移日志，再删除临时目录。新增模拟Windows日志删除限制的回归检查，避免Linux允许删除打开文件而漏检。此版本同时包含2.6.2的数据库连接关闭修复。
 
 ## Windows 更新测试修复（2.6.2）
 
@@ -103,6 +107,6 @@ etheria_assistant\update.cmd
 
 ## 开发与验证
 
-`python -m unittest discover -v`。无图形 Linux 环境用 `QT_QPA_PLATFORM=offscreen`。79 项协议、SQLite、Qt、回放、结算和 Git 更新回归；Windows 实机抓包和 DPI 尚未在当前环境验证。
+`python -m unittest discover -v`。无图形 Linux 环境用 `QT_QPA_PLATFORM=offscreen`。80 项协议、SQLite、日志清理、Qt、回放、结算和 Git 更新回归；Windows 实机抓包和 DPI 尚未在当前环境验证。
 
 后续直接修改本仓库的 `main` 分支；不要每次生成完整压缩包。可选 `build_windows.cmd` 仍可制作 EXE，日常迭代无需执行。
