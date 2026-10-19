@@ -395,12 +395,18 @@ class QtTests(unittest.TestCase):
         self.assertEqual(self.archive.get(bid)['original'],before)
         # Navigating while visible creates children before style polishing.
         # Repeated renders must reserve the styled height, including the frame.
-        for width,height in ((1536,960),(1050,700),(1536,960)):
+        # Wider glyph spacing reproduces Windows CJK metrics: a wrapping matrix
+        # label may prefer two lines in sizeHint(), yet fit on one at its actual
+        # layout width. Still reject real clipping at that width.
+        base_style=self.window.styleSheet()
+        for width,height,spacing in ((1536,960,0),(1050,700,0),(1536,960,7),(1050,700,7),(1536,960,0)):
+            self.window.setStyleSheet(base_style+f'\nQLabel#matrixName {{letter-spacing:{spacing}px;}}')
             self.window.resize(width,height);self.window.browse_battle(bid);self.app.processEvents()
             self.app.processEvents()  # Complete nested layout requests after direction changes.
             for metric in self.window.findChildren(QLabel):
                 if metric.accessibleName() and metric.isVisibleTo(self.window.stack.widget(0)):
-                    self.assertGreaterEqual(metric.height(),metric.sizeHint().height(),metric.accessibleName())
+                    required=metric.heightForWidth(metric.width()) if metric.hasHeightForWidth() else metric.sizeHint().height()
+                    self.assertGreaterEqual(metric.height(),required,metric.accessibleName())
             for roster in self.window.team_layouts.values():
                 cards=[roster.itemAt(i).widget() for i in range(roster.count())]
                 for first,second in zip(cards,cards[1:]):
