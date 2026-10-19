@@ -210,7 +210,7 @@ def tcp_packet(link, data):
 
 
 class Framer:
-    ANCHORS = {1, 3, 4, 0x5fc1, 0x6001, 0x6002, 0x6003, 0x6004, 0x8421, 0x1122, 0x1129, 0x1132, 0x1133, 0x1134, 0x8100}
+    ANCHORS = {1, 3, 4, 0x5fc1, 0x6001, 0x6002, 0x6003, 0x6004, 0x8421, 0x1122, 0x1129, 0x1132, 0x1133, 0x1134, 0x2961, 0x8100}
 
     def __init__(self, emit, warn):
         self.buffer = bytearray()
@@ -351,6 +351,14 @@ def shell_effect_mapping(mappings, effect):
     return None
 
 
+def mapped_imprints(effects, mappings):
+    found=[]
+    for effect in dict.fromkeys(effects):
+        item=mappings.get('imprint_effects',{}).get(str(effect))
+        if item:found.append(dict(item,effect_id=effect))
+    return found
+
+
 def decode_battle(body, mappings):
     outer = record(body)
     inner = outer.get(1)
@@ -394,6 +402,7 @@ def decode_roster(inner, mappings):
             'hero_id': hero, 'hero_name': mappings['heroes'].get(str(hero), f'角色 #{hero}'),
             'slot': f.get(2), 'stats': stats, 'percent_attributes_tentative': percents,
             'shells': shells, 'matrix_effects_candidates': candidates,
+            'imprints': mapped_imprints(effects,mappings),
             'effects_raw': effects, 'unknown_shell_effects': [e for e in effects if 38_000_000 <= e < 40_000_000 and not shell_effect_mapping(mappings,e)],
             'matrix_loadout_complete': False,
         })
@@ -435,6 +444,9 @@ class Inventory:
     def __init__(self, mappings):
         self.mappings = mappings
         self.heroes, self.shells, self.gear = {}, {}, {}
+        self.components, self.component_groups = {}, {}
+        self.components_observed = False
+        self.components_capture_time = None
         self.initial_sub_counts = {}
 
     def restore(self, snapshot):
@@ -449,6 +461,11 @@ class Inventory:
         def matrices(values):
             return pack([(m['points'] << 16) | m['id'] for m in values
                          if isinstance(m.get('id'), int) and isinstance(m.get('points'), int)])
+        if 'components' in snapshot:
+            self.components_observed=True
+            self.components_capture_time=snapshot.get('components_capture_time',snapshot.get('capture_time'))
+            self.components={r['uid']:dict(r,attributes_raw=list(r.get('attributes_raw',[]))) for r in snapshot['components']}
+            self.component_groups={r['id_raw']:dict(r,component_uids_raw=list(r.get('component_uids_raw',[]))) for r in snapshot.get('component_groups',[])}
         for g in snapshot.get('gear', []):
             item = {1:g['uid'], 4:pack(g.get('attributes_raw', []))}
             for field, key in [(2,'config_id'), (3,'level'), (6,'flag_raw')]:
@@ -471,6 +488,28 @@ class Inventory:
             self.heroes[h['base_id']] = item
 
     def update(self, op, body):
+        if op == 0x2961:
+            components,groups={},{}
+            for f,w,data in fields(body):
+                if f not in (1,2) or w!=2:continue
+                item=record(data);uid=item.get(1)
+                if not isinstance(uid,int) or uid<=0:raise ValueError('元件记录缺少有效编号')
+                if f==2:
+                    if not isinstance(item.get(2),int) or not isinstance(item.get(5),bytes):
+                        raise ValueError('元件结构与登录样本不符')
+                    if uid in components:raise ValueError('元件编号重复')
+                    components[uid]={'uid':uid,'config_id_raw':item[2],'field3_raw':item.get(3),
+                                     'attributes_raw':packed(item[5]),'field6_raw':item.get(6)}
+                else:
+                    if not isinstance(item.get(3),bytes):raise ValueError('元件装配结构与登录样本不符')
+                    if uid in groups:raise ValueError('元件装配分组重复')
+                    groups[uid]={'id_raw':uid,'field2_raw':item.get(2),'component_uids_raw':packed(item[3])}
+            if not groups and not components:raise ValueError('未收到元件快照结构，保留已有记录')
+            # This is the observed login snapshot, not an inferred incremental patch.
+            self.components,self.component_groups=components,groups
+            self.components_observed=True
+            self.components_capture_time=None
+            return
         if op == 0x1134:
             response = record(body)
             level = response.get(2)
@@ -538,9 +577,16 @@ class Inventory:
                    'normal_gear_uids': packed(r.get(10, b'')),
                    'arena_gear_uids': packed(r.get(12, b''))}
                   for uid, r in sorted(self.heroes.items())]
+        extra={}
+        if self.components_observed:
+            extra={'components':[dict(v,attributes_raw=list(v['attributes_raw'])) for k,v in sorted(self.components.items())],
+                   'component_groups':[dict(v,component_uids_raw=list(v['component_uids_raw'])) for k,v in sorted(self.component_groups.items())],
+                   'components_capture_time':self.components_capture_time if self.components_capture_time is not None else timestamp,
+                   'component_status':'0x2961登录快照；按数量与装配引用定位，字段3/6及属性含义待详情对照，未接入实时变更'}
         return {'schema': 'etheria-local-inventory-v1', 'capture_time': timestamp,
                 'observed_opcodes': sorted(observed), 'heroes': heroes,
                 'shells': shells, 'gear': gear, 'loadout_rows': self.rows(),
+                **extra,
                 'notes': ['仅本地已观测库存，不保证完整或最新；会沿用时间允许的已保存资料。',
                           '原始属性保留，界面按已对照规则解码；未知属性不猜测。']}
 
@@ -652,8 +698,9 @@ class Engine:
                 else:self.counts['duplicate_openings'] += 1
             elif op == 0x8421:
                 self.replay_message(body,timestamp,connection)
-            elif op in (0x1122, 0x1129, 0x1132, 0x1133, 0x1134):
+            elif op in (0x1122, 0x1129, 0x1132, 0x1133, 0x1134, 0x2961):
                 self.inventory.update(op, body)
+                if op==0x2961:self.inventory.components_capture_time=timestamp
                 self.emit('inventory', self.inventory.rows())
                 self.inventory_observed.add(op)
                 self.emit('inventory_snapshot', self.inventory.snapshot(timestamp, self.inventory_observed))

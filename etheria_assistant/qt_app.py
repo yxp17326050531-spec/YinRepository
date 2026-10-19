@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame, QLabe
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QComboBox,
     QLineEdit, QSpinBox, QCheckBox, QPlainTextEdit, QTabWidget, QDialog,
     QDialogButtonBox, QFormLayout, QFileDialog, QMessageBox, QButtonGroup, QSplitter, QBoxLayout)
-from capture import CaptureJob, find_dumpcap, shell_text, matrix_text, HIDE_CONSOLE
+from capture import CaptureJob, find_dumpcap, shell_text, matrix_text, imprint_text, HIDE_CONSOLE
 from core import load_mappings, shell_config_name, matrix_name
 from storage import Archive, project_unit, unit_key, shell_candidates
 from analytics import analyse, rank_statistics
@@ -27,7 +27,7 @@ from equipment import (project_gear, attribute_text, matches_gear, normalize_fil
                        normalize_sort, sort_gear, gear_sort_value)
 from inventory_widgets import GearFilterDialog
 
-VERSION='2.6.4'
+VERSION='2.6.5'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 KINDS=['未分类','BP排位','竞技场','练习/测试']
@@ -241,7 +241,8 @@ class MainWindow(QMainWindow):
                 c.addWidget(attributes)
                 equipment=QWidget(); eq=QVBoxLayout(equipment); eq.setContentsMargins(0,0,0,0); eq.setSpacing(6)
                 eq.addWidget(label('智壳 / 矩阵效果','attributeTitle'))
-                eq.addWidget(label(shell_text(unit),'shell')); eq.addWidget(label(matrix_text(unit),'hint')); c.addWidget(equipment,1); layout.addWidget(card)
+                eq.addWidget(label(shell_text(unit),'shell')); eq.addWidget(label(matrix_text(unit),'hint'))
+                eq.addWidget(label(imprint_text(unit),'hint')); c.addWidget(equipment,1); layout.addWidget(card)
     def refresh_battle_navigation(self):
         rows=self.archive.history_directory(); self.battle_navigation=[r['id'] for r in rows]
         self.battle_jump.blockSignals(True); self.battle_jump.clear(); self.battle_jump.setPlaceholderText('选择已保存对局')
@@ -369,7 +370,7 @@ class MainWindow(QMainWindow):
             fill(t,rows or [['暂无足够的已分类样本','—','—']])
     def build_inventory(self):
         layout=self.page(); self.bag_info=label('','hint'); layout.addWidget(self.bag_info)
-        bar=QHBoxLayout(); self.gear_query=QLineEdit(); self.gear_query.setPlaceholderText('搜索矩阵 / 角色 / 源器编号'); self.gear_query.textChanged.connect(lambda _:self.render_inventory()); bar.addWidget(self.gear_query,1)
+        bar=QHBoxLayout(); self.gear_query=QLineEdit(); self.gear_query.setPlaceholderText('搜索矩阵 / 角色 / 源器或元件编号'); self.gear_query.textChanged.connect(lambda _:self.render_inventory()); bar.addWidget(self.gear_query,1)
         bar.addWidget(self.action('分类筛选',self.edit_gear_filters,True))
         bar.addWidget(self.action('清除筛选',self.clear_gear_filters))
         bar.addWidget(self.action('校正分类',self.edit_gear_metadata))
@@ -385,10 +386,14 @@ class MainWindow(QMainWindow):
         for w in (self.gear_sort_key,self.gear_sort_scope,self.gear_sort_order):sorting.addWidget(w); w.currentIndexChanged.connect(self.change_gear_sort)
         sorting.addStretch(); sorting.addWidget(label('按解码小数值排序 · 缺少该属性的源器排在末尾','hint')); layout.addLayout(sorting)
         self.gear_filter_info=label('','hint'); layout.addWidget(self.gear_filter_info)
-        tabs=QTabWidget(); self.gear_table=table(['源器编号','等级','排序数值','矩阵','点数','稀有度','初始副属性','主属性','副属性','装备关联']); self.loadout_table=table(['角色','精确编号','配装类型','智壳','矩阵'])
+        tabs=QTabWidget(); self.inventory_tabs=tabs; self.gear_table=table(['源器编号','等级','排序数值','矩阵','点数','稀有度','初始副属性','主属性','副属性','装备关联']); self.loadout_table=table(['角色','精确编号','配装类型','智壳','矩阵'])
         tabs.addTab(self.gear_table,'源器背包'); tabs.addTab(self.loadout_table,'本号智壳与矩阵'); layout.addWidget(tabs,1)
+        self.component_table=table(['元件编号','配置编号（待对照）','属性项数','装配引用'])
+        tabs.addTab(self.component_table,'元件 · 原始数据')
         self.gear_details=QPlainTextEdit(); self.gear_details.setReadOnly(True); self.gear_details.setMaximumHeight(180); layout.addWidget(self.gear_details)
         self.gear_table.itemSelectionChanged.connect(self.gear_detail)
+        self.component_table.itemSelectionChanged.connect(self.component_detail)
+        tabs.currentChanged.connect(lambda _:self.component_detail() if tabs.currentWidget()==self.component_table else self.gear_detail())
         self.gear_table.cellDoubleClicked.connect(lambda r,c:self.edit_gear_metadata())
     def change_gear_sort(self):
         self.gear_sort=normalize_sort({'key':self.gear_sort_key.currentData(),'scope':self.gear_sort_scope.currentData(),
@@ -453,10 +458,35 @@ class MainWindow(QMainWindow):
             values=[self.hero_name(r['hero_id']),r['hero_id'],r['mode'],shell_config_name(self.mappings,r['shell_config_id']),' / '.join(f"{matrix_name(self.mappings,m['id'])} +{m['points']}" for m in r['matrices'])+('（数据不全）' if r['incomplete'] else '')]
             if not query or query in ' '.join(map(str,values)).lower():loads.append(values)
         fill(self.loadout_table,loads)
-        self.bag_info.setText(f"筛出 {len(rows)} / {len(snap.get('gear',[]))} 件源器 · 智壳 {len(snap.get('shells',[]))} 个 · 采集 {stamp(snap.get('capture_time'))}")
+        old_component_row=self.component_table.currentRow()
+        selected_component=self.component_display[old_component_row]['uid'] if hasattr(self,'component_display') and 0<=old_component_row<len(self.component_display) else None
+        references={}
+        for group in snap.get('component_groups',[]):
+            for slot,uid in enumerate(group.get('component_uids_raw',[]),1):
+                if uid:references.setdefault(uid,[]).append(f"分组{group['id_raw']} · 槽{slot}")
+        component_rows=[];self.component_display=[]
+        for item in snap.get('components',[]):
+            values=[item['uid'],item.get('config_id_raw','—'),len(item.get('attributes_raw',[])),
+                    ' / '.join(references.get(item['uid'],[])) or '无已观测引用']
+            if query and query not in ' '.join(map(str,values)).lower():continue
+            component_rows.append(values);self.component_display.append(item)
+        self.component_table.blockSignals(True);fill(self.component_table,component_rows)
+        self.component_table.clearSelection();self.component_table.setCurrentCell(-1,-1)
+        for i,item in enumerate(self.component_display):
+            if item['uid']==selected_component:self.component_table.selectRow(i);break
+        self.component_table.blockSignals(False)
+        component_count=f"{len(snap['components'])} 件" if 'components' in snap else '未采集'
+        component_time=f" · 元件观测 {stamp(snap.get('components_capture_time'))}" if 'components' in snap else ''
+        self.bag_info.setText(f"筛出 {len(rows)} / {len(snap.get('gear',[]))} 件源器 · 智壳 {len(snap.get('shells',[]))} 个 · 元件 {component_count} · 采集 {stamp(snap.get('capture_time'))}"+component_time)
         self.gear_filter_info.setText(filter_summary(self.gear_filters,filter_options(self.mappings,snap.get('gear',[]))))
         self.gear_details.setPlainText('点击源器查看属性与原值。主副属性按已对照规则解码；未确认字段显示未知。稀有度和初始副属性条数可通过“校正分类”记录。')
-        self.gear_detail()
+        if self.inventory_tabs.currentWidget()==self.component_table:self.component_detail()
+        else:self.gear_detail()
+    def component_detail(self):
+        row=self.component_table.currentRow()
+        if not hasattr(self,'component_display') or not 0<=row<len(self.component_display):
+            self.gear_details.setPlainText('元件仅记录登录快照。选择元件查看原值；属性名称、字段3/6及装配分组类型尚待对照，源器分类和属性排序不作用于元件。');return
+        self.gear_details.setPlainText(json.dumps(self.component_display[row],ensure_ascii=False,indent=2))
     def gear_detail(self):
         row=self.gear_table.currentRow()
         if 0<=row<len(self.gear_display):

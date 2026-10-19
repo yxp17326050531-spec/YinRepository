@@ -234,4 +234,23 @@ class QtTests(unittest.TestCase):
         self.assertIn('奋进 效果 · 档位待确认（用户映射）',displayed())
         self.assertEqual(self.archive.get(bid)['original'],b)
 
+    def test_component_tab_and_imprint_placeholder_keep_raw_values(self):
+        from core import Inventory
+        from test_components import component_message
+        inventory=Inventory(load_mappings());inventory.update(0x2961,component_message())
+        self.window.bag_snapshot=inventory.snapshot(100,[0x2961]);self.window.render_inventory()
+        self.assertIn('元件 3 件',self.window.bag_info.text())
+        self.window.navigate(2);self.window.inventory_tabs.setCurrentWidget(self.window.component_table)
+        self.assertEqual(self.window.component_table.rowCount(),3)
+        self.window.component_table.selectRow(1)
+        detail=json.loads(self.window.gear_details.toPlainText())
+        self.assertEqual(detail['uid'],42);self.assertEqual(detail['field3_raw'],0)
+        self.window.gear_query.setText('90003')
+        self.assertEqual(self.window.component_table.rowCount(),1)
+        self.assertEqual(self.window.component_table.item(0,0).text(),'43')
+        b=copy.deepcopy(self.battle);b['teams']['A'][0]['effects_raw'].append(83889586)
+        bid=self.archive.save_battle(b,'synthetic imprint');self.window.browse_battle(bid)
+        self.window.show();self.app.processEvents()
+        self.assertIn('刻影：屠夫',[w.text() for w in self.window.findChildren(QLabel) if w.isVisibleTo(self.window.stack.widget(0))])
+
 if __name__=='__main__':unittest.main()

@@ -1,5 +1,5 @@
 {
-  "version": "2.6.4",
+  "version": "2.6.5",
   "notes": [
     "背包配置匹配和战斗效果编号推定分别标记。",
     "唯一匹配是在已提供账号样本中的结果，不是官方协议定义。",
@@ -1134,6 +1134,32 @@
       "仅确认效果名称，未提供拆卸前后准确点数，生效档位待确认。",
       "数组下标不作为协议语义，不按位置或公式推导其他矩阵。",
       "83889586、33、35在两份记录中保持不变，具体含义未知。"
+    ]
+  },
+  "user_confirmed_imprints": {
+    "83889586": {
+      "name": "屠夫",
+      "category": "刻影",
+      "confidence": "用户确认",
+      "source": "用户在对话中直接确认；不归为矩阵或智壳"
+    }
+  },
+  "component_login_observation": {
+    "source_file": "装备数据.pcapng",
+    "opcode": "0x2961",
+    "records_field": 2,
+    "record_count": 59,
+    "unique_uid_count": 59,
+    "config_value_count": 23,
+    "groups_field": 1,
+    "group_count": 8,
+    "slots_per_group": 4,
+    "nonzero_reference_count": 20,
+    "all_nonzero_references_resolved": true,
+    "limitations": [
+      "仅记录原始字段，元件字段3/6和属性编码尚待详情图核对。",
+      "仅支持已观测登录快照，不承诺实时状态。",
+      "不保存完整个人库存样本到代码仓库。"
     ]
   }
 }

@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 import sqlite3
 import uuid
-from core import shell_effect_mapping, record
+from core import shell_effect_mapping, record, mapped_imprints
 from battle_session import battle_identity
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -331,7 +331,7 @@ class Archive:
                        encode({'winner':winner,'sample_kind':sample_kind,'dataset_group':dataset_group.strip(),'origin':'manual'})))
 
     def save_inventory(self, snapshot, source):
-        content = {k:v for k,v in snapshot.items() if k not in ('capture_time','archive_id','loadout_rows')}
+        content = {k:v for k,v in snapshot.items() if k not in ('capture_time','archive_id','loadout_rows','components_capture_time')}
         identity = hashlib.sha256(encode(content).encode()).hexdigest()
         with self.connect() as db:
             db.execute('''INSERT INTO inventory_snapshots VALUES (?,?,?,?,?)
@@ -347,7 +347,25 @@ class Archive:
             row = db.execute('SELECT * FROM inventory_snapshots'+condition+
                              ' ORDER BY capture_time DESC,saved_at DESC,rowid DESC LIMIT 1',
                              (before,) if before is not None else ()).fetchone()
-        return {'id':row['id'],'source':row['source'],'data':json.loads(row['data'])} if row else None
+            if not row:return None
+            data=json.loads(row['data'])
+            # Pre-component app versions could save a newer gear snapshot with
+            # this category absent. Absence is not an observed empty inventory.
+            if 'components' not in data and row['capture_time'] is not None:
+                previous=db.execute('''SELECT capture_time,data FROM inventory_snapshots
+                    WHERE capture_time<=? AND data LIKE ?
+                    ORDER BY capture_time DESC,saved_at DESC,rowid DESC''',
+                    (row['capture_time'],'%"components":%'))
+                try:
+                    for older in previous:
+                        known=json.loads(older['data'])
+                        if 'components' not in known:continue
+                        for key in ('components','component_groups','component_status'):
+                            if key in known:data[key]=known[key]
+                        data['components_capture_time']=known.get('components_capture_time',older['capture_time'])
+                        break
+                finally:previous.close()
+        return {'id':row['id'],'source':row['source'],'data':data}
 
     def gear_metadata(self):
         with self.connect() as db:
@@ -455,6 +473,7 @@ def project_unit(unit, mappings, annotation=None):
     out['hero_name'] = mappings['heroes'].get(str(unit['hero_id']), f"角色 #{unit['hero_id']}")
     out['shells'] = []
     out['matrix_effects_candidates'] = []
+    out['imprints'] = mapped_imprints(unit['effects_raw'],mappings)
     for effect in unit['effects_raw']:
         shell = shell_effect_mapping(mappings, effect)
         if shell and shell not in out['shells']:

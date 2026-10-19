@@ -27,6 +27,11 @@ def shell_text(unit):
     return '待识别' if unit['unknown_shell_effects'] else '未识别 / 未下发'
 
 
+def imprint_text(unit):
+    names=list(dict.fromkeys(item['name'] for item in unit.get('imprints',[])))
+    return '刻影：'+(' / '.join(names) if names else '待识别')
+
+
 def matrix_text(unit):
     if unit.get('manual') and unit['manual'].get('matrices') is not None:
         items = unit['manual']['matrices']
