@@ -44,6 +44,8 @@ class QtTests(unittest.TestCase):
             d.findChildren(QComboBox)[0].setCurrentText('B 方是我'); d.commit()
         self.modal(edit);self.window.edit_context(self.bid)
         self.assertIn('失败',self.window.battle_info.text())
+        self.assertEqual(self.window.team_outcomes['A'].text(),'胜')
+        self.assertEqual(self.window.team_outcomes['B'].text(),'负')
         self.assertIn('己方',self.window.team_titles['B'].text())
         self.assertEqual(self.window.team_titles['B'].objectName(),'ownTeam')
         self.assertEqual(self.archive.get(self.bid)['original'],original)
@@ -99,7 +101,7 @@ class QtTests(unittest.TestCase):
                 u['attributes_raw'] += [(n<<8)|tag for tag,n in [(171,121),(174,187),(41,73),(58,116),(80,63),(83,74)]]
                 b['teams'][team].append(u)
         bid=self.archive.save_battle(b,'synthetic eight');self.window.browse_battle(bid);self.window.show()
-        for width,height in ((1280,800),(1366,768)):
+        for width,height in ((1280,800),(2048,1017),(1366,768),(1280,800)):
             self.window.resize(width,height);self.app.processEvents();self.app.processEvents()
             viewport=self.window.battle_scroll.viewport();count=0
             for roster in self.window.team_layouts.values():
@@ -114,6 +116,16 @@ class QtTests(unittest.TestCase):
             self.assertEqual(self.window.battle_scroll.horizontalScrollBar().maximum(),0)
             self.assertEqual(self.window.battle_scroll.verticalScrollBar().maximum(),0)
         self.assertFalse(self.window.record_info.isVisible());self.assertFalse(self.window.capture_info.isVisible())
+
+    def test_team_result_badges_follow_review_and_clear_without_guessing(self):
+        b=copy.deepcopy(self.battle);b['capture_time']+=123
+        bid=self.archive.save_battle(b,'synthetic review badges');self.window.browse_battle(bid)
+        self.assertEqual([self.window.team_outcomes[t].text() for t in ('A','B')],['待确认','待确认'])
+        self.archive.set_review(bid,'B');self.window.render_battle()
+        self.assertEqual([self.window.team_outcomes[t].text() for t in ('A','B')],['负','胜'])
+        self.archive.set_review(bid,None);self.window.render_battle()
+        self.assertEqual([self.window.team_outcomes[t].text() for t in ('A','B')],['待确认','待确认'])
+        self.assertEqual(self.archive.get(bid)['original'],b)
 
     def test_captured_unassigned_nicknames_can_be_selected_for_team_headers(self):
         b=copy.deepcopy(self.battle);b['capture_time']+=100

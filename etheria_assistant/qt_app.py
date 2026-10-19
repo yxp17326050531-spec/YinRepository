@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame, QLabe
     QPushButton, QVBoxLayout, QHBoxLayout, QGridLayout, QStackedWidget, QScrollArea,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QComboBox,
     QLineEdit, QSpinBox, QCheckBox, QPlainTextEdit, QTabWidget, QDialog,
-    QDialogButtonBox, QFormLayout, QFileDialog, QMessageBox, QButtonGroup, QSplitter, QBoxLayout, QMenu)
+    QDialogButtonBox, QFormLayout, QFileDialog, QMessageBox, QButtonGroup, QSplitter, QBoxLayout, QMenu, QSizePolicy)
 from capture_events import CaptureEvents
 from capture import CaptureJob, find_dumpcap, shell_text, matrix_text, imprint_text, HIDE_CONSOLE
 from core import load_mappings, shell_config_name, matrix_name
@@ -31,7 +31,7 @@ from inventory_widgets import GearFilterDialog
 from components import project_component, attribute_text as component_attribute_text, component_detail as component_detail_text
 from battle_attributes import decode_extra_attributes, pending_attributes, pending_text, extra_text
 
-VERSION='2.9.0'
+VERSION='2.10.0'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 from battle_metadata import KINDS, result_text
@@ -131,9 +131,9 @@ class MainWindow(QMainWindow):
         brand=label('伊','brand');brand.setAlignment(Qt.AlignmentFlag.AlignCenter);s.addWidget(brand);s.addSpacing(16)
         self.nav=QButtonGroup(self); self.stack=QStackedWidget()
         for i,(icon,title) in enumerate(zip(['◈','▥','▦','◷','⌘','⚙'],['对局总览','战绩统计','源器与配装','历史与日志','编号映射','连接与设置'])):
-            b=QPushButton(icon);b.setToolTip(title);b.setAccessibleName(title);b.setCheckable(True);b.setObjectName('nav');self.nav.addButton(b,i);s.addWidget(b)
+            b=QPushButton(icon+'\n'+['对局','战绩','配装','日志','映射','设置'][i]);b.setToolTip(title);b.setAccessibleName(title);b.setCheckable(True);b.setObjectName('nav');self.nav.addButton(b,i);s.addWidget(b)
         self.nav.idClicked.connect(self.navigate);s.addStretch()
-        version=label('2.9','hint');version.setAlignment(Qt.AlignmentFlag.AlignCenter);version.setToolTip(VERSION);s.addWidget(version);outer.addWidget(side)
+        version=label('2.10','hint');version.setAlignment(Qt.AlignmentFlag.AlignCenter);version.setToolTip(VERSION);s.addWidget(version);outer.addWidget(side)
         main=QWidget(); m=QVBoxLayout(main); m.setContentsMargins(12,10,12,8); m.setSpacing(8)
         top=QHBoxLayout(); self.page_title=label('对局总览','title'); top.addWidget(self.page_title); top.addStretch()
         self.connection=label('●  未监听','hint'); top.addWidget(self.connection)
@@ -172,13 +172,14 @@ class MainWindow(QMainWindow):
         scroll=QScrollArea();self.battle_scroll=scroll;scroll.setWidgetResizable(True);scroll.setFrameShape(QFrame.Shape.NoFrame);layout.addWidget(scroll,1)
         content=QWidget();body=QVBoxLayout(content);body.setContentsMargins(0,0,0,0);body.setSpacing(0);scroll.setWidget(content)
         teams=QBoxLayout(QBoxLayout.Direction.LeftToRight);self.teams_layout=teams;teams.setSpacing(10)
-        self.team_layouts={};self.team_titles={};self.nickname_buttons={};self.team_cards={}
+        self.team_layouts={};self.team_titles={};self.nickname_buttons={};self.team_cards={};self.team_outcomes={}
         for team in ['A','B']:
-            card,c=self.card();card.setObjectName('teamCard');c.setContentsMargins(8,8,8,8);c.setSpacing(5);self.team_cards[team]=card
-            header=QHBoxLayout();badge=label(team,'teamBadge');header.addWidget(badge);title=label('记录 '+team+' 方','teamNeutral');title.setWordWrap(False);header.addWidget(title,1)
+            card,c=self.card();card.setObjectName('teamCard');c.setContentsMargins(0,0,0,0);c.setSpacing(8);self.team_cards[team]=card
+            header=QHBoxLayout();badge=label(team,'teamBadge');header.addWidget(badge);title=label('记录 '+team+' 方','teamNeutral');title.setWordWrap(False);title.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Preferred);header.addWidget(title,1)
             assign=self.action('对应昵称',self.assign_nicknames);assign.setObjectName('smallAction');header.addWidget(assign)
-            self.nickname_buttons[team]=assign;self.team_titles[team]=title;c.addLayout(header)
-            roster=QVBoxLayout();roster.setSpacing(0);c.addLayout(roster);c.addStretch();self.team_layouts[team]=roster;teams.addWidget(card,1)
+            self.nickname_buttons[team]=assign;self.team_titles[team]=title
+            outcome=label('待确认','teamOutcome');outcome.setWordWrap(False);header.addWidget(outcome);self.team_outcomes[team]=outcome;c.addLayout(header)
+            roster=QVBoxLayout();roster.setSpacing(8);c.addLayout(roster);c.addStretch();self.team_layouts[team]=roster;teams.addWidget(card,1)
         body.addLayout(teams);body.addStretch()
 
     def show_record_info(self):
@@ -255,6 +256,12 @@ class MainWindow(QMainWindow):
             style='teamNeutral' if replay or not own else 'ownTeam' if team==own else 'enemyTeam'
             if title.objectName()!=style:
                 title.setObjectName(style);title.style().unpolish(title);title.style().polish(title)
+            ctx=self.archive.context(self.current_id) if self.current_id else {}
+            winner=ctx.get('protocol_winner') if replay else ctx.get('winner')
+            result='win' if winner==team else 'loss' if winner in ('A','B') else 'draw' if winner=='draw' else 'unknown'
+            outcome=self.team_outcomes[team];outcome.setText({'win':'胜','loss':'负','draw':'平','unknown':'待确认'}[result])
+            outcome.setProperty('result',result);outcome.style().unpolish(outcome);outcome.style().polish(outcome)
+            outcome.setToolTip('本场已确认结果；未确认不会默认判胜负。')
             self.clear_layout(layout)
             units=self.latest['teams'].get(team,[]) if self.latest else []
             if not units:layout.addWidget(label('暂无角色数据\n开始监听后，进入战斗将自动更新。','hint'))
