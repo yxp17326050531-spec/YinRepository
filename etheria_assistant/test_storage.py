@@ -1,4 +1,5 @@
 import copy
+from contextlib import closing
 import json
 import os
 from pathlib import Path
@@ -98,7 +99,7 @@ class ArchiveTests(unittest.TestCase):
         self.archive.save_settings({'interface_id':r'\Device\NPF_{ABCD}', 'port':'20001'})
         destination = str(Path(self.temp.name)/'backup.db')
         self.archive.backup(destination)
-        with sqlite3.connect(destination) as db:
+        with closing(sqlite3.connect(destination)) as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM battles').fetchone()[0], 1)
             value = db.execute("SELECT value FROM settings WHERE key='interface_id'").fetchone()[0]
             self.assertEqual(json.loads(value),r'\Device\NPF_{ABCD}')

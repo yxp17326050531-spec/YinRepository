@@ -1,4 +1,5 @@
 import copy
+from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
@@ -57,7 +58,7 @@ class DataTests(unittest.TestCase):
         self.assertEqual(self.archive.latest_inventory()['data']['capture_time'],again['capture_time'])
         with self.archive.connect() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM inventory_snapshots').fetchone()[0],3)
         # Reopening uses the same persisted immutable numeric observations.
-        with sqlite3.connect(self.archive.path) as db:
+        with closing(sqlite3.connect(self.archive.path)) as db:
             original=json.loads(db.execute('SELECT data FROM inventory_snapshots WHERE id=?',(identity,)).fetchone()[0])
         self.assertEqual(original['gear'],saved['gear'])
 
@@ -104,7 +105,7 @@ class DataTests(unittest.TestCase):
         # Recreate the pre-2.2 database schema in a separate directory.
         directory=Path(self.temp.name)/'legacy';directory.mkdir()
         path=directory/'history.sqlite3'
-        with sqlite3.connect(path) as db:
+        with closing(sqlite3.connect(path)) as db, db:
             db.execute('''CREATE TABLE battles(id TEXT PRIMARY KEY,capture_time REAL,saved_at TEXT NOT NULL,
                 source TEXT NOT NULL,status TEXT NOT NULL,original TEXT NOT NULL,opponent TEXT NOT NULL DEFAULT '待选择')''')
             battle={'capture_time':100,'status':'对局数据已到达','teams':{'A':[],'B':[]}}
@@ -132,7 +133,7 @@ class DataTests(unittest.TestCase):
         with self.assertRaises(ValueError):archive.set_context('legacy','win','BP排位')
         with self.assertRaises(ValueError):archive.set_context('legacy','A','猜测排位')
         dest=Path(self.temp.name)/'backup.sqlite3';archive.backup(dest)
-        with sqlite3.connect(dest) as db:
+        with closing(sqlite3.connect(dest)) as db:
             self.assertEqual(db.execute('PRAGMA integrity_check').fetchone()[0],'ok')
             self.assertEqual(db.execute('SELECT winner FROM battle_context').fetchone()[0],'A')
             self.assertEqual(db.execute('SELECT COUNT(*) FROM observations').fetchone()[0],2)

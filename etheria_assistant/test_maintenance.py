@@ -1,4 +1,5 @@
 import copy
+from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
@@ -73,7 +74,7 @@ class MaintenanceTests(unittest.TestCase):
         App.handle_event(fake,'battle',dict(battle,archive_id=bid))
         self.assertEqual(fake.live_data,'unchanged')
         backup=Path(self.temp.name)/'backup.sqlite3';self.archive.backup(backup)
-        with sqlite3.connect(backup) as db:
+        with closing(sqlite3.connect(backup)) as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM battle_trash').fetchone()[0],2)
             self.assertEqual(db.execute('SELECT COUNT(*) FROM battles').fetchone()[0],3)
             self.assertEqual(db.execute('PRAGMA integrity_check').fetchone()[0],'ok')
