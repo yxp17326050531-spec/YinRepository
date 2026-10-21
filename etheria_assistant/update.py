@@ -1,4 +1,5 @@
 """Incremental update of a clean Git checkout. Run after closing the app."""
+import ast
 import hashlib
 import subprocess
 import sys
@@ -12,8 +13,19 @@ def run(*args, cwd):
                           errors='replace',stdout=subprocess.PIPE,stderr=subprocess.PIPE).stdout.strip()
 
 
+def source_version(directory):
+    """Read the actual launch directory without importing Qt or cached modules."""
+    source=Path(directory)/'qt_app.py'
+    if not source.is_file():return 'unknown'
+    for node in ast.parse(source.read_text(encoding='utf-8')).body:
+        if isinstance(node,ast.Assign) and any(isinstance(target,ast.Name) and target.id=='VERSION' for target in node.targets):
+            if isinstance(node.value,ast.Constant) and isinstance(node.value.value,str):
+                return node.value.value
+    return 'unknown'
+
+
 def update(directory=None, data_dir=None):
-    directory=Path(directory or Path(__file__).resolve().parent)
+    directory=Path(directory or Path(__file__).resolve().parent).resolve()
     with RuntimeLock(data_dir or data_directory()):
         root=Path(run('git','rev-parse','--show-toplevel',cwd=directory))
         if run('git','status','--porcelain',cwd=root):
@@ -35,6 +47,8 @@ def update(directory=None, data_dir=None):
         if before!=after or dependencies_changed:
             subprocess.run([sys.executable,'-m','unittest','discover','-v'],check=True,cwd=directory)
         print(('Already current: ' if before==after else 'Updated: ')+after[:12],flush=True)
+        print('Source version: '+source_version(directory),flush=True)
+        print('Start this copy: '+str(directory/'start.cmd'),flush=True)
         return before,after
 
 if __name__=='__main__':

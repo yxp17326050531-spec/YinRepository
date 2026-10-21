@@ -29,6 +29,23 @@ class ArchiveTests(unittest.TestCase):
             self.archive.logger.removeHandler(handler)
         self.temp.cleanup()
 
+    def test_mapping_batch_delete_is_atomic_and_restore_skips_new_overrides(self):
+        bid=self.archive.save_battle(self.battle,'mapping regression')
+        self.archive.set_mapping('matrix_effects','1121','自定义奋进',12)
+        self.archive.set_mapping('matrix_effects','3275101','错误候选',6)
+        with self.assertRaises(ValueError):
+            self.archive.remove_mappings('matrix_effects',['1121','not an id'])
+        self.assertEqual(len(self.archive.custom_mappings('matrix_effects')),2)
+        deleted=self.archive.remove_mappings('matrix_effects',['1121','3275101','3275101','1051'])
+        self.assertEqual(set(deleted),{'1121','3275101'})
+        self.assertEqual(self.archive.mappings(load_mappings())['matrix_effects']['1121']['threshold'],8)
+        self.archive.set_mapping('matrix_effects','1121','新修订',8)
+        self.assertEqual(self.archive.restore_mappings('matrix_effects',deleted),['3275101'])
+        self.assertEqual(self.archive.custom_mappings('matrix_effects')['1121']['name'],'新修订')
+        self.assertEqual(self.archive.get(bid)['original'],self.battle)
+        self.assertEqual(self.archive.remove_mapping('matrix_effects','3275101')['3275101']['name'],'错误候选')
+        with self.assertRaises(ValueError):self.archive.remove_mappings('invalid',['1121'])
+
     def test_dedup_status_updates_keep_original(self):
         bid = self.archive.save_battle(self.battle, 'import')
         changed = copy.deepcopy(self.battle)

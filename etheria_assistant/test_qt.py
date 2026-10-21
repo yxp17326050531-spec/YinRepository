@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QPlainTextEdit, QCheckBox, QLabel, QComboBox
-from qt_app import MainWindow, Editor
+from qt_app import MainWindow, Editor, VERSION
 from core import decode_battle, load_mappings
 from storage import Archive
 from test_core import battle_body, pcapng, tcp, frame
@@ -37,6 +37,10 @@ class QtTests(unittest.TestCase):
             finally:
                 if d.isVisible():d.reject()
         QTimer.singleShot(0,run)
+    def test_sidebar_and_window_title_show_the_same_full_version(self):
+        self.assertEqual(self.window.version_label.text(),VERSION)
+        self.assertTrue(self.window.windowTitle().endswith(VERSION))
+        self.assertEqual(self.window.version_label.toolTip(),VERSION)
     def test_confirm_b_side_updates_result_labels_and_keeps_protocol_roster(self):
         self.archive.set_context(self.bid,'A','BP排位')
         original=copy.deepcopy(self.archive.get(self.bid)['original'])
@@ -362,7 +366,7 @@ class QtTests(unittest.TestCase):
         self.assertEqual(shown()['A方 30153 暴击伤害'],'423.8%')
         self.assertEqual(self.archive.get(bid)['original'],b)
 
-    def test_fenjin_unknown_threshold_can_be_displayed_and_saved_in_mapping_editor(self):
+    def test_fenjin_confirmed_default_can_still_be_overridden_with_unknown_threshold(self):
         from PySide6.QtWidgets import QSpinBox
         b=copy.deepcopy(self.battle);b['teams']['A'][0]['effects_raw']=[1121,33,35]
         bid=self.archive.save_battle(b,'synthetic matrix');self.window.browse_battle(bid)
@@ -370,18 +374,47 @@ class QtTests(unittest.TestCase):
         def displayed():
             self.app.processEvents()
             return [w.text() for w in self.window.findChildren(QLabel) if w.isVisibleTo(self.window.stack.widget(0))]
-        self.assertTrue(any('奋进' in t and '?' in t for t in displayed()))
-        self.assertTrue(any('档位待确认' in w.toolTip() for w in self.window.findChildren(QLabel) if w.accessibleName()=='矩阵 奋进'))
+        self.assertTrue(any('奋进' in t and '8' in t for t in displayed()))
+        self.assertTrue(any('8点效果' in w.toolTip() for w in self.window.findChildren(QLabel) if w.accessibleName()=='矩阵 奋进'))
         self.assertTrue(any('已对照' in w.toolTip() for w in self.window.findChildren(QLabel) if w.accessibleName()=='矩阵 奋进'))
         def save_unknown(d):
-            points=d.findChild(QSpinBox);self.assertEqual(points.value(),0)
-            self.assertEqual(points.text(),'待确认');d.commit()
+            points=d.findChild(QSpinBox);self.assertEqual(points.value(),8)
+            points.setValue(0);self.assertEqual(points.text(),'待确认');d.commit()
         self.modal(save_unknown);self.window.edit_mapping('matrix_effects','1121')
         self.assertIsNone(self.archive.mappings(load_mappings())['matrix_effects']['1121']['threshold'])
         self.assertTrue(any('奋进' in t and '?' in t for t in displayed()))
         self.assertTrue(any('档位待确认' in w.toolTip() for w in self.window.findChildren(QLabel) if w.accessibleName()=='矩阵 奋进'))
         self.assertTrue(any('用户映射' in w.toolTip() for w in self.window.findChildren(QLabel) if w.accessibleName()=='矩阵 奋进'))
         self.assertEqual(self.archive.get(bid)['original'],b)
+
+    def test_mapping_add_batch_delete_and_undo_preserve_new_edits_and_raw(self):
+        original=copy.deepcopy(self.archive.get(self.bid)['original'])
+        self.archive.set_mapping('matrix_effects','1051','戍卫',8)
+        self.archive.set_mapping('matrix_effects','3275101','错误候选',6)
+        self.window.mapping_changed()
+        self.window.map_category.setCurrentText('矩阵战斗效果编号')
+        self.window.map_query.setText('用户映射')
+        self.assertEqual(self.window.mapping_table.rowCount(),2)
+        self.window.mapping_table.selectRow(0)
+        entered=[]
+        def add_empty(d):
+            entered.extend(d.form.itemAt(i, d.form.ItemRole.FieldRole).widget().text() for i in range(2))
+        self.modal(add_empty);self.window.new_mapping()
+        self.assertEqual(entered,['',''])
+        self.window.mapping_table.selectAll();self.window.restore_mapping()
+        self.assertEqual(self.archive.custom_mappings('matrix_effects'),{})
+        self.assertNotIn('3275101',self.window.mappings['matrix_effects'])
+        self.assertEqual(self.window.mappings['matrix_effects']['1051']['name'],'戍卫')
+        self.assertTrue(self.window.undo_mapping_btn.isEnabled())
+        # Selecting builtins cannot remove them or destroy the last undo batch.
+        self.window.map_query.setText('1051');self.window.mapping_table.selectAll();self.window.restore_mapping()
+        self.archive.set_mapping('matrix_effects','1051','后来修订',12)
+        self.window.undo_mapping_delete()
+        custom=self.archive.custom_mappings('matrix_effects')
+        self.assertEqual(custom['1051']['name'],'后来修订')
+        self.assertEqual(custom['3275101']['name'],'错误候选')
+        self.assertFalse(self.window.undo_mapping_btn.isEnabled())
+        self.assertEqual(self.archive.get(self.bid)['original'],original)
 
     def test_component_tab_and_imprint_placeholder_keep_raw_values(self):
         from core import Inventory

@@ -266,9 +266,47 @@ class Archive:
             db.execute('INSERT INTO audit VALUES (?,?,?,?)', (now(), 'mapping', category + '/' + identifier, encode(value)))
 
     def remove_mapping(self, category, identifier):
+        return self.remove_mappings(category, [identifier])
+
+    @staticmethod
+    def mapping_ids(category, identifiers):
+        if category not in ('heroes','shell_configs','shell_effects','matrices','matrix_effects'):
+            raise ValueError('未知映射类型')
+        identifiers = list(dict.fromkeys(str(int(value)) for value in identifiers))
+        if any(not 0 < int(value) < 2**64 for value in identifiers):
+            raise ValueError('编号应为正整数')
+        return identifiers
+
+    def custom_mappings(self, category):
+        self.mapping_ids(category, [])
         with self.connect() as db:
-            db.execute('DELETE FROM mappings WHERE category=? AND id=?', (category, str(int(identifier))))
-            db.execute('INSERT INTO audit VALUES (?,?,?,?)', (now(), 'restore_mapping', category + '/' + str(identifier), '{}'))
+            return {row['id']: json.loads(row['value']) for row in
+                    db.execute('SELECT id,value FROM mappings WHERE category=?', (category,))}
+
+    def remove_mappings(self, category, identifiers):
+        identifiers = self.mapping_ids(category, identifiers)
+        removed = {}
+        with self.connect() as db:
+            for identifier in identifiers:
+                row = db.execute('SELECT value FROM mappings WHERE category=? AND id=?', (category, identifier)).fetchone()
+                if row is None:
+                    continue
+                removed[identifier] = json.loads(row['value'])
+                db.execute('DELETE FROM mappings WHERE category=? AND id=?', (category, identifier))
+                db.execute('INSERT INTO audit VALUES (?,?,?,?)', (now(), 'delete_mapping', category + '/' + identifier, row['value']))
+        return removed
+
+    def restore_mappings(self, category, values):
+        identifiers = self.mapping_ids(category, values)
+        restored = []
+        with self.connect() as db:
+            for identifier in identifiers:
+                value = encode(values[identifier])
+                result = db.execute('INSERT OR IGNORE INTO mappings VALUES (?,?,?)', (category, identifier, value))
+                if result.rowcount:
+                    restored.append(identifier)
+                    db.execute('INSERT INTO audit VALUES (?,?,?,?)', (now(), 'undo_delete_mapping', category + '/' + identifier, value))
+        return restored
 
     def backup(self, destination):
         if Path(destination).resolve() == self.path.resolve():

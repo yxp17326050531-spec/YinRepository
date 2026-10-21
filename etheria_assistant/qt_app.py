@@ -31,7 +31,7 @@ from inventory_widgets import GearFilterDialog
 from components import project_component, attribute_text as component_attribute_text, component_detail as component_detail_text
 from battle_attributes import decode_extra_attributes, pending_attributes, pending_text, extra_text
 
-VERSION='2.10.0'
+VERSION='2.10.1'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 from battle_metadata import KINDS, result_text
@@ -104,6 +104,7 @@ class MainWindow(QMainWindow):
     def __init__(self,archive=None):
         super().__init__(); self.archive=archive or Archive(); self.preferences=self.archive.settings()
         self.mappings=self.archive.mappings(load_mappings()); self.events=CaptureEvents(128)
+        self._mapping_undo=None
         self.job=None; self.token=0; self.current_id=None; self.live_id=None; self.browsing=False
         self.live_time=None; self.capture_diagnostics=self.preferences.get('last_capture_diagnostics',{})
         self.latest=None; self.unsaved_battle=None; self.storage_failed=False; self.inventory_rows=[]; self.history_offset=0; self.history_ids=[]
@@ -133,7 +134,7 @@ class MainWindow(QMainWindow):
         for i,(icon,title) in enumerate(zip(['◈','▥','▦','◷','⌘','⚙'],['对局总览','战绩统计','源器与配装','历史与日志','编号映射','连接与设置'])):
             b=QPushButton(icon+'\n'+['对局','战绩','配装','日志','映射','设置'][i]);b.setToolTip(title);b.setAccessibleName(title);b.setCheckable(True);b.setObjectName('nav');self.nav.addButton(b,i);s.addWidget(b)
         self.nav.idClicked.connect(self.navigate);s.addStretch()
-        version=label('2.10','hint');version.setAlignment(Qt.AlignmentFlag.AlignCenter);version.setToolTip(VERSION);s.addWidget(version);outer.addWidget(side)
+        self.version_label=label(VERSION,'hint');self.version_label.setAlignment(Qt.AlignmentFlag.AlignCenter);self.version_label.setToolTip(VERSION);s.addWidget(self.version_label);outer.addWidget(side)
         main=QWidget(); m=QVBoxLayout(main); m.setContentsMargins(12,10,12,8); m.setSpacing(8)
         top=QHBoxLayout(); self.page_title=label('对局总览','title'); top.addWidget(self.page_title); top.addStretch()
         self.connection=label('●  未监听','hint'); top.addWidget(self.connection)
@@ -616,21 +617,30 @@ class MainWindow(QMainWindow):
         self.browsing=False; self.current_id=self.live_id if self.live_id and not self.archive.is_deleted(self.live_id) else None; self.render_battle()
     def build_mappings(self):
         layout=self.page(); row=QHBoxLayout(); self.map_category=combo(list(CATEGORIES)); self.map_query=QLineEdit(); self.map_query.setPlaceholderText('搜索编号或名称'); row.addWidget(self.map_category); row.addWidget(self.map_query,1)
-        row.addWidget(self.action('新增 / 修改',self.edit_selected_mapping)); row.addWidget(self.action('恢复内置',self.restore_mapping)); row.addWidget(self.action('智壳候选编号清单',self.shell_catalogue)); layout.addLayout(row)
+        layout.addLayout(row)
+        actions=QHBoxLayout()
+        actions.addWidget(self.action('新增',self.new_mapping)); actions.addWidget(self.action('编辑选中',self.edit_selected_mapping))
+        actions.addWidget(self.action('删除自定义',self.restore_mapping))
+        self.undo_mapping_btn=self.action('撤销删除',self.undo_mapping_delete); actions.addWidget(self.undo_mapping_btn)
+        actions.addWidget(self.action('智壳候选编号清单',self.shell_catalogue)); actions.addStretch(); layout.addLayout(actions)
         self.mapping_table=table(['编号','名称','效果档位','来源']); layout.addWidget(self.mapping_table,1)
         self.mapping_table.cellDoubleClicked.connect(lambda r,c:self.edit_selected_mapping()); self.map_category.currentIndexChanged.connect(lambda _:self.render_mappings()); self.map_query.textChanged.connect(lambda _:self.render_mappings())
-        layout.addWidget(label('用户映射优先于内置名称。角色皮肤按精确编号维护；本场配装修正不会改动原始数据。','hint'))
+        layout.addWidget(label('按 Ctrl / Shift 可多选删除自定义映射。有内置对应时恢复内置名称；纯自定义编号会移除。可撤销本次会话最近一批删除，原始数据保留。','hint'))
     def render_mappings(self):
-        category=CATEGORIES[self.map_category.currentText()]; builtin=load_mappings()[category]; rows=[]; query=self.map_query.text().strip().lower()
+        category=CATEGORIES[self.map_category.currentText()]; custom=self.archive.custom_mappings(category); rows=[]; query=self.map_query.text().strip().lower()
         for identifier,value in sorted(self.mappings[category].items(),key=lambda x:int(x[0])):
             threshold=value.get('threshold') if isinstance(value,dict) else None
             shown_threshold=threshold if threshold is not None else '待确认' if category=='matrix_effects' else ''
-            row=[identifier,value.get('name','') if isinstance(value,dict) else value,shown_threshold, '内置' if builtin.get(identifier)==value else '用户映射']
+            row=[identifier,value.get('name','') if isinstance(value,dict) else value,shown_threshold, '用户映射' if identifier in custom else '内置']
             if not query or query in ' '.join(map(str,row)).lower():rows.append(row)
         fill(self.mapping_table,rows)
+        self.undo_mapping_btn.setEnabled(self._mapping_undo is not None)
+    def new_mapping(self):
+        self.edit_mapping(CATEGORIES[self.map_category.currentText()])
     def edit_selected_mapping(self):
         row=self.mapping_table.currentRow(); identifier=self.mapping_table.item(row,0).text() if row>=0 else ''
-        self.edit_mapping(CATEGORIES[self.map_category.currentText()],identifier)
+        if identifier:self.edit_mapping(CATEGORIES[self.map_category.currentText()],identifier)
+        else:self.notify('请先选择要编辑的编号，新增请点击“新增”')
     def edit_mapping(self,category,identifier=''):
         value=self.mappings[category].get(identifier,''); d=Editor(self,'编号名称映射')
         code=QLineEdit(identifier); name=QLineEdit(value.get('name','') if isinstance(value,dict) else value); points=QSpinBox(); points.setRange(0,999); points.setSpecialValueText('待确认'); points.setValue((value.get('threshold') or 0) if isinstance(value,dict) else 0)
@@ -639,8 +649,20 @@ class MainWindow(QMainWindow):
         def save():self.archive.set_mapping(category,code.text(),name.text(),points.value() or None); self.mapping_changed()
         d.on_save=save; d.exec()
     def restore_mapping(self):
-        row=self.mapping_table.currentRow()
-        if row>=0:self.archive.remove_mapping(CATEGORIES[self.map_category.currentText()],self.mapping_table.item(row,0).text()); self.mapping_changed()
+        category=CATEGORIES[self.map_category.currentText()]
+        identifiers=[self.mapping_table.item(index.row(),0).text() for index in self.mapping_table.selectionModel().selectedRows()]
+        if not identifiers:self.notify('请先选择要删除的自定义映射');return
+        removed=self.archive.remove_mappings(category,identifiers)
+        if not removed:self.notify('所选均为内置映射，无自定义内容可删除');return
+        self._mapping_undo=(category,removed)
+        self.mapping_table.clearSelection(); self.mapping_changed()
+        self.notify(f'已删除 {len(removed)} 项自定义映射，可撤销；内置名称自动恢复')
+    def undo_mapping_delete(self):
+        if self._mapping_undo is None:return
+        category,values=self._mapping_undo
+        restored=self.archive.restore_mappings(category,values)
+        self._mapping_undo=None; self.mapping_changed()
+        self.notify(f'已恢复 {len(restored)} 项；跳过 {len(values)-len(restored)} 项已有新自定义内容的编号')
     def mapping_changed(self):self.mappings=self.archive.mappings(load_mappings()); self.refresh_all()
     def shell_catalogue(self):
         d=Editor(self,'智壳候选编号 · 双击命名'); d.resize(850,600); d.save.hide(); t=table(['效果编号','名称','状态','对局数','角色']); rows=self.archive.shell_catalogue(self.mappings)
