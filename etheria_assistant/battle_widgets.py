@@ -18,8 +18,8 @@ class UnitCard(QFrame):
     def __init__(self,unit,team,action,edit_name,edit_loadout,details):
         super().__init__();self.setObjectName('heroRow');self.wide=None
         self.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Maximum)
-        self.root=QHBoxLayout(self);self.root.setContentsMargins(8,5,8,5);self.root.setSpacing(10)
-        identity=QWidget();identity.setObjectName('unitIdentity');identity.setFixedWidth(124)
+        self.root=QHBoxLayout(self);self.root.setContentsMargins(4,2,4,2);self.root.setSpacing(4)
+        identity=QWidget();identity.setObjectName('unitIdentity');identity.setFixedWidth(112)
         left=QVBoxLayout(identity);left.setContentsMargins(0,0,0,0);left.setSpacing(4)
         top=QHBoxLayout();top.setSpacing(6);top.addWidget(image_label('heroes',unit['hero_name'],28))
         name=action(unit['hero_name'],lambda:edit_name(unit));name.setObjectName('link')
@@ -58,11 +58,11 @@ class UnitCard(QFrame):
             overflow=action('+'+str(len(unique)-3),lambda:details(unit));overflow.setObjectName('heroMore')
             overflow.setToolTip(matrix_text(unit));equipment.addWidget(overflow)
         left.addLayout(equipment);left.addStretch();self.root.addWidget(identity)
-        attributes=QWidget();right=QVBoxLayout(attributes);right.setContentsMargins(0,0,0,0);right.setSpacing(4)
-        self.basic=QGridLayout();self.basic.setHorizontalSpacing(7);self.basic.setVerticalSpacing(3)
+        attributes=QWidget();right=QVBoxLayout(attributes);right.setContentsMargins(0,0,0,0);right.setSpacing(2)
+        self.basic=QGridLayout();self.basic.setHorizontalSpacing(3);self.basic.setVerticalSpacing(1)
         right.addLayout(self.basic)
         secondary=QFrame();secondary.setObjectName('extraAttributes');self.extra=QGridLayout(secondary)
-        self.extra.setContentsMargins(5,3,5,3);self.extra.setHorizontalSpacing(7);self.extra.setVerticalSpacing(3)
+        self.extra.setContentsMargins(3,1,3,1);self.extra.setHorizontalSpacing(3);self.extra.setVerticalSpacing(1)
         right.addWidget(secondary);right.addStretch();self.root.addWidget(attributes,1)
         specs=[('hp','生命'),('attack','攻击'),('defense','防御'),('speed','速度'),
                ('crit','暴击率'),('crit_damage','暴击伤害'),('effect_hit','效果命中'),('effect_resist','效果抵抗'),
@@ -89,9 +89,14 @@ class UnitCard(QFrame):
     def reflow(self,wide):
         if self.wide==wide:return
         self.wide=wide
-        for cell in self.cells[:8]:
-            cell.layout().setDirection(QBoxLayout.Direction.TopToBottom if wide else QBoxLayout.Direction.LeftToRight)
-            cell.layout().setSpacing(0 if wide else 3)
+        for index,cell in enumerate(self.cells[:8]):
+            # Percentage labels and values are both long with Windows CJK
+            # fonts. Stacking them also in compact mode prevents their summed
+            # minimum widths from forcing both teams beyond the viewport.
+            stacked=wide or index>=4
+            cell.layout().setDirection(QBoxLayout.Direction.TopToBottom if stacked else QBoxLayout.Direction.LeftToRight)
+            cell.layout().setSpacing(0 if stacked else 3)
+            cell.layout().invalidate();cell.updateGeometry()
         for layout in (self.basic,self.extra):
             while layout.count():layout.takeAt(0)
             for column in range(8):layout.setColumnStretch(column,0)
@@ -99,13 +104,22 @@ class UnitCard(QFrame):
             grid=self.basic if index<8 else self.extra;i=index if index<8 else index-8
             columns=(8 if wide else 4) if index<8 else (6 if wide else 3)
             grid.addWidget(cell,i//columns,i%columns)
+        # Recompute from the cells upward before testing the new minimum.
+        # Otherwise QWidgetItem caches can still describe the previous grid.
+        self.basic.invalidate();self.extra.invalidate()
+        self.extra.parentWidget().updateGeometry()
+        attributes=self.basic.parentWidget()
+        attributes.layout().invalidate();attributes.updateGeometry()
         self.root.invalidate();self.updateGeometry()
 
-    def resizeEvent(self,event):
-        # Reserve a little extra space so rounding and Windows font metrics do
-        # not oscillate across the breakpoint or compress any of the values.
-        self.reflow(event.size().width()>=900)
-        super().resizeEvent(event)
+    def fit_width(self,width):
+        # Use the viewport's allotted team width, never our current width:
+        # the wide grid's minimum can otherwise prevent a shrinking window
+        # from delivering a smaller resize event to this card.
+        self.ensurePolished()
+        self.reflow(width>=900)
+        if self.wide and self.minimumSizeHint().width()>width:
+            self.reflow(False)
 
 
 def unit_card(unit,team,action,edit_name,edit_loadout,details):

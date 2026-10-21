@@ -95,6 +95,7 @@ class QtTests(unittest.TestCase):
 
     def test_eight_characters_and_full_attributes_fit_a_normal_window(self):
         from PySide6.QtCore import QPoint,QRect
+        from PySide6.QtTest import QTest
         b=copy.deepcopy(self.battle);b['capture_time']+=100
         names=list(load_mappings()['heroes'])[:8]
         for ti,team in enumerate(('A','B')):
@@ -106,7 +107,18 @@ class QtTests(unittest.TestCase):
                 b['teams'][team].append(u)
         bid=self.archive.save_battle(b,'synthetic eight');self.window.browse_battle(bid);self.window.show()
         for width,height in ((1280,800),(2048,1017),(1366,768),(1280,800)):
-            self.window.resize(width,height);self.app.processEvents();self.app.processEvents()
+            self.window.resize(width,height)
+            # Font polishing, reflow and scrollbar removal can each post a
+            # layout request. Wait for convergence, then keep the exact bounds
+            # and clipping checks below; two processEvents calls are not enough.
+            for _ in range(50):
+                QTest.qWait(10)
+                viewport=self.window.battle_scroll.viewport()
+                cards=[roster.itemAt(i).widget() for roster in self.window.team_layouts.values() for i in range(roster.count())]
+                metrics=[w for c in cards for w in c.findChildren(QLabel) if w.objectName() in ('speed','statValue')]
+                values_fit=all(w.width()>=w.sizeHint().width() and w.height()>=w.sizeHint().height() for w in metrics)
+                if values_fit and all(viewport.rect().contains(QRect(c.mapTo(viewport,QPoint(0,0)),c.size())) for c in cards) and not any((self.window.battle_scroll.horizontalScrollBar().maximum(),self.window.battle_scroll.verticalScrollBar().maximum())):
+                    break
             viewport=self.window.battle_scroll.viewport();count=0
             for roster in self.window.team_layouts.values():
                 self.assertEqual(roster.count(),4)
@@ -116,10 +128,18 @@ class QtTests(unittest.TestCase):
                     for metric in card.findChildren(QLabel):
                         if metric.objectName() in ('speed','statValue'):
                             self.assertGreaterEqual(metric.width(),metric.sizeHint().width(),metric.accessibleName())
+                            self.assertGreaterEqual(metric.height(),metric.sizeHint().height(),metric.accessibleName())
             self.assertEqual(count,8)
             self.assertEqual(self.window.battle_scroll.horizontalScrollBar().maximum(),0)
             self.assertEqual(self.window.battle_scroll.verticalScrollBar().maximum(),0)
         self.assertFalse(self.window.record_info.isVisible());self.assertFalse(self.window.capture_info.isVisible())
+
+    def test_eight_character_layout_handles_wider_windows_font_metrics(self):
+        # An extra 5px per glyph reproduces a minimum-width overflow with the
+        # former inline percentage row, without requiring a proprietary font.
+        style=self.window.styleSheet()
+        self.window.setStyleSheet(style+'\nQLabel#attributeTitle, QLabel#statValue, QLabel#speed {letter-spacing:5px;}')
+        self.test_eight_characters_and_full_attributes_fit_a_normal_window()
 
     def test_capture_help_is_informational_and_redetection_uses_installed_tool(self):
         from PySide6.QtWidgets import QPushButton

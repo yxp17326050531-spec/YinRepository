@@ -10,7 +10,7 @@ import sys
 import threading
 from datetime import datetime
 from pathlib import Path
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl, QEvent
 from PySide6.QtGui import QColor, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame, QLabel,
     QPushButton, QVBoxLayout, QHBoxLayout, QGridLayout, QStackedWidget, QScrollArea,
@@ -31,7 +31,7 @@ from inventory_widgets import GearFilterDialog
 from components import project_component, attribute_text as component_attribute_text, component_detail as component_detail_text
 from battle_attributes import decode_extra_attributes, pending_attributes, pending_text, extra_text
 
-VERSION='2.10.1'
+VERSION='2.10.2'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 from battle_metadata import KINDS, result_text
@@ -182,6 +182,21 @@ class MainWindow(QMainWindow):
             outcome=label('待确认','teamOutcome');outcome.setWordWrap(False);header.addWidget(outcome);self.team_outcomes[team]=outcome;c.addLayout(header)
             roster=QVBoxLayout();roster.setSpacing(8);c.addLayout(roster);c.addStretch();self.team_layouts[team]=roster;teams.addWidget(card,1)
         body.addLayout(teams);body.addStretch()
+        scroll.viewport().installEventFilter(self)
+
+    def eventFilter(self,watched,event):
+        scroll=getattr(self,'battle_scroll',None)
+        if scroll is not None and watched is scroll.viewport() and event.type()==QEvent.Type.Resize:
+            self.reflow_battle_cards(event.size().width())
+        return super().eventFilter(watched,event)
+
+    def reflow_battle_cards(self,width=None):
+        width=self.battle_scroll.viewport().width() if width is None else width
+        team_width=max(0,(width-self.teams_layout.spacing())//2)
+        for roster in self.team_layouts.values():
+            for i in range(roster.count()):
+                card=roster.itemAt(i).widget()
+                if hasattr(card,'fit_width'):card.fit_width(team_width)
 
     def show_record_info(self):
         d=Editor(self,'本场记录信息');d.save.hide()
@@ -268,6 +283,7 @@ class MainWindow(QMainWindow):
             if not units:layout.addWidget(label('暂无角色数据\n开始监听后，进入战斗将自动更新。','hint'))
             for unit in units:
                 layout.addWidget(unit_card(unit,team,self.action,self.edit_hero,self.edit_loadout,self.details))
+        self.reflow_battle_cards()
     def refresh_battle_navigation(self):
         rows=self.archive.history_directory(self.history_filter.currentData()); self.battle_navigation=[r['id'] for r in rows]
         self.battle_jump.blockSignals(True); self.battle_jump.clear(); self.battle_jump.setPlaceholderText('选择已保存对局')
