@@ -41,6 +41,21 @@ class QtTests(unittest.TestCase):
         self.assertEqual(self.window.version_label.text(),VERSION)
         self.assertTrue(self.window.windowTitle().endswith(VERSION))
         self.assertEqual(self.window.version_label.toolTip(),VERSION)
+
+    def test_own_nickname_setting_saves_refreshes_result_and_clears(self):
+        from capture import CaptureJob
+        from test_rating_results import opening,ending
+        job=CaptureJob(lambda k,d:self.window.handle_event(k,d),20001,load_mappings(),self.archive)
+        bid=opening(job,2000000000,swapped=True);ending(job,stamp=2000000010)
+        self.window.browse_battle(bid)
+        self.window.own_nickname.setText('First#1234');self.window.save_preferences()
+        self.assertEqual(self.archive.settings()['own_nickname'],'First#1234')
+        self.assertEqual(self.window.battle_info.text(),'胜利')
+        self.window.own_nickname.setText('Second');self.window.save_preferences()
+        self.assertEqual(self.window.battle_info.text(),'失败')
+        self.window.clear_player_identity()
+        self.assertEqual(self.window.own_nickname.text(),'')
+        self.assertIsNone(self.archive.context(bid)['own_team'])
     def test_confirm_b_side_updates_result_labels_and_keeps_protocol_roster(self):
         self.archive.set_context(self.bid,'A','BP排位')
         original=copy.deepcopy(self.archive.get(self.bid)['original'])
@@ -547,3 +562,4 @@ class QtTests(unittest.TestCase):
                     self.assertGreaterEqual(second.y(),first.y()+first.height())
 
 if __name__=='__main__':unittest.main()
+

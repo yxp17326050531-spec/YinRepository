@@ -77,6 +77,8 @@ class BattleSession:
         association = ('ambiguous' if self.blocked or mismatch else 'replay' if self.context=='replay' else 'linked') if eligible else 'unlinked'
         linked = association == 'linked'
         associated = association in ('linked', 'replay')
+        from rating_result import rating_result
+        rated=rating_result(self.latest,body) if linked else None
         reason = {'linked':'同一连接的当前开场', 'replay':'回放/观战，不推断本人胜负',
                   'ambiguous':'上一场缺结算，无法区分迟到结算', 'unlinked':'本连接没有可关联的完整开场'}[association]
         if eligible and mismatch:reason = '开场与结算上下文编号不一致，停止关联'
@@ -94,8 +96,8 @@ class BattleSession:
             self.unresolved = False
             self.latest = copy.deepcopy(self.latest)
             self.latest.setdefault('tracking',{}).update(settlement_received=True,result_code=code)
-            state = 'settled' if associated and code in (382,383) else 'incomplete' if association=='ambiguous' else 'settled_unknown'
-            self.publish(timestamp,state,reason if not associated else
+            state = 'settled' if rated or associated and code in (382,383) else 'incomplete' if association=='ambiguous' else 'settled_unknown'
+            self.publish(timestamp,state,'结算已关联，积分变化可唯一对应玩家' if rated else reason if not associated else
                          ('观战结算已关联，胜方待确认' if association=='replay' else '结算已关联，胜方待确认') if code in (382,383)
                          else f'未确认结算代码 {code}')
         elif self.state=='incomplete':
@@ -104,3 +106,4 @@ class BattleSession:
 
     def finish(self, timestamp, reason):
         self.invalidate(timestamp,reason)
+

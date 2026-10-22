@@ -13,6 +13,7 @@ import uuid
 from core import shell_effect_mapping, record, mapped_imprints
 from battle_session import battle_identity
 from battle_attributes import decode_extra_attributes
+from rating_result import rating_result, own_nickname_side
 from battle_metadata import KINDS, mode_info, infer_side
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -77,6 +78,8 @@ class Archive:
                 CREATE TABLE IF NOT EXISTS automatic_results (
                     battle_id TEXT PRIMARY KEY REFERENCES battles(id),
                     winner TEXT NOT NULL, observation_id TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS rating_openings (battle_id TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS rating_results (battle_id TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS battle_perspective (
                     battle_id TEXT PRIMARY KEY REFERENCES battles(id), own_team TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS battle_players (
@@ -128,6 +131,14 @@ class Archive:
             if battle.get('participants'):
                 db.execute('INSERT OR REPLACE INTO battle_labels VALUES (?,?)',
                            (bid,encode(battle['participants'])))
+            if battle.get('protocol_match_id') and battle.get('participants'):
+                evidence={k:battle.get(k) for k in ('protocol_match_id','protocol_context','source_opcode','capture_context','participants')}
+                previous=db.execute('SELECT value FROM rating_openings WHERE battle_id=?',(bid,)).fetchone()
+                if previous and json.loads(previous['value'])!=evidence:evidence={'conflicted':True}
+                db.execute('INSERT OR REPLACE INTO rating_openings VALUES (?,?)',(bid,encode(evidence)))
+                if evidence.get('conflicted'):
+                    db.execute('INSERT OR REPLACE INTO rating_results VALUES (?,?)',
+                               (bid,encode({'winner':'unknown','reason':'开场积分证据冲突'})))
             tracking = battle.get('tracking')
             old = db.execute('SELECT value FROM battle_tracking WHERE battle_id=?',(bid,)).fetchone()
             old = json.loads(old['value']) if old else {}
@@ -330,6 +341,8 @@ class Archive:
             mode_rows = db.execute("SELECT id,value FROM mappings WHERE category='battle_modes'").fetchall()
             private = db.execute('SELECT value FROM battle_players WHERE battle_id=?',(bid,)).fetchone()
             self_key = db.execute("SELECT value FROM settings WHERE key='own_player_key'").fetchone()
+            self_name = db.execute("SELECT value FROM settings WHERE key='own_nickname'").fetchone()
+            rated = db.execute('SELECT value FROM rating_results WHERE battle_id=?',(bid,)).fetchone()
             labels = db.execute('SELECT value FROM battle_labels WHERE battle_id=?',(bid,)).fetchone()
             review = db.execute('SELECT value FROM battle_reviews WHERE battle_id=?',(bid,)).fetchone()
             tracking = db.execute('SELECT value FROM battle_tracking WHERE battle_id=?',(bid,)).fetchone()
@@ -344,7 +357,11 @@ class Archive:
         context['result_code']=(json.loads(tracking['value']).get('result_code') if tracking else None)
         # The latest user counterexample invalidates unconditional 382=A / 383=B.
         # Preserve legacy candidates for diagnosis, never report them as proven wins.
-        if automatic:context.update(winner='unknown',result_origin='unverified_code')
+        if automatic and context['winner']=='unknown':context.update(result_origin='unverified_code')
+        rated=json.loads(rated['value']) if rated else {}
+        context['rating_result']=rated
+        if rated.get('winner') in ('A','B') and (not row or row['winner']=='unknown'):
+            context.update(winner=rated['winner'],result_origin='rating_change')
         override=review.get('winner')
         if override is not None:context.update(winner=override,result_origin='manual_review')
         context['reviewed_winner']=override
@@ -372,6 +389,10 @@ class Archive:
             context.update(own_team=None,side_origin='replay',side_reason='回放不推断本人身份',winner='unknown')
         elif side:
             context.update(own_team=side['own_team'],side_origin='manual',side_reason='本场手动确认')
+        elif self_name and json.loads(self_name['value']):
+            own=own_nickname_side(json.loads(self_name['value']),context['participants'])
+            context.update(own_team=own,side_origin='nickname' if own else 'nickname_unmatched',
+                           side_reason='与设置的本号昵称唯一匹配' if own else '本号昵称未唯一匹配到已确认方向；己方待确认')
         elif own_key and len(players)==2 and {p.get('team') for p in players}=={'A','B'}:
             matches=[p for p in players if p['player_key']==own_key]
             if len(matches)==1:
@@ -463,8 +484,6 @@ class Archive:
         except (ValueError,TypeError,OverflowError):
             return
         winner={382:'A',383:'B'}.get(code)
-        if winner is None:
-            return
         capture_time=data.get('capture_time')
         if not isinstance(capture_time,(int,float)) or capture_time < data['battle_capture_time']:
             return
@@ -484,6 +503,15 @@ class Archive:
         marker=record(bytes.fromhex(data.get('body_hex',''))).get(6)
         if type(expected) is int and type(marker) is int and expected!=marker:return
         bid=matches[0]['id']
+        opening=db.execute('SELECT value FROM rating_openings WHERE battle_id=?',(bid,)).fetchone()
+        evidence=json.loads(opening['value']) if opening else original
+        rated=rating_result(evidence,bytes.fromhex(data.get('body_hex',''))) if association=='linked' else None
+        if rated:
+            previous=db.execute('SELECT value FROM rating_results WHERE battle_id=?',(bid,)).fetchone()
+            if previous and json.loads(previous['value'])!=rated:
+                rated={'winner':'unknown','reason':'结算积分证据冲突'}
+            db.execute('INSERT OR REPLACE INTO rating_results VALUES (?,?)',(bid,encode(rated)))
+        if winner is None:return
         previous=db.execute('SELECT winner FROM automatic_results WHERE battle_id=?',(bid,)).fetchone()
         if previous and previous['winner']!=winner:
             winner='unknown'  # Conflicting linked settlements never silently flip a result.
@@ -661,3 +689,4 @@ def project_unit(unit, mappings, annotation=None):
             out['matrix_effects_candidates'].append(dict(matrix, effect_id=effect))
     out['manual'] = copy.deepcopy(annotation) if annotation else None
     return out
+

@@ -31,7 +31,7 @@ from inventory_widgets import GearFilterDialog
 from components import project_component, attribute_text as component_attribute_text, component_detail as component_detail_text
 from battle_attributes import decode_extra_attributes, pending_attributes, pending_text, extra_text
 
-VERSION='2.10.3'
+VERSION='2.10.4'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 from battle_metadata import KINDS, result_text
@@ -250,7 +250,7 @@ class MainWindow(QMainWindow):
             compact=result_label if result_label in ('胜利','失败','平局') else (f'{winner} 方胜' if winner in ('A','B') else '平局' if winner=='draw' else '结果未确认')
             if replay:compact+=' · 观战'
             self.battle_info.setText(compact);self.battle_info.setToolTip(result_label+' · '+ctx['sample_kind']+' · '+ctx['side_reason'])
-            source='本场已校正' if ctx['result_origin']=='manual_review' else '结算含义待核对' if ctx['result_origin']=='unverified_code' else '历史手动标注' if ctx['result_origin']=='manual' else '尚无确认结果'
+            source='本场已校正' if ctx['result_origin']=='manual_review' else '根据本场结算积分自动判定' if ctx['result_origin']=='rating_change' else '结算含义待核对' if ctx['result_origin']=='unverified_code' else '历史手动标注' if ctx['result_origin']=='manual' else '尚无确认结果'
             self.record_info.setText(result_label+' · '+('回放记录 · 不计本人战绩 · ' if replay else '')+record['status']+' · '+source)
             names=[(p.get('team')+' 方：' if p.get('team') else '方向待确认：')+p['nickname'] for p in self.latest.get('participants',[])]
             if names:self.record_info.setText(self.record_info.text()+' · '+' / '.join(names))
@@ -687,6 +687,10 @@ class MainWindow(QMainWindow):
         t.cellDoubleClicked.connect(edit); d.exec()
     def build_settings(self):
         layout=self.page(); card,c=self.card(); form=QFormLayout(); c.addLayout(form); layout.addWidget(card); layout.addStretch()
+        self.own_nickname=QLineEdit(self.preferences.get('own_nickname',''));self.own_nickname.setMaxLength(64)
+        self.own_nickname.setPlaceholderText('推荐填写完整昵称，例如 玩家名#1234')
+        form.addRow('我的游戏昵称',self.own_nickname)
+        form.addRow(label('昵称用于识别己方，结算积分用于判断胜负。省略#数字时须本场唯一匹配；重名、缺数据或观战保持待确认。本场手动校正优先。','hint'))
         self.dumpcap=QLineEdit(self.preferences.get('dumpcap') or find_dumpcap()); line=QHBoxLayout(); line.addWidget(self.dumpcap,1); line.addWidget(self.action('浏览',self.browse_dumpcap)); form.addRow('dumpcap 路径',line)
         self.interface=QComboBox(); self.interface.setMinimumWidth(440); line=QHBoxLayout(); line.addWidget(self.interface,1); self.refresh_interfaces_btn=self.action('刷新网卡',self.refresh_interfaces); line.addWidget(self.refresh_interfaces_btn); form.addRow('监听网卡',line)
         self.port=QSpinBox(); self.port.setRange(1,65535)
@@ -718,14 +722,15 @@ class MainWindow(QMainWindow):
 
     def set_topmost(self,value):self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint,bool(value)); self.show()
     def clear_player_identity(self):
-        self.archive.save_settings({'own_player_key':None});self.refresh_all();self.notify('已清除本号身份；本场手动方向记录保留')
+        self.archive.save_settings({'own_player_key':None,'own_nickname':''});self.own_nickname.clear();self.preferences.update(own_player_key=None,own_nickname='');self.refresh_all();self.notify('已清除本号身份与昵称；本场手动方向记录保留')
     def browse_dumpcap(self):
         path,_=QFileDialog.getOpenFileName(self,'选择 dumpcap',self.dumpcap.text(),'程序 (*.exe);;全部文件 (*)')
         if path:self.dumpcap.setText(path); self.refresh_interfaces()
     def save_preferences(self):
-        values={'dumpcap':self.dumpcap.text().strip(),'port':self.port.value(),'topmost':self.topmost.isChecked(),'capture_context':self.capture_scene.currentData()}
+        values={'dumpcap':self.dumpcap.text().strip(),'port':self.port.value(),'topmost':self.topmost.isChecked(),'capture_context':self.capture_scene.currentData(),'own_nickname':self.own_nickname.text().strip()}
+        if values['own_nickname']!=self.preferences.get('own_nickname',''):values['own_player_key']=None
         if self.interface.currentData():values.update(interface_id=self.interface.currentData(),interface_label=self.interface.currentText())
-        self.archive.save_settings(values); self.preferences.update(values); self.notify('设置已保存')
+        self.archive.save_settings(values); self.preferences.update(values); self.refresh_all();self.notify('设置已保存')
     def refresh_interfaces(self):
         path=self.dumpcap.text().strip()
         if not path:raise ValueError('请先选择 dumpcap.exe')
@@ -830,3 +835,4 @@ def main():
         QMessageBox.information(None,'伊瑟 · 对局助手',str(exc)); return 1
 
 if __name__=='__main__':sys.exit(main())
+

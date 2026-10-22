@@ -376,6 +376,8 @@ def decode_battle(body, mappings):
     battle.update(source_opcode='0x6003',mode_candidates=candidates,
                   protocol_shape=[{'field':f,'wire':w,'size':len(v) if isinstance(v,bytes) else None} for f,w,v in fields(body)])
     marker = outer.get(5)
+    if type(outer.get(7)) is int and outer[7]>0:
+        battle['protocol_match_id']=outer[7]
     if type(marker) is int and 0 <= marker <= 255:
         battle['protocol_context'] = marker
     battle['mode_detection']=mode_info(battle,mappings)
@@ -875,3 +877,4 @@ if __name__ == '__main__':
         print(args.output)
     else:
         print(content)
+

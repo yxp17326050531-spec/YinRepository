@@ -10,6 +10,7 @@ class PlayerEvidence:
     def reset(self):
         self.selections = {}
         self.players = []
+        self.ratings = {}
         self.header_time = None
         self.draft_time = None
         self.bound = False
@@ -37,7 +38,8 @@ class PlayerEvidence:
         for f, w, value in self.fields(header):
             if f != 8 or w != 2:
                 continue
-            profile = self.record(value).get(1)
+            entry = self.record(value)
+            profile = entry.get(1)
             if not isinstance(profile, bytes):
                 continue
             r = self.record(profile)
@@ -50,6 +52,8 @@ class PlayerEvidence:
                 continue
             if name and len(name) <= 64 and all(c.isprintable() for c in name):
                 self.players.append((uid, name))
+                if all(type(entry.get(k)) is int and entry[k]>0 for k in (2,3)):
+                    self.ratings[uid]={'opening_rating':entry[2],'opening_rank':entry[3]}
         if len(self.players) != 2 or len({uid for uid, _ in self.players}) != 2:
             self.players = []
 
@@ -66,7 +70,7 @@ class PlayerEvidence:
                        and not confirmed & teams['B' if t == 'A' else 'A']]
             team = matches[0] if len(matches) == 1 else None
             key = hashlib.sha256(('etheria-player-v1:' + str(uid)).encode()).hexdigest()
-            players.append({'nickname': name, 'team': team, 'player_key': key})
+            players.append({'nickname': name, 'team': team, 'player_key': key, **self.ratings.get(uid,{})})
         # Conflicting bindings cannot identify either side.
         bound = [p['team'] for p in players if p['team']]
         if len(bound) != len(set(bound)):
@@ -79,3 +83,4 @@ class PlayerEvidence:
             # CaptureJob stores keys in a separate local table and strips this
             # private transport field before UI events, original records/export.
             battle['_local_players'] = players
+
