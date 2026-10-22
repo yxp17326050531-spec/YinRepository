@@ -18,7 +18,7 @@ class UnitCard(QFrame):
     def __init__(self,unit,team,action,edit_name,edit_loadout,details):
         super().__init__();self.setObjectName('heroRow');self.wide=None
         self.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Maximum)
-        self.root=QHBoxLayout(self);self.root.setContentsMargins(4,2,4,2);self.root.setSpacing(4)
+        self.root=QHBoxLayout(self);self.root.setContentsMargins(4,1,4,1);self.root.setSpacing(4)
         identity=QWidget();identity.setObjectName('unitIdentity');identity.setFixedWidth(112)
         left=QVBoxLayout(identity);left.setContentsMargins(0,0,0,0);left.setSpacing(4)
         top=QHBoxLayout();top.setSpacing(6);top.addWidget(image_label('heroes',unit['hero_name'],28))
@@ -58,11 +58,11 @@ class UnitCard(QFrame):
             overflow=action('+'+str(len(unique)-3),lambda:details(unit));overflow.setObjectName('heroMore')
             overflow.setToolTip(matrix_text(unit));equipment.addWidget(overflow)
         left.addLayout(equipment);left.addStretch();self.root.addWidget(identity)
-        attributes=QWidget();right=QVBoxLayout(attributes);right.setContentsMargins(0,0,0,0);right.setSpacing(2)
-        self.basic=QGridLayout();self.basic.setHorizontalSpacing(3);self.basic.setVerticalSpacing(1)
+        attributes=QWidget();right=QVBoxLayout(attributes);right.setContentsMargins(0,0,0,0);right.setSpacing(1)
+        self.basic=QGridLayout();self.basic.setHorizontalSpacing(3);self.basic.setVerticalSpacing(0)
         right.addLayout(self.basic)
         secondary=QFrame();secondary.setObjectName('extraAttributes');self.extra=QGridLayout(secondary)
-        self.extra.setContentsMargins(3,1,3,1);self.extra.setHorizontalSpacing(3);self.extra.setVerticalSpacing(1)
+        self.extra.setContentsMargins(3,1,3,1);self.extra.setHorizontalSpacing(3);self.extra.setVerticalSpacing(0)
         right.addWidget(secondary);right.addStretch();self.root.addWidget(attributes,1)
         specs=[('hp','生命'),('attack','攻击'),('defense','防御'),('speed','速度'),
                ('crit','暴击率'),('crit_damage','暴击伤害'),('effect_hit','效果命中'),('effect_resist','效果抵抗'),
@@ -86,14 +86,16 @@ class UnitCard(QFrame):
             metric.setToolTip(tip);col.addWidget(metric,1);self.cells.append(cell)
         self.reflow(False)
 
-    def reflow(self,wide):
-        if self.wide==wide:return
-        self.wide=wide
-        for index,cell in enumerate(self.cells[:8]):
+    def reflow(self,wide,extra_columns=None,stack_basic=False,stack_extra=False):
+        extra_columns=extra_columns or (6 if wide else 3)
+        configuration=(wide,extra_columns,stack_basic,stack_extra)
+        if getattr(self,'configuration',None)==configuration:return
+        self.configuration=configuration;self.wide=wide
+        for index,cell in enumerate(self.cells):
             # Percentage labels and values are both long with Windows CJK
             # fonts. Stacking them also in compact mode prevents their summed
             # minimum widths from forcing both teams beyond the viewport.
-            stacked=wide or index>=4
+            stacked=(wide or stack_basic or index>=4) if index<8 else stack_extra
             cell.layout().setDirection(QBoxLayout.Direction.TopToBottom if stacked else QBoxLayout.Direction.LeftToRight)
             cell.layout().setSpacing(0 if stacked else 3)
             cell.layout().invalidate();cell.updateGeometry()
@@ -102,7 +104,7 @@ class UnitCard(QFrame):
             for column in range(8):layout.setColumnStretch(column,0)
         for index,cell in enumerate(self.cells):
             grid=self.basic if index<8 else self.extra;i=index if index<8 else index-8
-            columns=(8 if wide else 4) if index<8 else (6 if wide else 3)
+            columns=(8 if wide else 4) if index<8 else extra_columns
             grid.addWidget(cell,i//columns,i%columns)
         # Recompute from the cells upward before testing the new minimum.
         # Otherwise QWidgetItem caches can still describe the previous grid.
@@ -117,9 +119,23 @@ class UnitCard(QFrame):
         # the wide grid's minimum can otherwise prevent a shrinking window
         # from delivering a smaller resize event to this card.
         self.ensurePolished()
-        self.reflow(width>=900)
-        if self.wide and self.minimumSizeHint().width()>width:
-            self.reflow(False)
+        for cell in self.cells:
+            for widget in cell.findChildren(QWidget):widget.ensurePolished()
+            cell.layout().invalidate();cell.updateGeometry()
+        # Compare the actual polished minimum sizes. Different fonts can make
+        # either grid the limiting width; choose the shortest arrangement that
+        # fits, rather than adding rows when stacking labels is sufficient.
+        candidates=([(True,6,False,False)] if width>=900 else [])+[
+            (False,3,False,False),(False,2,False,False),
+            (False,3,True,False),(False,2,True,False),
+            (False,3,False,True),(False,3,True,True)]
+        fitting=[];measured=[]
+        for priority,configuration in enumerate(candidates):
+            self.reflow(*configuration)
+            size=self.minimumSizeHint()
+            measured.append((size.width(),size.height(),priority,configuration))
+            if size.width()<=width:fitting.append((size.height(),priority,configuration))
+        self.reflow(*(min(fitting)[2] if fitting else min(measured)[3]))
 
 
 def unit_card(unit,team,action,edit_name,edit_loadout,details):

@@ -93,7 +93,7 @@ class QtTests(unittest.TestCase):
         self.assertEqual(self.window.team_titles['B'].text(),'SyntheticTwo')
         self.window.clear_player_identity();self.assertIsNone(self.archive.settings()['own_player_key'])
 
-    def test_eight_characters_and_full_attributes_fit_a_normal_window(self):
+    def test_eight_characters_and_full_attributes_fit_a_normal_window(self,windows=None):
         from PySide6.QtCore import QPoint,QRect
         from PySide6.QtTest import QTest
         b=copy.deepcopy(self.battle);b['capture_time']+=100
@@ -106,7 +106,7 @@ class QtTests(unittest.TestCase):
                 u['attributes_raw'] += [(n<<8)|tag for tag,n in [(171,121),(174,187),(41,73),(58,116),(80,63),(83,74)]]
                 b['teams'][team].append(u)
         bid=self.archive.save_battle(b,'synthetic eight');self.window.browse_battle(bid);self.window.show()
-        for width,height in ((1280,800),(2048,1017),(1366,768),(1280,800)):
+        for width,height in windows or ((1280,800),(2048,1017),(1366,768),(1280,800)):
             self.window.resize(width,height)
             # Font polishing, reflow and scrollbar removal can each post a
             # layout request. Wait for convergence, then keep the exact bounds
@@ -140,6 +140,17 @@ class QtTests(unittest.TestCase):
         style=self.window.styleSheet()
         self.window.setStyleSheet(style+'\nQLabel#attributeTitle, QLabel#statValue, QLabel#speed {letter-spacing:5px;}')
         self.test_eight_characters_and_full_attributes_fit_a_normal_window()
+
+    def test_eight_character_layout_adapts_to_long_attribute_headings(self):
+        # Stress heading and number widths independently: a fixed three-column
+        # extra grid and a fixed compact basic row both overflow this case.
+        self.window.setStyleSheet(self.window.styleSheet()+
+            '\nQLabel#attributeTitle {letter-spacing:12px;}'
+            'QLabel#statValue,QLabel#speed {letter-spacing:5px;}')
+        # Extreme heading widths may need more height with tall CJK fonts;
+        # keep the 1280px width and all exact clipping/scrollbar assertions.
+        self.test_eight_characters_and_full_attributes_fit_a_normal_window(
+            ((1280,960),(2048,1017),(1536,960),(1280,960)))
 
     def test_capture_help_is_informational_and_redetection_uses_installed_tool(self):
         from PySide6.QtWidgets import QPushButton
