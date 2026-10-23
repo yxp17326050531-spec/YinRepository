@@ -2,7 +2,7 @@ import os
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 import unittest
 from types import SimpleNamespace
-from afk import Trial, Step
+from afk import Trial, Step, WindowInput
 from afk_widgets import AfkDialog
 from PySide6.QtWidgets import QApplication
 
@@ -19,6 +19,7 @@ class FakeInput:
     def click(self,target,point):
         self.validate(target); self.clicks.append((target,point))
     def windows(self):return [TARGET]
+    def calibrate(self,target):self.validate(target); return target
     def point(self,target):self.validate(target); return 120,240
 
 
@@ -61,6 +62,31 @@ class AfkTests(unittest.TestCase):
         self.trial.stop(); self.now = 30; self.trial.tick(); self.assertEqual(self.backend.clicks,[])
 
 
+class CalibrationTests(unittest.TestCase):
+    def setUp(self):
+        # Exercise the real setup/run geometry boundary without loading Windows DLLs.
+        self.backend = WindowInput.__new__(WindowInput)
+        self.backend.identity = lambda hwnd:TARGET[1]
+        self.size = (1600,900); self.minimized = False
+        self.backend.size = lambda hwnd:self.size
+        self.backend.user = SimpleNamespace(IsIconic=lambda hwnd:self.minimized)
+    def test_setup_can_recalibrate_but_running_validation_remains_strict(self):
+        with self.assertRaisesRegex(RuntimeError,'1280×720 → 1600×900'):
+            self.backend.validate(TARGET)
+        calibrated = self.backend.calibrate(TARGET)
+        self.assertEqual(calibrated,(TARGET[0],TARGET[1],(1600,900)))
+        self.backend.validate(calibrated)
+        self.size = (1920,1080)
+        with self.assertRaisesRegex(RuntimeError,'尺寸已变化'):self.backend.validate(calibrated)
+    def test_closed_or_replaced_process_and_minimized_invalid_geometry_are_not_accepted(self):
+        self.backend.identity = lambda hwnd:('different',)
+        with self.assertRaisesRegex(RuntimeError,'进程或窗口已变化'):self.backend.calibrate(TARGET)
+        self.backend.identity = lambda hwnd:TARGET[1]; self.minimized = True
+        with self.assertRaisesRegex(RuntimeError,'恢复游戏窗口'):self.backend.calibrate(TARGET)
+        self.minimized = False; self.size = (0,0)
+        with self.assertRaisesRegex(RuntimeError,'尺寸无效'):self.backend.calibrate(TARGET)
+
+
 class AfkWidgetTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):cls.app = QApplication.instance() or QApplication([])
@@ -93,6 +119,27 @@ class AfkWidgetTests(unittest.TestCase):
         self.assertFalse(self.dialog.trial.running); self.assertFalse(self.dialog.timer.isActive())
         _,x,y,_ = self.dialog.steps[0]; self.dialog.pick(x,y); self.dialog.reject()
         self.assertFalse(self.dialog.pick_timer.isActive())
+    def test_resize_during_pick_recalibrates_and_invalidates_the_other_position(self):
+        self.set_points()
+        resized = (TARGET[0],TARGET[1],(1600,900))
+        self.dialog.backend.calibrate = lambda target:resized
+        seen = []
+        self.dialog.backend.point = lambda target:seen.append(target) or (120,240)
+        _,x,y,_ = self.dialog.steps[0]; self.dialog.pick(x,y); self.dialog.finish_pick()
+        self.assertEqual(seen,[resized]); self.assertEqual(self.dialog.windows.currentData(),resized)
+        self.assertEqual((x.value(),y.value()),(120,240))
+        _,other_x,other_y,_ = self.dialog.steps[1]
+        self.assertEqual((other_x.value(),other_y.value()),(-1,-1))
+        _,x,y,_ = self.dialog.steps[1]; self.dialog.pick(x,y); self.dialog.finish_pick()
+        self.assertEqual(self.dialog.steps[0][1].value(),120)
+        self.assertEqual((x.value(),y.value()),(120,240))
+    def test_failed_pick_after_resize_still_discards_stale_positions(self):
+        self.set_points()
+        self.dialog.backend.calibrate = lambda target:(TARGET[0],TARGET[1],(1600,900))
+        def fail(target):raise RuntimeError('鼠标不在游戏内')
+        self.dialog.backend.point = fail
+        _,x,y,_ = self.dialog.steps[0]; self.dialog.pick(x,y); self.dialog.finish_pick()
+        self.assertTrue(all(x.value() == y.value() == -1 for _,x,y,_ in self.dialog.steps))
 
 
 if __name__ == '__main__':unittest.main()

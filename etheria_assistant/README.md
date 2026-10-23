@@ -1,4 +1,6 @@
-# 伊瑟 · 对局助手 2.11.1-pve-test（试验分支）
+# 伊瑟 · 对局助手 2.11.2-pve-test（试验分支）
+
+修复取点一直提示“游戏客户区尺寸已变化”：初次选择窗口时记录的尺寸不再锁死取点流程，取点时会重新读取同一游戏进程的当前客户区。尺寸变化会清空两个旧位置并更新窗口列表尺寸，当前取点成功后仍需补齐另一个位置；最小化、无效尺寸或进程变化时不接受取点。启动后仍严格检查校准尺寸，不把旧坐标自动缩放或用于新尺寸。报错同时显示旧尺寸和当前尺寸，便于判断是否是全屏切换等原因。
 
 ## PVE 最小化 / 锁屏操作试验
 
@@ -11,13 +13,14 @@
 关闭助手，在已有Git工作目录运行以下命令切换试验分支（本地源码改动须自行保存，不强制覆盖）：
 
 ```powershell
+git remote set-branches --add origin experiment/pve-background
 git fetch origin
 git switch --track origin/experiment/pve-background
 ```
 
-若已创建本地分支，改用 `git switch experiment/pve-background`。然后从原程序目录运行 `start.cmd`，标题应显示 `2.11.1-pve-test`。后续 `update.cmd` 会更新当前分支的上游。返回主版本时关闭助手，再运行 `git switch main`，从同目录启动。两个分支共用本机资料，本试验不修改数据库结构或历史内容。
+若已创建本地分支，改用 `git switch experiment/pve-background`，然后运行 `git pull --ff-only` 更新。再从原程序目录运行 `start.cmd`，标题应显示 `2.11.2-pve-test`。后续 `update.cmd` 会更新当前分支的上游。返回主版本时关闭助手，再运行 `git switch main`，从同目录启动。两个分支共用本机资料，本试验不修改数据库结构或历史内容。
 
-验证：175项完整回归通过，包括有界等待/循环、超时与延迟停止、取消取点、Esc/关闭清理、最小化状态记录及日志上限。运行环境为Linux离屏Qt和合成窗口接口，没有Windows游戏实机，尚未验证游戏最小化或锁屏下的输入响应。此前Windows字体压力测试失败仍未修复或跳过。
+验证：179项完整回归通过，包括取点重校准及旧坐标失效、运行中尺寸变化停止、有界等待/循环、超时与延迟停止、取消取点、Esc/关闭清理、最小化状态记录及日志上限。运行环境为Linux离屏Qt和合成窗口接口，没有Windows游戏实机，尚未验证游戏最小化或锁屏下的输入响应。此前Windows字体压力测试失败仍未修复或跳过。
 
 源码持续维护于 `yxp17326050531-spec/YinRepository` 的 `main` 分支。首次用 `setup_git.cmd` 安装到 Git 工作目录，之后通过 `update.cmd` 增量更新。
 

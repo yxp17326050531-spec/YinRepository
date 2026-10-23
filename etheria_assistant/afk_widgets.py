@@ -60,12 +60,16 @@ class AfkDialog(QDialog):
     def reset_points(self):
         for _,x,y,_ in self.steps:x.setValue(-1); y.setValue(-1)
 
+    @staticmethod
+    def target_text(target):
+        return f'伊瑟 · 进程 {target[1][0]} · 窗口 {target[0]} · {target[2][0]}×{target[2][1]}'
+
     def refresh_windows(self):
         if not self.backend:return
         self.windows.clear(); self.reset_points()
         try:
             for target in self.backend.windows():
-                self.windows.addItem(f'伊瑟 · 进程 {target[1][0]} · 窗口 {target[0]} · {target[2][0]}×{target[2][1]}',target)
+                self.windows.addItem(self.target_text(target),target)
             if not self.windows.count():self.report('未找到可访问的伊瑟游戏窗口，请启动游戏后刷新')
         except Exception as exc:self.report(f'检测失败：{exc}')
 
@@ -84,7 +88,14 @@ class AfkDialog(QDialog):
         if not self.picking:return
         self.pick_timer.stop()
         try:
-            point = self.backend.point(self.pick_target)
+            target = self.backend.calibrate(self.pick_target)
+            if target[2] != self.pick_target[2]:
+                self.reset_points()
+                index = self.windows.currentIndex()
+                self.windows.setItemData(index,target)
+                self.windows.setItemText(index,self.target_text(target))
+                self.report(f'已重新读取客户区尺寸 {target[2][0]}×{target[2][1]}；旧坐标已清空，请重新设置两个位置')
+            point = self.backend.point(target)
             for widget,value in zip(self.pick_fields,point):widget.setValue(value)
             self.report(f'已记录客户区位置 {point}')
         except Exception as exc:self.report(f'取点失败：{exc}')

@@ -87,8 +87,21 @@ class WindowInput:
         hwnd, identity, size = target
         if self.identity(hwnd) != identity:
             raise RuntimeError('游戏进程或窗口已变化，请重新选择')
-        if self.size(hwnd) != size:
-            raise RuntimeError('游戏客户区尺寸已变化，请恢复尺寸并重新取点')
+        current = self.size(hwnd)
+        if current != size:
+            raise RuntimeError(f'游戏客户区尺寸已变化（{size[0]}×{size[1]} → {current[0]}×{current[1]}），请恢复窗口后重新取点')
+
+    def calibrate(self, target):
+        """Accept fresh geometry only during explicit setup, never during a trial."""
+        hwnd, identity, _ = target
+        if self.identity(hwnd) != identity:
+            raise RuntimeError('游戏进程或窗口已变化，请重新选择')
+        if self.user.IsIconic(hwnd):
+            raise RuntimeError('取点前请恢复游戏窗口')
+        size = self.size(hwnd)
+        if not all(0 < dimension <= 32768 for dimension in size):
+            raise RuntimeError('游戏客户区尺寸无效，请恢复游戏窗口后取点')
+        return hwnd, identity, size
 
     def point(self, target):
         self.validate(target)
@@ -102,6 +115,8 @@ class WindowInput:
             raise RuntimeError('鼠标须停在选定游戏窗口内部')
         if not self.user.ScreenToClient(hwnd, ctypes.byref(point)):
             raise ctypes.WinError(ctypes.get_last_error())
+        if not (0 <= point.x < target[2][0] and 0 <= point.y < target[2][1]):
+            raise RuntimeError('鼠标须停在游戏画面内部，不能停在标题栏或边框')
         return point.x, point.y
 
     def click(self, target, point):
