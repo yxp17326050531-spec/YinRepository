@@ -69,6 +69,7 @@ class MetadataTests(unittest.TestCase):
     def test_mode_candidates_need_explicit_mapping_manual_priority_conflict_and_undo(self):
         body=battle_body()+scalar(7,2)+scalar(8,3)+scalar(9,123456789)
         b=decode_battle(body,load_mappings());b['capture_time']=100
+        b['teams']=unique_battle()['teams']
         self.assertEqual(len(b['mode_candidates']),2)
         bid=self.archive.save_battle(b,'test');candidate=b['mode_candidates'][0]
         self.assertEqual(self.archive.context(bid)['sample_kind'],'未分类')
@@ -88,7 +89,7 @@ class MetadataTests(unittest.TestCase):
         job.engine.message(0x5fc1,scalar(2,123456789)+scalar(4,987654321),10)
         job.engine.message(0x6003,battle_body()+scalar(6,3),20)
         d=job.engine.diagnostics();self.assertEqual(d['draft_messages'],1)
-        self.assertEqual(d['mode_detection']['kind'],'未分类')
+        self.assertEqual(d['mode_detection']['kind'],'PVE')  # This fixture is 1v1.
         self.assertEqual(d['mode_candidates'][0]['value'],3)
         text=json.dumps(d);self.assertNotIn('123456789',text);self.assertNotIn('987654321',text)
     def test_nicknames_are_allowlisted_unassigned_and_optional(self):
@@ -117,3 +118,4 @@ class MetadataTests(unittest.TestCase):
         self.assertEqual([r['capture_time'] for r in rows],[102,100])
         self.archive.trash_battles([rows[0]['id']]);self.assertEqual(self.archive.history(sample_kind='竞技场')[0],2)
         self.archive.restore_last_trash();self.assertEqual(self.archive.history(sample_kind='竞技场')[0],3)
+

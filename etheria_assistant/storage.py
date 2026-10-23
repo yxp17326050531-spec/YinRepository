@@ -14,7 +14,7 @@ from core import shell_effect_mapping, record, mapped_imprints
 from battle_session import battle_identity
 from battle_attributes import decode_extra_attributes
 from rating_result import rating_result, own_nickname_side
-from battle_metadata import KINDS, mode_info, infer_side
+from battle_metadata import KINDS, mode_info, infer_side, fingerprints
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -91,7 +91,18 @@ class Archive:
                 CREATE TABLE IF NOT EXISTS battle_trash (
                     battle_id TEXT PRIMARY KEY REFERENCES battles(id),
                     deleted_at TEXT NOT NULL, batch_id TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS battle_summaries (
+                    battle_id TEXT PRIMARY KEY REFERENCES battles(id), metadata TEXT NOT NULL, auto_kind TEXT NOT NULL);
+                CREATE INDEX IF NOT EXISTS battles_time_idx ON battles(capture_time DESC,id);
+                CREATE INDEX IF NOT EXISTS summaries_kind_idx ON battle_summaries(auto_kind,battle_id);
+                CREATE INDEX IF NOT EXISTS observations_kind_time_idx ON observations(kind,capture_time);
+                CREATE INDEX IF NOT EXISTS trash_batch_idx ON battle_trash(batch_id);
             ''')
+            modes=self._mode_mappings(db)
+            # One-time, resumable migration; later startups read no roster blobs.
+            cursor=db.execute('SELECT id,original FROM battles WHERE id NOT IN (SELECT battle_id FROM battle_summaries)')
+            while rows:=cursor.fetchmany(200):
+                for row in rows:self._save_summary(db,row['id'],json.loads(row['original']),modes)
         # Replay saved observations once so old captures gain automatic results too.
         with self.connect() as db:
             for row in db.execute("SELECT id,data,source FROM observations WHERE kind='settlement'").fetchall():
@@ -108,6 +119,7 @@ class Archive:
     def connect(self):
         db = sqlite3.connect(self.path, timeout=10)
         db.row_factory = sqlite3.Row
+        db.create_function('casefold',1,lambda value:str(value or '').casefold(),deterministic=True)
         db.execute('PRAGMA foreign_keys=ON')
         try:
             with db:
@@ -128,6 +140,7 @@ class Archive:
         with self.connect() as db:
             db.execute('INSERT OR IGNORE INTO battles(id,capture_time,saved_at,source,status,original) VALUES (?,?,?,?,?,?)',
                        (bid, battle.get('capture_time'), now(), source, battle['status'], encode(battle)))
+            self._save_summary(db,bid,battle,self._mode_mappings(db))
             if battle.get('participants'):
                 db.execute('INSERT OR REPLACE INTO battle_labels VALUES (?,?)',
                            (bid,encode(battle['participants'])))
@@ -152,23 +165,99 @@ class Archive:
                         db.execute('INSERT OR REPLACE INTO battle_tracking VALUES (?,?)',(bid,encode(tracking)))
         return bid
 
-    def history(self, limit=100, offset=0, sample_kind=None):
-        rows = self.history_directory(sample_kind)
-        return len(rows), rows[offset:offset+limit]
+    @staticmethod
+    def _mode_mappings(db):
+        return {'battle_modes':{r['id']:json.loads(r['value']) for r in db.execute("SELECT id,value FROM mappings WHERE category='battle_modes'")}}
 
-    def history_directory(self, sample_kind=None):
-        """Navigation and pagination share the same effective mode filter."""
+    @staticmethod
+    def _save_summary(db,bid,battle,modes):
+        metadata={k:battle[k] for k in ('capture_time','capture_context','source_opcode','mode_candidates',
+                    'draft_evidence','participant_status','participants') if k in battle}
+        metadata['teams']={t:[{'hero_id':u['hero_id']} for u in units] for t,units in battle['teams'].items()}
+        metadata['_fingerprints']=fingerprints(battle)
+        db.execute('INSERT OR REPLACE INTO battle_summaries VALUES (?,?,?)',
+                   (bid,encode(metadata),mode_info(metadata,modes)['kind']))
+
+    @staticmethod
+    def _history_sql(sample_kind=None,query=''):
+        # Personal replay confirmation and explicit per-record labels take
+        # priority; all other records use the indexed automatic summary.
+        kind="""CASE WHEN s.auto_kind='回放/观战' AND NOT (
+            COALESCE(json_extract(rv.value,'$.own_replay'),0)=1 AND COALESCE(ps.own_team IN ('A','B'),0)
+            AND COALESCE(c.sample_kind,'') IN ('BP排位','竞技场','GVG','PVE','练习/测试'))
+            THEN '回放/观战' ELSE COALESCE(NULLIF(c.sample_kind,'未分类'),s.auto_kind,'未分类') END"""
+        sql=f'''SELECT b.id,b.capture_time,b.saved_at,b.source,b.status,b.opponent,{kind} AS sample_kind
+            FROM battles b JOIN battle_summaries s ON s.battle_id=b.id
+            LEFT JOIN battle_context c ON c.battle_id=b.id
+            LEFT JOIN battle_reviews rv ON rv.battle_id=b.id
+            LEFT JOIN battle_perspective ps ON ps.battle_id=b.id
+            WHERE NOT EXISTS(SELECT 1 FROM battle_trash t WHERE t.battle_id=b.id)'''
+        params=[]
+        if sample_kind:sql+=f' AND ({kind})=?';params.append(sample_kind)
+        if query.strip():
+            # Search only effective participant names, including manual edits;
+            # parameter binding keeps %, _ and quotes literal.
+            escaped=query.strip().casefold().replace('\\','\\\\').replace('%','\\%').replace('_','\\_')
+            sql+=''' AND EXISTS(SELECT 1 FROM json_each(COALESCE(
+                (SELECT value FROM battle_players p WHERE p.battle_id=b.id),
+                (SELECT value FROM battle_labels l WHERE l.battle_id=b.id),
+                json_extract(s.metadata,'$.participants'),'[]')) n
+                WHERE casefold(json_extract(n.value,'$.nickname')) LIKE ? ESCAPE '\\'
+                AND COALESCE(json_extract(rv.value,'$.names.'||json_extract(n.value,'$.team')),'')=''
+                AND NOT EXISTS(SELECT 1 FROM json_each(rv.value,'$.names') v WHERE v.value=json_extract(n.value,'$.nickname'))
+                UNION ALL SELECT 1 FROM json_each(rv.value,'$.names') v WHERE casefold(v.value) LIKE ? ESCAPE '\\')'''
+            params.extend(['%'+escaped+'%']*2)
+        return sql,params
+
+    def history(self, limit=100, offset=0, sample_kind=None,query=''):
+        sql,params=self._history_sql(sample_kind,query)
         with self.connect() as db:
-            rows = [dict(r) for r in db.execute('''
-                SELECT id,capture_time,saved_at,source,status,opponent FROM battles
-                WHERE id NOT IN (SELECT battle_id FROM battle_trash)
-                ORDER BY capture_time DESC,id''')]
-        out=[]
-        for row in rows:
-            context=self.context(row['id'])
-            if sample_kind and context['sample_kind'] != sample_kind:continue
-            out.append(dict(row,**{k:v for k,v in context.items() if k not in row}))
-        return out
+            total=db.execute('SELECT COUNT(*) FROM ('+sql+')',params).fetchone()[0]
+            rows=[dict(r) for r in db.execute(sql+' ORDER BY b.capture_time DESC,b.id LIMIT ? OFFSET ?',params+[max(0,limit),max(0,offset)])]
+            contexts=self.contexts([r['id'] for r in rows],db)
+        return total,[dict(r,**{k:v for k,v in contexts[r['id']].items() if k not in r}) for r in rows]
+
+    def history_navigation(self,sample_kind=None,query=''):
+        sql,params=self._history_sql(sample_kind,query)
+        with self.connect() as db:return [dict(r) for r in db.execute(sql+' ORDER BY b.capture_time DESC,b.id',params)]
+
+    def history_directory(self, sample_kind=None,query=''):
+        rows=self.history_navigation(sample_kind,query);contexts=self.contexts([r['id'] for r in rows])
+        return [dict(r,**{k:v for k,v in contexts[r['id']].items() if k not in r}) for r in rows]
+
+    def search_results(self,sample_kind=None,query=''):
+        rows=self.history_navigation(sample_kind,query)
+        contexts=self.contexts([r['id'] for r in rows]);counts={'wins':0,'losses':0,'draws':0,'unknown':0}
+        for ctx in contexts.values():
+            own=ctx['own_team'];winner=ctx['winner']
+            key='unknown' if own not in ('A','B') or winner not in ('A','B','draw') else 'draws' if winner=='draw' else 'wins' if winner==own else 'losses'
+            counts[key]+=1
+        decided=counts['wins']+counts['losses']
+        return {**counts,'total':len(rows),'win_rate':counts['wins']/decided if decided else None}
+
+    def classify_battles(self,identifiers,sample_kind):
+        if sample_kind not in KINDS:raise ValueError('无效对局类型')
+        identifiers=list(dict.fromkeys(identifiers));changed=[]
+        with self.connect() as db:
+            for bid in identifiers:
+                result=db.execute('''INSERT INTO battle_context(battle_id,winner,sample_kind,dataset_group,updated_at)
+                    SELECT b.id,COALESCE(c.winner,'unknown'),?,COALESCE(c.dataset_group,''),?
+                    FROM battles b LEFT JOIN battle_context c ON c.battle_id=b.id WHERE b.id=?
+                    AND NOT EXISTS(SELECT 1 FROM battle_trash t WHERE t.battle_id=b.id)
+                    ON CONFLICT(battle_id) DO UPDATE SET sample_kind=excluded.sample_kind,updated_at=excluded.updated_at''',
+                    (sample_kind,now(),bid))
+                if result.rowcount:changed.append(bid)
+            if changed:db.execute('INSERT INTO audit VALUES (?,?,?,?)',(now(),'batch_classification',sample_kind,encode(changed)))
+        return changed
+
+    def analysis_dataset(self):
+        """Statistics use hero IDs and contexts, never full attributes or packet observations."""
+        with self.connect() as db:
+            rows=db.execute('''SELECT s.battle_id,s.metadata FROM battle_summaries s
+                WHERE NOT EXISTS(SELECT 1 FROM battle_trash t WHERE t.battle_id=s.battle_id)''').fetchall()
+            contexts=self.contexts([r['battle_id'] for r in rows],db)
+        return {'battles':[{'id':r['battle_id'],'original':json.loads(r['metadata']),
+                **{k:contexts[r['battle_id']][k] for k in ('own_team','winner','sample_kind','dataset_group','personal_confirmed')}} for r in rows]}
 
     def is_deleted(self, bid):
         with self.connect() as db:
@@ -331,24 +420,54 @@ class Archive:
 
     def context(self, bid):
         with self.connect() as db:
-            row = db.execute('SELECT * FROM battle_context WHERE battle_id=?',(bid,)).fetchone()
-            automatic = db.execute('SELECT winner FROM automatic_results WHERE battle_id=?',(bid,)).fetchone()
-            original = db.execute('SELECT original FROM battles WHERE id=?',(bid,)).fetchone()
-            side = db.execute('SELECT own_team FROM battle_perspective WHERE battle_id=?',(bid,)).fetchone()
-            refs = db.execute('''SELECT b.original,p.own_team FROM battle_perspective p
-                JOIN battles b ON b.id=p.battle_id LEFT JOIN battle_context c ON c.battle_id=b.id
-                WHERE COALESCE(c.sample_kind,'未分类')!='回放/观战' AND b.id NOT IN (SELECT battle_id FROM battle_trash)''').fetchall()
-            mode_rows = db.execute("SELECT id,value FROM mappings WHERE category='battle_modes'").fetchall()
-            private = db.execute('SELECT value FROM battle_players WHERE battle_id=?',(bid,)).fetchone()
-            self_key = db.execute("SELECT value FROM settings WHERE key='own_player_key'").fetchone()
-            self_name = db.execute("SELECT value FROM settings WHERE key='own_nickname'").fetchone()
-            rated = db.execute('SELECT value FROM rating_results WHERE battle_id=?',(bid,)).fetchone()
-            labels = db.execute('SELECT value FROM battle_labels WHERE battle_id=?',(bid,)).fetchone()
-            review = db.execute('SELECT value FROM battle_reviews WHERE battle_id=?',(bid,)).fetchone()
-            tracking = db.execute('SELECT value FROM battle_tracking WHERE battle_id=?',(bid,)).fetchone()
-        if original is None:raise ValueError('找不到这场对局')
-        battle=json.loads(original['original'])
-        modes={'battle_modes':{r['id']:json.loads(r['value']) for r in mode_rows}}
+            rows=self.contexts([bid],db)
+        if bid not in rows:raise ValueError('找不到这场对局')
+        return rows[bid]
+
+    def contexts(self,identifiers,db=None):
+        if db is None:
+            with self.connect() as connection:return self.contexts(identifiers,connection)
+        if not identifiers:return {}
+        settings={r['key']:{'value':r['value']} for r in db.execute("SELECT key,value FROM settings WHERE key IN ('own_player_key','own_nickname')")}
+        modes=self._mode_mappings(db)
+        refs=[]
+        if not any(json.loads(r['value']) for r in settings.values()):
+            refs=[(json.loads(r['metadata']),r['own_team']) for r in db.execute('''
+                SELECT s.metadata,p.own_team FROM battle_perspective p
+                JOIN battle_summaries s ON s.battle_id=p.battle_id LEFT JOIN battle_context c ON c.battle_id=p.battle_id
+                WHERE COALESCE(c.sample_kind,'未分类')!='回放/观战'
+                AND NOT EXISTS(SELECT 1 FROM battle_trash t WHERE t.battle_id=p.battle_id)''')]
+        out={}
+        identifiers=list(dict.fromkeys(identifiers))
+        for offset in range(0,len(identifiers),400):
+            chunk=identifiers[offset:offset+400];marks=','.join('?' for _ in chunk)
+            rows=db.execute(f'''SELECT s.battle_id,s.metadata,c.battle_id AS classified,c.winner,c.sample_kind,c.dataset_group,
+                ar.winner AS candidate,ps.own_team,p.value AS players,l.value AS labels,rv.value AS review,
+                rr.value AS rated,tr.value AS tracking
+                FROM battle_summaries s LEFT JOIN battle_context c ON c.battle_id=s.battle_id
+                LEFT JOIN automatic_results ar ON ar.battle_id=s.battle_id
+                LEFT JOIN battle_perspective ps ON ps.battle_id=s.battle_id
+                LEFT JOIN battle_players p ON p.battle_id=s.battle_id
+                LEFT JOIN battle_labels l ON l.battle_id=s.battle_id
+                LEFT JOIN battle_reviews rv ON rv.battle_id=s.battle_id
+                LEFT JOIN rating_results rr ON rr.battle_id=s.battle_id
+                LEFT JOIN battle_tracking tr ON tr.battle_id=s.battle_id WHERE s.battle_id IN ({marks})''',chunk)
+            for data in rows:
+                out[data['battle_id']]=self._project_context(data,settings,modes,refs)
+        return out
+
+    @staticmethod
+    def _project_context(data,settings,modes,refs):
+        battle=json.loads(data['metadata'])
+        row={k:data[k] for k in ('winner','sample_kind','dataset_group')} if data['classified'] else None
+        automatic={'winner':data['candidate']} if data['candidate'] is not None else None
+        side={'own_team':data['own_team']} if data['own_team'] else None
+        private={'value':data['players']} if data['players'] else None
+        labels={'value':data['labels']} if data['labels'] else None
+        review={'value':data['review']} if data['review'] else None
+        rated={'value':data['rated']} if data['rated'] else None
+        tracking={'value':data['tracking']} if data['tracking'] else None
+        self_key=settings.get('own_player_key');self_name=settings.get('own_nickname')
         mode=mode_info(battle,modes)
         context = dict(row) if row else {'winner':'unknown','sample_kind':'未分类','dataset_group':''}
         context['result_origin'] = 'manual' if context['winner'] != 'unknown' else 'unknown'
@@ -376,7 +495,7 @@ class Archive:
         context['team_names']={p['team']:p['nickname'] for p in context['participants'] if p.get('team') in ('A','B')}
         context['remember_identity_teams']=[t for t in ('A','B') if sum(p.get('team')==t for p in players)==1]
         context['can_remember_identity']=bool(context['remember_identity_teams'])
-        personal=bool(review.get('own_replay') and side and context['sample_kind'] in ('BP排位','竞技场','练习/测试'))
+        personal=bool(review.get('own_replay') and side and context['sample_kind'] in ('BP排位','竞技场','GVG','PVE','练习/测试'))
         context['personal_confirmed']=personal
         context['review']=review
         if mode['kind']=='回放/观战' and personal:
@@ -401,7 +520,7 @@ class Archive:
                 context.update(own_team=None,side_origin='identity_unmatched',
                                side_reason='参与者未匹配记住的本号，可能为观战或账号变化；己方待确认，不计本人胜负')
         else:
-            context.update(infer_side(battle,[(json.loads(r['original']),r['own_team']) for r in refs]))
+            context.update(infer_side(battle,refs))
         return context
 
     def set_review(self, bid, winner=None, own_replay=False, names=None):
@@ -458,12 +577,20 @@ class Archive:
         with self.connect() as db:
             db.execute('INSERT OR REPLACE INTO mappings VALUES (?,?,?)',('battle_modes',mode_key(candidate),encode(sample_kind)))
             db.execute('INSERT INTO audit VALUES (?,?,?,?)',(now(),'mode_mapping',mode_key(candidate),encode(sample_kind)))
+            self._refresh_auto_kinds(db)
 
     def remove_mode_mapping(self, candidate):
         from battle_metadata import mode_key
         with self.connect() as db:
             db.execute("DELETE FROM mappings WHERE category='battle_modes' AND id=?",(mode_key(candidate),))
             db.execute('INSERT INTO audit VALUES (?,?,?,?)',(now(),'remove_mode_mapping',mode_key(candidate),'{}'))
+            self._refresh_auto_kinds(db)
+
+    def _refresh_auto_kinds(self,db):
+        modes=self._mode_mappings(db)
+        rows=db.execute('SELECT battle_id,metadata FROM battle_summaries').fetchall()
+        db.executemany('UPDATE battle_summaries SET auto_kind=? WHERE battle_id=?',
+                       [(mode_info(json.loads(r['metadata']),modes)['kind'],r['battle_id']) for r in rows])
 
     def set_classification(self, bid, sample_kind, dataset_group=''):
         # Retain legacy result metadata; per-record reviews are stored separately.
@@ -615,6 +742,8 @@ class Archive:
                    WHERE b.id NOT IN (SELECT battle_id FROM battle_trash) ORDER BY b.capture_time''').fetchall()
             observations = db.execute('SELECT id,data FROM observations ORDER BY capture_time').fetchall()
             deleted_times={r[0] for r in db.execute('SELECT b.capture_time FROM battles b JOIN battle_trash t ON b.id=t.battle_id')}
+            contexts=self.contexts([r['id'] for r in rows],db)
+            tracking={r['battle_id']:json.loads(r['value']) for r in db.execute('SELECT battle_id,value FROM battle_tracking')}
         observation_rows=[]
         for row in observations:
             data=json.loads(row['data'])
@@ -623,9 +752,9 @@ class Archive:
             observation_rows.append({'id':row['id'],**data})
         battle_rows=[]
         for r in rows:
-            ctx=self.context(r['id'])
+            ctx=contexts[r['id']]
             battle_rows.append({'id':r['id'],'original':json.loads(r['original']),
-                'tracking':self.get(r['id'])['tracking'],
+                'tracking':tracking.get(r['id']),
                 'opponent':'B 队' if ctx['own_team']=='A' else 'A 队' if ctx['own_team']=='B' else '待确认',
                 **{k:ctx[k] for k in ('own_team','winner','protocol_winner','result_origin','sample_kind','dataset_group','personal_confirmed')},
                 'team_names':ctx['team_names']})
@@ -634,8 +763,8 @@ class Archive:
                 'observations':observation_rows,
                 'notes':['BP观测未确认预选/选取/禁用含义，未关联具体对局，不能计算pick/ban率。',
                          '阵容出场率分母为符合筛选条件的队伍数；未知胜负不计入胜率。',
-                         '协议A/B与本人身份分开；382/383暂按A/B方获胜，己方未确认不计算本人胜负。',
-                         '0x8421自动分类回放；排位/竞技场仅使用已确认模式映射，手动分类优先。']}
+                         '协议A/B与本人身份分开；结算码不固定对应胜方，己方未确认不计算本人胜负。',
+                         '3v3归GVG，非3v3/4v4归PVE；4v4有确认选人证据才自动归BP排位；回放单独分类，手动分类优先。']}
 
     def validation_dataset(self):
         dataset=self.dataset()

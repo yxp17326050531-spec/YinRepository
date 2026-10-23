@@ -31,7 +31,7 @@ from inventory_widgets import GearFilterDialog
 from components import project_component, attribute_text as component_attribute_text, component_detail as component_detail_text
 from battle_attributes import decode_extra_attributes, pending_attributes, pending_text, extra_text
 
-VERSION='2.10.4'
+VERSION='2.11.0'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 from battle_metadata import KINDS, result_text
@@ -57,17 +57,30 @@ def table(headers):
     w.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
     w.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
     w.setAlternatingRowColors(True); w.verticalHeader().hide()
-    w.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+    w.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+    w.horizontalHeader().setResizeContentsPrecision(100)
     w.horizontalHeader().setStretchLastSection(True); w.setWordWrap(False)
     w.verticalHeader().setDefaultSectionSize(42)
     return w
 
 def fill(w, rows):
-    w.setUpdatesEnabled(False); w.setRowCount(len(rows))
-    for r,values in enumerate(rows):
-        for c,value in enumerate(values):
-            item=QTableWidgetItem(str(value)); item.setToolTip(str(value)); w.setItem(r,c,item)
-    w.setUpdatesEnabled(True)
+    w.setUpdatesEnabled(False);blocked=w.blockSignals(True)
+    try:
+        w.setRowCount(len(rows))
+        for r,values in enumerate(rows):
+            for c,value in enumerate(values):
+                item=QTableWidgetItem(str(value)); item.setToolTip(str(value)); w.setItem(r,c,item)
+        # Resize once after the batch. ResizeToContents on each change causes
+        # repeated size-hint work while large hidden tables are populated.
+        w.resizeColumnsToContents()
+        for column in range(w.columnCount()):w.setColumnWidth(column,min(w.columnWidth(column),400))
+    finally:w.blockSignals(blocked);w.setUpdatesEnabled(True)
+
+
+def delete_shortcut(widget,action):
+    shortcut=QShortcut(QKeySequence('Delete'),widget,activated=action)
+    shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+    return shortcut
 
 def stamp(value):
     return datetime.fromtimestamp(value).strftime('%m-%d %H:%M:%S') if value else '未知时间'
@@ -105,6 +118,8 @@ class MainWindow(QMainWindow):
         super().__init__(); self.archive=archive or Archive(); self.preferences=self.archive.settings()
         self.mappings=self.archive.mappings(load_mappings()); self.events=CaptureEvents(128)
         self._mapping_undo=None
+        self._stats_dirty=True;self._stats_signature=None;self._battle_dirty=True;self._inventory_dirty=True
+        self.history_query='';self._history_search_dirty=True
         self.job=None; self.token=0; self.current_id=None; self.live_id=None; self.browsing=False
         self.live_time=None; self.capture_diagnostics=self.preferences.get('last_capture_diagnostics',{})
         self.latest=None; self.unsaved_battle=None; self.storage_failed=False; self.inventory_rows=[]; self.history_offset=0; self.history_ids=[]
@@ -147,8 +162,10 @@ class MainWindow(QMainWindow):
     def navigate(self,index):
         self.stack.setCurrentIndex(index); self.nav.button(index).setChecked(True)
         self.page_title.setText(['对局总览','战绩统计','源器与配装','历史与日志','编号映射','连接与设置'][index])
-        if index==1:self.refresh_stats()
+        if index==1 and self._stats_dirty:self.refresh_stats()
         if index==3:self.refresh_history()
+        if index==0 and self._battle_dirty and hasattr(self,'history_filter'):self.render_battle()
+        if index==2 and self._inventory_dirty and hasattr(self,'history_filter'):self.render_inventory()
     def page(self):
         page=QWidget(); layout=QVBoxLayout(page); layout.setContentsMargins(0,0,0,0); layout.setSpacing(8); self.stack.addWidget(page); return layout
     def card(self):
@@ -233,7 +250,8 @@ class MainWindow(QMainWindow):
             item=layout.takeAt(0)
             if item.widget():item.widget().hide(); item.widget().deleteLater()
     def render_battle(self):
-        self.latest=None
+        self._battle_dirty=False
+        self.latest=None;ctx={}
         self.record_info.setText('')
         if self.current_id and not self.archive.is_deleted(self.current_id):
             record=self.archive.get(self.current_id); self.latest=copy.deepcopy(record['original']); self.latest['status']=record['status']
@@ -262,9 +280,9 @@ class MainWindow(QMainWindow):
         self.refresh_battle_navigation()
         for team,layout in self.team_layouts.items():
             replay=bool(self.latest and self.latest.get('view_context',self.latest.get('capture_context'))=='replay')
-            own=self.archive.context(self.current_id).get('own_team') if self.current_id else None
+            own=ctx.get('own_team')
             heading=f'记录 {team} 方' if replay or not own else f'⚔  {"己方" if team==own else "敌方"}队伍 · {team} 方'
-            nickname=self.archive.context(self.current_id).get('team_names',{}).get(team) if self.current_id else None
+            nickname=ctx.get('team_names',{}).get(team)
             self.team_titles[team].setText((nickname+' · '+('己方' if team==own else '敌方') if own and not replay else nickname) if nickname else heading)
             self.team_titles[team].setToolTip(heading+(' · '+nickname if nickname else ''))
             self.nickname_buttons[team].setVisible(bool(self.latest and not nickname))
@@ -272,7 +290,6 @@ class MainWindow(QMainWindow):
             style='teamNeutral' if replay or not own else 'ownTeam' if team==own else 'enemyTeam'
             if title.objectName()!=style:
                 title.setObjectName(style);title.style().unpolish(title);title.style().polish(title)
-            ctx=self.archive.context(self.current_id) if self.current_id else {}
             winner=ctx.get('protocol_winner') if replay else ctx.get('winner')
             result='win' if winner==team else 'loss' if winner in ('A','B') else 'draw' if winner=='draw' else 'unknown'
             outcome=self.team_outcomes[team];outcome.setText({'win':'胜','loss':'负','draw':'平','unknown':'待确认'}[result])
@@ -285,11 +302,14 @@ class MainWindow(QMainWindow):
                 layout.addWidget(unit_card(unit,team,self.action,self.edit_hero,self.edit_loadout,self.details))
         self.reflow_battle_cards()
     def refresh_battle_navigation(self):
-        rows=self.archive.history_directory(self.history_filter.currentData()); self.battle_navigation=[r['id'] for r in rows]
-        self.battle_jump.blockSignals(True); self.battle_jump.clear(); self.battle_jump.setPlaceholderText('选择已保存对局')
-        for row in rows:
-            text=f"{stamp(row['capture_time'])} · {row['sample_kind']}"
-            self.battle_jump.addItem(text,row['id'])
+        rows=self.archive.history_navigation(self.history_filter.currentData(),self.history_query); self.battle_navigation=[r['id'] for r in rows]
+        self.battle_jump.blockSignals(True)
+        signature=tuple((r['id'],r['capture_time'],r['sample_kind']) for r in rows)
+        if signature!=getattr(self,'_navigation_signature',None):
+            self._navigation_signature=signature;self.battle_jump.clear();self.battle_jump.setPlaceholderText('选择已保存对局')
+            for row in rows:
+                text=f"{stamp(row['capture_time'])} · {row['sample_kind']}"
+                self.battle_jump.addItem(text,row['id'])
         index=self.battle_jump.findData(self.current_id); self.battle_jump.setCurrentIndex(index); self.battle_jump.blockSignals(False)
         self.previous_battle.setEnabled(index>=0 and index<len(rows)-1)
         self.next_battle.setEnabled(index>0)
@@ -301,7 +321,7 @@ class MainWindow(QMainWindow):
 
     def step_battle(self, direction):
         # Refresh to skip records removed since this view was opened.
-        ids=[r['id'] for r in self.archive.history_directory(self.history_filter.currentData())]
+        ids=[r['id'] for r in self.archive.history_navigation(self.history_filter.currentData(),self.history_query)]
         if self.current_id not in ids:return
         index=ids.index(self.current_id)+direction
         if 0<=index<len(ids):self.browse_battle(ids[index])
@@ -311,9 +331,10 @@ class MainWindow(QMainWindow):
         if bid and bid!=self.current_id:self.browse_battle(bid)
 
     def back_to_history(self):
-        if self.current_id and self.current_id not in [r['id'] for r in self.archive.history_directory(self.history_filter.currentData())]:
+        if self.current_id and self.current_id not in [r['id'] for r in self.archive.history_navigation(self.history_filter.currentData(),self.history_query)]:
+            self.history_query='';self.history_search.clear()
             self.history_filter.setCurrentIndex(0)
-        ids=[r['id'] for r in self.archive.history_directory(self.history_filter.currentData())]
+        ids=[r['id'] for r in self.archive.history_navigation(self.history_filter.currentData(),self.history_query)]
         if self.current_id in ids:self.history_offset=(ids.index(self.current_id)//100)*100
         self.navigate(3)
         if self.current_id in self.history_ids:
@@ -425,7 +446,7 @@ class MainWindow(QMainWindow):
         def save():
             own=[None,'A','B'][side.currentIndex()]
             if len(group.text().strip())>100:raise ValueError('统计分组最多100字')
-            if own_replay.isChecked() and (own not in ('A','B') or kind.currentText() not in ('BP排位','竞技场','练习/测试')):raise ValueError('请先确认己方A/B，并选择排位、竞技场或练习分类')
+            if own_replay.isChecked() and (own not in ('A','B') or kind.currentText() not in ('BP排位','竞技场','GVG','PVE','练习/测试')):raise ValueError('请先确认己方A/B，并选择本人对局分类')
             if remember.isChecked() and kind.currentText()=='回放/观战':raise ValueError('请先选择本人对局类型，再记住本号身份')
             self.archive.set_review(bid,winner.currentData(),own_replay.isChecked(),{'A':nick_a.text(),'B':nick_b.text()})
             self.archive.set_perspective(bid,own,remember.isChecked());self.archive.set_classification(bid,kind.currentText(),group.text());self.refresh_all()
@@ -433,7 +454,7 @@ class MainWindow(QMainWindow):
     def hero_name(self,identifier):return self.mappings['heroes'].get(str(identifier),f'角色 #{identifier}')
     def build_stats(self):
         layout=self.page(); layout.addWidget(label('本地观测样本 · 对位反映整队结果，不能视为单挑克制或全服胜率。','hint'))
-        bar=QHBoxLayout(); self.stats_kind=combo(['BP排位','竞技场','全部已分类','未分类','练习/测试']); self.stats_group=QLineEdit(); self.stats_group.setPlaceholderText('分组 / 赛季（可留空）')
+        bar=QHBoxLayout(); self.stats_kind=combo(['BP排位','竞技场','GVG','PVE','全部已分类','未分类','练习/测试']); self.stats_group=QLineEdit(); self.stats_group.setPlaceholderText('分组 / 赛季（可留空）')
         self.stats_focus=combo(['全部角色']); self.stats_focus.setMinimumWidth(170); self.stats_perspective=combo(['仅己方','双方队伍']); self.stats_min=QSpinBox(); self.stats_min.setRange(1,100000); self.stats_min.setValue(5); self.stats_min.setPrefix('最少样本 ')
         for w in [self.stats_kind,self.stats_group,self.stats_focus,self.stats_perspective,self.stats_min]:bar.addWidget(w)
         bar.addWidget(self.action('刷新',self.refresh_stats)); layout.addLayout(bar)
@@ -442,11 +463,17 @@ class MainWindow(QMainWindow):
         for title,headers in [('角色概览',['角色','精确编号','出场','胜','负','平','未知','胜率样本','胜率']),('对位 · 低胜率优先',['角色','对方角色','胜','负','胜率样本','胜率']),('搭配 · 高胜率优先',['角色一','角色二','胜','负','胜率样本','胜率'])]:
             t=table(headers); tabs.addTab(t,title); self.stat_tables.append(t)
         layout.addWidget(tabs,1); row=QHBoxLayout(); row.addStretch(); row.addWidget(self.action('导出分析数据集',lambda:self.write_json(self.archive.dataset(),'etheria_analysis_dataset.json'))); layout.addLayout(row)
-        for w in [self.stats_kind,self.stats_focus,self.stats_perspective]:w.currentIndexChanged.connect(lambda _:self.refresh_stats())
-        self.stats_min.valueChanged.connect(lambda _:self.refresh_stats()); self.stats_group.returnPressed.connect(self.refresh_stats)
-    def refresh_stats(self):
-        ds=self.archive.dataset(); kinds=('BP排位','竞技场') if self.stats_kind.currentText()=='全部已分类' else (self.stats_kind.currentText(),)
-        result=analyse(ds,self.mappings,kinds,self.stats_group.text().strip(),'own' if self.stats_perspective.currentIndex()==0 else 'both')
+        for w in [self.stats_kind,self.stats_focus,self.stats_perspective]:w.currentIndexChanged.connect(lambda _:self.refresh_stats(False))
+        self.stats_min.valueChanged.connect(lambda _:self.refresh_stats(False)); self.stats_group.returnPressed.connect(self.refresh_stats)
+    def refresh_stats(self,force=True):
+        if force:self._stats_dirty=True
+        if self._stats_dirty or not hasattr(self,'_stats_dataset'):
+            self._stats_dataset=self.archive.analysis_dataset();self._stats_dirty=False;self._stats_signature=None
+        ds=self._stats_dataset;kinds=('BP排位','竞技场','GVG','PVE','练习/测试') if self.stats_kind.currentText()=='全部已分类' else (self.stats_kind.currentText(),)
+        signature=(kinds,self.stats_group.text().strip(),self.stats_perspective.currentIndex())
+        if signature!=self._stats_signature:
+            self._stats_result=analyse(ds,self.mappings,kinds,signature[1],'own' if signature[2]==0 else 'both');self._stats_signature=signature
+        result=self._stats_result
         focus=self.stats_focus.currentData(); self.stats_focus.blockSignals(True); self.stats_focus.clear(); self.stats_focus.addItem('全部角色',None)
         for hid in sorted({u['hero_id'] for b in ds['battles'] for units in b['original']['teams'].values() for u in units}):self.stats_focus.addItem(f'{self.hero_name(hid)}  #{hid}',hid)
         index=self.stats_focus.findData(focus); self.stats_focus.setCurrentIndex(max(index,0)); self.stats_focus.blockSignals(False); focus=self.stats_focus.currentData()
@@ -512,6 +539,7 @@ class MainWindow(QMainWindow):
             self.archive.set_gear_metadata(gear['uid'],value); self.gear_metadata=self.archive.gear_metadata(); self.render_inventory()
         d.on_save=save; d.exec()
     def render_inventory(self):
+        self._inventory_dirty=False
         snap=self.bag_snapshot or {}; query=self.gear_query.text().strip().lower(); holders={}
         oldrow=self.gear_table.currentRow()
         selected=self.gear_display[oldrow]['uid'] if hasattr(self,'gear_display') and 0<=oldrow<len(self.gear_display) else None
@@ -594,23 +622,46 @@ class MainWindow(QMainWindow):
         for name in KINDS:self.history_filter.addItem(name,name)
         row.addWidget(self.history_filter);self.history_filter.currentIndexChanged.connect(self.change_history_filter)
         for text,fn in [('上一页',lambda:self.history_page(-1)),('下一页',lambda:self.history_page(1)),('打开',self.open_history),('删除选中',self.delete_history),('恢复最近删除',self.restore_history)]:row.addWidget(self.action(text,fn))
-        layout.addLayout(row); self.history_table=table(['时间','来源','状态','对方队伍','类型','结果']); layout.addWidget(self.history_table,1)
-        self.history_table.cellDoubleClicked.connect(lambda r,c:self.open_history()); QShortcut(QKeySequence('Delete'),self.history_table,activated=self.delete_history)
+        layout.addLayout(row)
+        search=QHBoxLayout();self.history_search=QLineEdit();self.history_search.setPlaceholderText('查找玩家昵称（支持部分名字或完整#编号）')
+        search.addWidget(self.history_search,1);search.addWidget(self.action('查找战绩',self.apply_history_search));search.addWidget(self.action('清除查找',self.clear_history_search));layout.addLayout(search)
+        self.history_search.returnPressed.connect(self.apply_history_search)
+        self.history_search_info=label('','hint');layout.addWidget(self.history_search_info)
+        self.history_table=table(['时间','来源','状态','双方昵称','类型','结果']); layout.addWidget(self.history_table,1)
+        self.history_table.cellDoubleClicked.connect(lambda r,c:self.open_history());delete_shortcut(self.history_table,self.delete_history)
         row=QHBoxLayout()
         for text,fn in [('修改对局分类',self.context_selected),('导出分析数据集',lambda:self.write_json(self.archive.dataset(),'etheria_analysis_dataset.json')),('打开日志目录',self.open_directory),('备份数据库',self.backup),('查看结算观测',self.observations)]:row.addWidget(self.action(text,fn))
-        layout.addLayout(row); layout.addWidget(label('Ctrl / Shift 多选，Ctrl+A 选择当前页；删除后不参与统计，可恢复最近一批。','hint'))
+        layout.addLayout(row)
+        actions=QHBoxLayout();actions.addWidget(self.action('批量分类选中',self.classify_selected));actions.addWidget(self.action('删除当前筛选全部记录',self.delete_filtered_history));actions.addStretch();layout.addLayout(actions)
+        layout.addWidget(label('Ctrl+左键 / Shift 多选后按 Delete；Ctrl+A 选择当前页。“删除当前筛选全部记录”包括后续页，可恢复最近一批。昵称战绩仅统计已确认己方与胜负。','hint'))
+    def apply_history_search(self):
+        self.history_query=self.history_search.text().strip();self.change_history_filter()
+    def clear_history_search(self):
+        self.history_search.clear();self.apply_history_search()
     def change_history_filter(self):
-        self.history_offset=0; self.refresh_history(); self.refresh_battle_navigation()
+        self.history_offset=0;self._history_search_dirty=True; self.refresh_history(); self.refresh_battle_navigation()
 
     def refresh_history(self):
-        total,records=self.archive.history(100,self.history_offset,self.history_filter.currentData())
-        if not records and self.history_offset and total:self.history_offset=max(0,((total-1)//100)*100); total,records=self.archive.history(100,self.history_offset,self.history_filter.currentData())
+        selected=set(self.selected_ids()) if self.history_ids else set()
+        total,records=self.archive.history(100,self.history_offset,self.history_filter.currentData(),self.history_query)
+        if not records and self.history_offset and total:self.history_offset=max(0,((total-1)//100)*100); total,records=self.archive.history(100,self.history_offset,self.history_filter.currentData(),self.history_query)
         self.history_ids=[r['id'] for r in records]; rows=[]
         for r in records:
-            c=self.archive.context(r['id']); rows.append([stamp(r['capture_time']),r['source'],r['status'],('B 方' if c['own_team']=='A' else 'A 方' if c['own_team']=='B' else '待确认'),c['sample_kind'],result_text(c)])
-        fill(self.history_table,rows); self.history_info.setText(f'{total} 场记录 · 第 {self.history_offset//100+1} 页')
+            rows.append([stamp(r['capture_time']),r['source'],r['status'],' / '.join(p['nickname'] for p in r['participants']) or '未采集昵称',r['sample_kind'],result_text(r)])
+        fill(self.history_table,rows)
+        selection=self.history_table.selectionModel();selection.clearSelection()
+        from PySide6.QtCore import QItemSelectionModel
+        for i,bid in enumerate(self.history_ids):
+            if bid in selected:selection.select(self.history_table.model().index(i,0),QItemSelectionModel.SelectionFlag.Select|QItemSelectionModel.SelectionFlag.Rows)
+        self.history_info.setText(f'{total} 场记录 · 第 {self.history_offset//100+1} 页')
+        if self._history_search_dirty:
+            if self.history_query:
+                result=self.archive.search_results(self.history_filter.currentData(),self.history_query)
+                self.history_search_info.setText(f"查找“{self.history_query}”：{result['total']} 场 · 己方 {result['wins']} 胜 {result['losses']} 负 {result['draws']} 平 · {result['unknown']} 场未确认 · 胜率 {percent(result['win_rate'])}")
+            else:self.history_search_info.setText('输入昵称后按回车，查看双方名单、相关对局与己方对战成绩。')
+            self._history_search_dirty=False
     def history_page(self,direction):
-        total,_=self.archive.history(1,sample_kind=self.history_filter.currentData()); offset=max(0,self.history_offset+direction*100)
+        total,_=self.archive.history(0,sample_kind=self.history_filter.currentData(),query=self.history_query); offset=max(0,self.history_offset+direction*100)
         if offset>=total and direction>0:return
         self.history_offset=offset; self.refresh_history()
     def selected_ids(self):return [self.history_ids[i.row()] for i in self.history_table.selectionModel().selectedRows() if i.row()<len(self.history_ids)]
@@ -623,12 +674,26 @@ class MainWindow(QMainWindow):
     def delete_history(self):
         ids=self.selected_ids()
         if not ids:self.notify('先选择记录，可按 Ctrl / Shift 多选'); return
+        self.delete_battles(ids)
+    def delete_filtered_history(self):
+        if self.history_filter.currentData() is None and not self.history_query:
+            self.notify('请先选择一个类型或查找昵称，再删除全部筛选结果');return
+        self.delete_battles([r['id'] for r in self.archive.history_navigation(self.history_filter.currentData(),self.history_query)])
+    def delete_battles(self,ids):
         removed=self.archive.trash_battles(ids)
         if self.current_id in removed:self.current_id=None; self.browsing=False
         if self.live_id in removed:self.live_id=None
-        self.refresh_all(); self.notify(f'已删除 {len(removed)} 场，可恢复最近一批删除')
+        self.refresh_records(); self.notify(f'已删除 {len(removed)} 场，可恢复最近一批删除')
     def restore_history(self):
-        restored=self.archive.restore_last_trash(); self.refresh_all(); self.notify(f'已恢复 {len(restored)} 场')
+        restored=self.archive.restore_last_trash(); self.refresh_records(); self.notify(f'已恢复 {len(restored)} 场')
+    def classify_selected(self):
+        ids=self.selected_ids()
+        if not ids:self.notify('先用 Ctrl / Shift 选择要分类的对局');return
+        d=Editor(self,f'批量分类 · {len(ids)} 场');kind=combo(KINDS);d.form.addRow('类型',kind)
+        d.form.addRow(label('选择“未分类”恢复自动分类；本场胜负、身份校正和统计分组保留。','hint'))
+        def save():
+            changed=self.archive.classify_battles(ids,kind.currentText());self.refresh_records();self.notify(f'已分类 {len(changed)} 场')
+        d.on_save=save;d.exec()
     def return_live(self):
         self.browsing=False; self.current_id=self.live_id if self.live_id and not self.archive.is_deleted(self.live_id) else None; self.render_battle()
     def build_mappings(self):
@@ -640,6 +705,7 @@ class MainWindow(QMainWindow):
         self.undo_mapping_btn=self.action('撤销删除',self.undo_mapping_delete); actions.addWidget(self.undo_mapping_btn)
         actions.addWidget(self.action('智壳候选编号清单',self.shell_catalogue)); actions.addStretch(); layout.addLayout(actions)
         self.mapping_table=table(['编号','名称','效果档位','来源']); layout.addWidget(self.mapping_table,1)
+        delete_shortcut(self.mapping_table,self.restore_mapping)
         self.mapping_table.cellDoubleClicked.connect(lambda r,c:self.edit_selected_mapping()); self.map_category.currentIndexChanged.connect(lambda _:self.render_mappings()); self.map_query.textChanged.connect(lambda _:self.render_mappings())
         layout.addWidget(label('按 Ctrl / Shift 可多选删除自定义映射。有内置对应时恢复内置名称；纯自定义编号会移除。可撤销本次会话最近一批删除，原始数据保留。','hint'))
     def render_mappings(self):
@@ -679,7 +745,11 @@ class MainWindow(QMainWindow):
         restored=self.archive.restore_mappings(category,values)
         self._mapping_undo=None; self.mapping_changed()
         self.notify(f'已恢复 {len(restored)} 项；跳过 {len(values)-len(restored)} 项已有新自定义内容的编号')
-    def mapping_changed(self):self.mappings=self.archive.mappings(load_mappings()); self.refresh_all()
+    def mapping_changed(self):
+        self.mappings=self.archive.mappings(load_mappings());self._stats_dirty=True;self._battle_dirty=True;self._inventory_dirty=True
+        self.render_mappings()
+        if self.stack.currentIndex()==0:self.render_battle()
+        elif self.stack.currentIndex()==2:self.render_inventory()
     def shell_catalogue(self):
         d=Editor(self,'智壳候选编号 · 双击命名'); d.resize(850,600); d.save.hide(); t=table(['效果编号','名称','状态','对局数','角色']); rows=self.archive.shell_catalogue(self.mappings)
         fill(t,[[r['id'],r['name'],r['status'],r['battle_count'],' / '.join(r['heroes'])] for r in rows]); t.setMinimumHeight(330); d.form.addRow(t)
@@ -780,7 +850,8 @@ class MainWindow(QMainWindow):
                     if not self.browsing:self.current_id=bid; self.unsaved_battle=None; self.render_battle()
                 if self.browsing and self.current_id==bid:self.render_battle()
                 elif self.browsing:self.refresh_battle_navigation()
-                self.refresh_history(); self.refresh_stats()
+                self._stats_dirty=True;self._history_search_dirty=True;self.refresh_history()
+                if self.stack.currentIndex()==1:self.refresh_stats(False)
             elif not bid:
                 self.unsaved_battle=data
                 if not self.browsing:self.current_id=None; self.render_battle()
@@ -789,7 +860,7 @@ class MainWindow(QMainWindow):
         elif kind=='diagnostics':self.render_capture_diagnostics(data)
         elif kind=='observation':
             if data.get('kind')=='settlement':
-                self.render_battle(); self.refresh_history(); self.refresh_stats(); self.notify('结算已关联' if data.get('association_status','linked')=='linked' else '收到结算，但未计入本人结果；原因见读取诊断')
+                self.refresh_records(); self.notify('结算已关联' if data.get('association_status','linked')=='linked' else '收到结算，但未计入本人结果；原因见读取诊断')
         elif kind=='counts':self.notify(f"分组 {data.get('packets',0)} · 游戏下行 {data.get('game_packets',0)} · 消息 {data.get('messages',0)} · 对局 {data.get('battles',0)}")
         elif kind=='storage_error':self.storage_failed=True; self.notify(str(data))
         elif kind=='warning':self.notify(str(data))
@@ -798,7 +869,14 @@ class MainWindow(QMainWindow):
             self.capture_scene.setEnabled(True)
             self.start_btn.setEnabled(True); self.import_btn.setEnabled(True); self.stop_btn.setEnabled(False); self.connection.setText('●  未监听'); self.refresh_all()
             self.notify('自动保存发生错误，请导出当前数据并查看日志' if self.storage_failed else '读取失败，已保存的数据保留，请查看日志' if data.get('failed') else '读取已结束，数据已保存')
-    def refresh_all(self):self.render_battle(); self.render_inventory(); self.refresh_history(); self.render_mappings(); self.refresh_stats()
+    def refresh_records(self):
+        self._stats_dirty=True;self._history_search_dirty=True
+        self.render_battle();self.refresh_history()
+        if self.stack.currentIndex()==1:self.refresh_stats(False)
+    def refresh_all(self):
+        self._stats_dirty=True;self._history_search_dirty=True
+        self.render_battle(); self.render_inventory(); self.refresh_history(); self.render_mappings()
+        if self.stack.currentIndex()==1:self.refresh_stats(False)
     def write_json(self,data,filename):
         if data is None:self.notify('暂无可导出的数据'); return
         path,_=QFileDialog.getSaveFileName(self,'导出 JSON',filename,'JSON (*.json)')

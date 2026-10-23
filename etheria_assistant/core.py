@@ -759,6 +759,7 @@ class Engine:
                     self.players(connection).decorate(battle, timestamp)
                 except (ValueError, TypeError, KeyError, OverflowError):
                     self.player_evidence.pop(connection, None)
+                battle['mode_detection']=mode_info(battle,self.mappings)
                 if session.start(battle,body,timestamp):self.counts['battles'] += 1
                 else:self.counts['duplicate_openings'] += 1
             elif op == 0x8421:

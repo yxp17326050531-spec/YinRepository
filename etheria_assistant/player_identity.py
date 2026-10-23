@@ -58,7 +58,18 @@ class PlayerEvidence:
             self.players = []
 
     def decorate(self, battle, timestamp):
+        was_bound=self.bound
         self.bound = True
+        recent=self.draft_time is not None and 0<=timestamp-self.draft_time<=300
+        if recent and not was_bound:
+            teams={t:{u['hero_id'] for u in units} for t,units in battle['teams'].items()}
+            confirmed={t:[] for t in ('A','B')}
+            for uid,selections in self.selections.items():
+                for t in ('A','B'):
+                    if len(selections & teams[t])>=2 and not selections & teams['B' if t=='A' else 'A']:
+                        confirmed[t].append(uid)
+            if all(len(confirmed[t])==1 for t in ('A','B')) and confirmed['A']!=confirmed['B']:
+                battle['draft_evidence']={'source':'0x5fc1','confirmed_teams':['A','B']}
         if self.header_time is None or not 0 <= timestamp - self.header_time <= 60:
             return
         teams = {t: {u['hero_id'] for u in units} for t, units in battle['teams'].items()}

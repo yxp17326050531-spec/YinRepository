@@ -68,7 +68,7 @@ class PlayerIdentityTests(unittest.TestCase):
         self.archive.set_review(bid,'B')
         self.archive.save_settings({'own_player_key':hashlib.sha256(b'different synthetic player').hexdigest()})
         ctx=self.archive.context(bid)
-        self.assertEqual(ctx['sample_kind'],'未分类');self.assertIsNone(ctx['own_team'])
+        self.assertEqual(ctx['sample_kind'],'BP排位');self.assertIsNone(ctx['own_team'])
         self.assertEqual(ctx['protocol_winner'],'B');self.assertIn('SyntheticTwo',result_text(ctx))
         self.assertIn('己方待确认',result_text(ctx))
         self.assertEqual(analyse(self.archive.dataset(),load_mappings(),('未分类',),perspective='own')['eligible_matches'],0)
@@ -117,3 +117,4 @@ class PlayerIdentityTests(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+

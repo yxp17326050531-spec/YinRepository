@@ -42,6 +42,51 @@ class QtTests(unittest.TestCase):
         self.assertTrue(self.window.windowTitle().endswith(VERSION))
         self.assertEqual(self.window.version_label.toolTip(),VERSION)
 
+    def test_hidden_statistics_are_lazy_and_use_lightweight_dataset(self):
+        with patch.object(self.archive,'dataset',side_effect=AssertionError('full export on tab switch')):
+            with patch.object(self.archive,'analysis_dataset',wraps=self.archive.analysis_dataset) as build:
+                self.window.refresh_all();self.assertEqual(build.call_count,0)
+                self.window.navigate(1);self.assertEqual(build.call_count,1)
+                self.window.navigate(3);self.window.navigate(1);self.assertEqual(build.call_count,1)
+                self.window.stats_min.setValue(2);self.assertEqual(build.call_count,1)
+
+    def test_delete_key_only_applies_to_focused_table_and_mappings_support_multi_delete(self):
+        from PySide6.QtTest import QTest
+        from PySide6.QtCore import Qt
+        self.window.show();self.window.navigate(3);self.window.history_table.selectAll()
+        self.window.navigate(5);self.window.own_nickname.setText('AB');self.window.own_nickname.setCursorPosition(0)
+        self.window.own_nickname.setFocus();QTest.keyClick(self.window.own_nickname,Qt.Key.Key_Delete)
+        self.assertEqual(self.archive.history()[0],1);self.assertEqual(self.window.own_nickname.text(),'B')
+        for identifier in ('9999001','9999002'):self.archive.set_mapping('heroes',identifier,'SyntheticBatch')
+        self.window.mapping_changed();self.window.navigate(4);self.window.map_query.setText('SyntheticBatch')
+        self.window.mapping_table.setFocus();self.window.mapping_table.selectAll()
+        QTest.keyClick(self.window.mapping_table,Qt.Key.Key_Delete);self.app.processEvents()
+        self.assertEqual(self.window.mapping_table.rowCount(),0)
+        self.window.undo_mapping_delete();self.assertEqual(self.window.mapping_table.rowCount(),2)
+        b=copy.deepcopy(self.battle);b['capture_time']+=50;self.archive.save_battle(b,'second')
+        self.window.navigate(3);self.window.history_table.setFocus();self.app.processEvents()
+        table=self.window.history_table
+        QTest.mouseClick(table.viewport(),Qt.MouseButton.LeftButton,pos=table.visualRect(table.model().index(0,0)).center())
+        QTest.mouseClick(table.viewport(),Qt.MouseButton.LeftButton,Qt.KeyboardModifier.ControlModifier,
+                         table.visualRect(table.model().index(1,0)).center())
+        self.assertEqual(len(self.window.selected_ids()),2)
+        QTest.keyClick(table,Qt.Key.Key_Delete);self.assertEqual(self.archive.history()[0],0)
+        self.window.restore_history();self.assertEqual(self.archive.history()[0],2)
+
+    def test_filtered_batch_delete_crosses_pages_and_search_survives_navigation(self):
+        from test_battle_metadata import unique_battle
+        for i in range(105):
+            b=unique_battle(200+i);b['teams']={t:units[:3] for t,units in b['teams'].items()}
+            b['participants']=[{'nickname':'FindMe#1234','team':'A'}];self.archive.save_battle(b,'synthetic')
+        self.window.history_filter.setCurrentText('GVG');self.window.history_search.setText('FindMe');self.window.apply_history_search()
+        self.assertEqual(len(self.window.history_ids),100);self.assertIn('105',self.window.history_search_info.text())
+        self.window.history_page(1);self.assertEqual(len(self.window.history_ids),5)
+        self.window.browse_battle(self.window.history_ids[0]);self.window.back_to_history()
+        self.assertEqual(self.window.history_query,'FindMe');self.assertEqual(self.window.history_offset,100)
+        self.window.delete_filtered_history();self.assertEqual(self.archive.history(sample_kind='GVG')[0],0)
+        self.assertEqual(self.archive.history()[0],1)
+        self.window.restore_history();self.assertEqual(self.archive.history(sample_kind='GVG')[0],105)
+
     def test_own_nickname_setting_saves_refreshes_result_and_clears(self):
         from capture import CaptureJob
         from test_rating_results import opening,ending
