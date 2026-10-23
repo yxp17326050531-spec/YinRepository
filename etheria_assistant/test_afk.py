@@ -119,7 +119,7 @@ class AfkWidgetTests(unittest.TestCase):
         self.assertFalse(self.dialog.trial.running); self.assertFalse(self.dialog.timer.isActive())
         _,x,y,_ = self.dialog.steps[0]; self.dialog.pick(x,y); self.dialog.reject()
         self.assertFalse(self.dialog.pick_timer.isActive())
-    def test_resize_during_pick_recalibrates_and_invalidates_the_other_position(self):
+    def test_resize_during_pick_recalibrates_the_single_repeat_position(self):
         self.set_points()
         resized = (TARGET[0],TARGET[1],(1600,900))
         self.dialog.backend.calibrate = lambda target:resized
@@ -128,11 +128,21 @@ class AfkWidgetTests(unittest.TestCase):
         _,x,y,_ = self.dialog.steps[0]; self.dialog.pick(x,y); self.dialog.finish_pick()
         self.assertEqual(seen,[resized]); self.assertEqual(self.dialog.windows.currentData(),resized)
         self.assertEqual((x.value(),y.value()),(120,240))
-        _,other_x,other_y,_ = self.dialog.steps[1]
-        self.assertEqual((other_x.value(),other_y.value()),(-1,-1))
-        _,x,y,_ = self.dialog.steps[1]; self.dialog.pick(x,y); self.dialog.finish_pick()
-        self.assertEqual(self.dialog.steps[0][1].value(),120)
+        self.dialog.pick(x,y); self.dialog.finish_pick()
         self.assertEqual((x.value(),y.value()),(120,240))
+    def test_single_home_button_repeats_at_interval_without_second_click(self):
+        self.assertEqual(len(self.dialog.steps),1)
+        name,x,y,delay = self.dialog.steps[0]
+        self.assertEqual(name,'主页「再来一次」')
+        x.setValue(100); y.setValue(200); delay.setValue(5)
+        self.dialog.rounds.setValue(3)
+        now = [0]; self.dialog.trial.clock = lambda:now[0]
+        self.dialog.begin()
+        for moment in (4,5,9,10,14,15):
+            now[0] = moment; self.dialog.tick()
+            self.assertEqual(len(self.dialog.backend.clicks),moment//5)
+        self.assertFalse(self.dialog.trial.running)
+        self.assertEqual([point for _,point in self.dialog.backend.clicks],[(100,200)]*3)
     def test_failed_pick_after_resize_still_discards_stale_positions(self):
         self.set_points()
         self.dialog.backend.calibrate = lambda target:(TARGET[0],TARGET[1],(1600,900))

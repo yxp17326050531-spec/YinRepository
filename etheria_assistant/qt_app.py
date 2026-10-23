@@ -32,7 +32,7 @@ from afk_widgets import AfkDialog
 from components import project_component, attribute_text as component_attribute_text, component_detail as component_detail_text
 from battle_attributes import decode_extra_attributes, pending_attributes, pending_text, extra_text
 
-VERSION='2.11.2-pve-test'
+VERSION='2.11.3-pve-test'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 from battle_metadata import KINDS, result_text
@@ -773,7 +773,7 @@ class MainWindow(QMainWindow):
         form.addRow(label('0x8421回放自动识别；其他观战封装可手动指定场景。模式编号未确认时保留未分类。','hint'))
         form.addRow(label('在本人对局的“对局分类”中确认方向并勾选“记住所选玩家为本号”。需要读到玩家资料和可对应方向的选人记录；证据不足时仍需本场确认。','hint'))
         form.addRow(self.action('清除记住的本号身份',self.clear_player_identity))
-        c.addWidget(self.action('PVE 后台操作试验（最小化 / 锁屏）',self.open_afk))
+        c.addWidget(self.action('主页「再来一次」后台点击试验',self.open_afk))
         c.addWidget(self.action('保存设置',self.save_preferences,True)); c.addWidget(label('使用已安装的 Wireshark / dumpcap 和 Npcap。网卡刷新在后台执行，抓包只在你点击开始后运行。','hint'))
         helpbar=QHBoxLayout();helpbar.addWidget(self.action('抓包组件安装说明',self.capture_setup_help));helpbar.addWidget(self.action('重新检测 dumpcap',self.detect_dumpcap));helpbar.addStretch();c.addLayout(helpbar)
         c.addWidget(label('默认发布包复用已安装的抓包组件；Npcap需要单独安装。离线导入无需实时抓包驱动。','hint'))

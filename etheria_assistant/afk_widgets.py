@@ -12,12 +12,12 @@ from afk import WindowInput, Trial, Step
 class AfkDialog(QDialog):
     def __init__(self, parent=None, backend=None):
         super().__init__(parent)
-        self.setWindowTitle('PVE 后台操作 · 最小化 / 锁屏试验'); self.resize(720,620)
+        self.setWindowTitle('主页「再来一次」· 后台操作试验'); self.resize(720,560)
         self.backend = None; self.registered = False; self.hotkey = False
         self.picking = False; self.trial = None; self.last_state = None
         layout = QVBoxLayout(self)
-        text = QLabel('先手动进入副本并开启游戏自动战斗。按固定等待时间发送结算、再次挑战点击。\n'
-                      '本版不识别结算、体力或购买弹窗，坐标可能点错；先在前台短时验证。\n'
+        text = QLabel('先在游戏主页手动设置并开始连续战斗，只记录主页「再来一次」按钮的位置。\n'
+                      '每隔指定秒数点击这个位置，首次点击也会等待该间隔。不识别按钮或弹窗，先短时验证。\n'
                       '最小化、锁屏下能否生效待实测；发送成功≠游戏执行成功。睡眠后不补发点击。')
         text.setWordWrap(True); layout.addWidget(text)
         self.controls = []; self.windows = QComboBox(); self.controls.append(self.windows)
@@ -25,14 +25,14 @@ class AfkDialog(QDialog):
         self.refresh = QPushButton('刷新游戏窗口'); self.refresh.clicked.connect(self.refresh_windows)
         self.controls.append(self.refresh); bar.addWidget(self.refresh); layout.addLayout(bar)
         form = QFormLayout(); layout.addLayout(form); self.steps = []
-        for name, wait in [('结算 / 继续',180), ('再次挑战',3)]:
+        for name, wait in [('主页「再来一次」',180)]:
             row = QHBoxLayout(); x = self.spin(-1,32767,-1); y = self.spin(-1,32767,-1)
             delay = self.spin(1,3600,wait); pick = QPushButton('5秒后取鼠标位置')
             pick.clicked.connect(lambda checked=False, x=x, y=y:self.pick(x,y))
-            for item in [QLabel('X'),x,QLabel('Y'),y,QLabel('点击前等待(秒)'),delay,pick]:row.addWidget(item)
+            for item in [QLabel('X'),x,QLabel('Y'),y,QLabel('点击间隔(秒)'),delay,pick]:row.addWidget(item)
             form.addRow(name,row); self.steps.append((name,x,y,delay)); self.controls.extend([x,y,delay,pick])
         self.rounds = self.spin(1,20,3); self.limit = self.spin(1,120,10)
-        form.addRow('试验轮数（不是已完成副本数）',self.rounds); form.addRow('总时限（分钟）',self.limit)
+        form.addRow('最多点击次数（不是完成副本数）',self.rounds); form.addRow('总时限（分钟）',self.limit)
         self.controls.extend([self.rounds,self.limit])
         self.start = QPushButton('开始试验'); self.start.clicked.connect(self.begin)
         self.stop_button = QPushButton('立即停止'); self.stop_button.clicked.connect(self.stop)
@@ -94,7 +94,7 @@ class AfkDialog(QDialog):
                 index = self.windows.currentIndex()
                 self.windows.setItemData(index,target)
                 self.windows.setItemText(index,self.target_text(target))
-                self.report(f'已重新读取客户区尺寸 {target[2][0]}×{target[2][1]}；旧坐标已清空，请重新设置两个位置')
+                self.report(f'已重新读取客户区尺寸 {target[2][0]}×{target[2][1]}；旧坐标已清空，正在记录当前位置')
             point = self.backend.point(target)
             for widget,value in zip(self.pick_fields,point):widget.setValue(value)
             self.report(f'已记录客户区位置 {point}')
@@ -120,7 +120,7 @@ class AfkDialog(QDialog):
             if minimized != self.last_state:
                 self.report('游戏窗口：' + ('已最小化' if minimized else '未最小化')); self.last_state = minimized
             remaining = max(0,int(self.trial.due-self.trial.clock()))
-            self.state.setText(f'已发送 {self.trial.completed} 轮；下一步 {remaining} 秒后；执行结果待游戏确认')
+            self.state.setText(f'已发送 {self.trial.completed} 次点击；下次 {remaining} 秒后；游戏响应待确认')
         except Exception as exc:self.trial.stop(str(exc))
 
     def stop(self):
