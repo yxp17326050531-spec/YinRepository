@@ -119,7 +119,7 @@ class AfkWidgetTests(unittest.TestCase):
         self.assertFalse(self.dialog.trial.running); self.assertFalse(self.dialog.timer.isActive())
         _,x,y,_ = self.dialog.steps[0]; self.dialog.pick(x,y); self.dialog.reject()
         self.assertFalse(self.dialog.pick_timer.isActive())
-    def test_resize_during_pick_recalibrates_the_single_repeat_position(self):
+    def test_resize_during_pick_recalibrates_and_clears_the_other_position(self):
         self.set_points()
         resized = (TARGET[0],TARGET[1],(1600,900))
         self.dialog.backend.calibrate = lambda target:resized
@@ -128,21 +128,36 @@ class AfkWidgetTests(unittest.TestCase):
         _,x,y,_ = self.dialog.steps[0]; self.dialog.pick(x,y); self.dialog.finish_pick()
         self.assertEqual(seen,[resized]); self.assertEqual(self.dialog.windows.currentData(),resized)
         self.assertEqual((x.value(),y.value()),(120,240))
-        self.dialog.pick(x,y); self.dialog.finish_pick()
+        _,other_x,other_y,_ = self.dialog.steps[1]
+        self.assertEqual((other_x.value(),other_y.value()),(-1,-1))
+        self.dialog.pick(other_x,other_y); self.dialog.finish_pick()
         self.assertEqual((x.value(),y.value()),(120,240))
-    def test_single_home_button_repeats_at_interval_without_second_click(self):
-        self.assertEqual(len(self.dialog.steps),1)
+    def test_recorded_home_complete_then_results_again_flow_repeats(self):
+        self.assertEqual(len(self.dialog.steps),2)
         name,x,y,delay = self.dialog.steps[0]
-        self.assertEqual(name,'主页「再来一次」')
+        self.assertEqual(name,'主页「完成」')
         x.setValue(100); y.setValue(200); delay.setValue(5)
+        name,x,y,delay = self.dialog.steps[1]
+        self.assertEqual(name,'结算页「再来一次」')
+        x.setValue(300); y.setValue(400); delay.setValue(3)
         self.dialog.rounds.setValue(3)
         now = [0]; self.dialog.trial.clock = lambda:now[0]
         self.dialog.begin()
-        for moment in (4,5,9,10,14,15):
+        for moment,clicks,rounds in [(4,0,0),(5,1,0),(7,1,0),(8,2,1),
+                (12,2,1),(13,3,1),(16,4,2),(21,5,2),(24,6,3)]:
             now[0] = moment; self.dialog.tick()
-            self.assertEqual(len(self.dialog.backend.clicks),moment//5)
+            self.assertEqual(len(self.dialog.backend.clicks),clicks)
+            self.assertEqual(self.dialog.trial.completed,rounds)
         self.assertFalse(self.dialog.trial.running)
-        self.assertEqual([point for _,point in self.dialog.backend.clicks],[(100,200)]*3)
+        self.assertEqual([point for _,point in self.dialog.backend.clicks],[(100,200),(300,400)]*3)
+    def test_stopping_after_opening_results_does_not_send_again(self):
+        self.set_points()
+        now = [0]; self.dialog.trial.clock = lambda:now[0]
+        self.dialog.steps[0][3].setValue(5); self.dialog.begin()
+        now[0] = 5; self.dialog.tick(); self.dialog.stop()
+        now[0] = 8; self.dialog.tick()
+        self.assertEqual(len(self.dialog.backend.clicks),1)
+        self.assertEqual(self.dialog.trial.completed,0)
     def test_failed_pick_after_resize_still_discards_stale_positions(self):
         self.set_points()
         self.dialog.backend.calibrate = lambda target:(TARGET[0],TARGET[1],(1600,900))
