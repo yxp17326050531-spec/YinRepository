@@ -28,10 +28,11 @@ from equipment import (project_gear, attribute_text, matches_gear, normalize_fil
                        filter_options, filter_summary, RARITIES, UNKNOWN, ATTRIBUTES,
                        normalize_sort, sort_gear, gear_sort_value)
 from inventory_widgets import GearFilterDialog
+from afk_widgets import AfkDialog
 from components import project_component, attribute_text as component_attribute_text, component_detail as component_detail_text
 from battle_attributes import decode_extra_attributes, pending_attributes, pending_text, extra_text
 
-VERSION='2.11.0'
+VERSION='2.11.1-pve-test'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 from battle_metadata import KINDS, result_text
@@ -772,11 +773,15 @@ class MainWindow(QMainWindow):
         form.addRow(label('0x8421回放自动识别；其他观战封装可手动指定场景。模式编号未确认时保留未分类。','hint'))
         form.addRow(label('在本人对局的“对局分类”中确认方向并勾选“记住所选玩家为本号”。需要读到玩家资料和可对应方向的选人记录；证据不足时仍需本场确认。','hint'))
         form.addRow(self.action('清除记住的本号身份',self.clear_player_identity))
+        c.addWidget(self.action('PVE 后台操作试验（最小化 / 锁屏）',self.open_afk))
         c.addWidget(self.action('保存设置',self.save_preferences,True)); c.addWidget(label('使用已安装的 Wireshark / dumpcap 和 Npcap。网卡刷新在后台执行，抓包只在你点击开始后运行。','hint'))
         helpbar=QHBoxLayout();helpbar.addWidget(self.action('抓包组件安装说明',self.capture_setup_help));helpbar.addWidget(self.action('重新检测 dumpcap',self.detect_dumpcap));helpbar.addStretch();c.addLayout(helpbar)
         c.addWidget(label('默认发布包复用已安装的抓包组件；Npcap需要单独安装。离线导入无需实时抓包驱动。','hint'))
         saved=self.preferences.get('interface_id')
         if saved:self.interface.addItem(self.preferences.get('interface_label',saved),saved)
+    def open_afk(self):
+        if not getattr(self,'afk_dialog',None):self.afk_dialog=AfkDialog(self)
+        self.afk_dialog.show();self.afk_dialog.raise_();self.afk_dialog.activateWindow()
     def capture_setup_help(self):
         d=Editor(self,'抓包组件安装说明');d.save.hide()
         d.form.addRow(label('首次使用实时监听：安装Windows版Wireshark，并按官方安装流程安装Npcap。已有安装可直接复用，不需要再装完整开发环境。'))
@@ -893,6 +898,7 @@ class MainWindow(QMainWindow):
         d=Editor(self,'本地观测 · 最近 100 条'); d.save.hide(); t=QPlainTextEdit(json.dumps(self.archive.observations(limit=100),ensure_ascii=False,indent=2)); t.setReadOnly(True); t.setMinimumHeight(300); d.form.addRow(t)
         d.actions.insertWidget(1,self.action('导出结算资料',lambda:self.write_json(self.archive.validation_dataset(),'etheria_result_validation.json'))); d.exec()
     def closeEvent(self,event):
+        if getattr(self,'afk_dialog',None):self.afk_dialog.close()
         try:self.save_preferences()
         except Exception:self.archive.logger.exception('close preferences')
         if self.job and self.job.thread.is_alive():
