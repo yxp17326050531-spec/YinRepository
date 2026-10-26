@@ -1,6 +1,6 @@
 """Responsive Qt battle rows, with identity and two distinct attribute groups."""
 from html import escape
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt,QTimer
 from PySide6.QtWidgets import QWidget,QFrame,QLabel,QVBoxLayout,QHBoxLayout,QGridLayout,QMenu,QSizePolicy,QBoxLayout
 from artwork import image_label,matrix_color
 from capture import shell_text,matrix_text,imprint_text
@@ -17,6 +17,7 @@ class UnitCard(QFrame):
     """Reflow actual Qt layouts; all fourteen values remain visible at either width."""
     def __init__(self,unit,team,action,edit_name,edit_loadout,details):
         super().__init__();self.setObjectName('heroRow');self.wide=None
+        self.heading_timer=QTimer(self);self.heading_timer.setSingleShot(True);self.heading_timer.timeout.connect(self.sync_heading_heights)
         self.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Maximum)
         self.root=QHBoxLayout(self);self.root.setContentsMargins(4,1,4,1);self.root.setSpacing(4)
         identity=QWidget();identity.setObjectName('unitIdentity');identity.setFixedWidth(112)
@@ -75,7 +76,8 @@ class UnitCard(QFrame):
             shown='—' if not isinstance(value,(int,float)) else f'{value:g}%' if index>=4 else f'{value:.2f}' if key=='speed' else f'{value:g}'
             cell=QWidget();col=QBoxLayout(QBoxLayout.Direction.LeftToRight,cell)
             col.setContentsMargins(0,0,0,0);col.setSpacing(3 if index>=8 else 0)
-            heading=text(title,'attributeTitle');heading.setWordWrap(False);col.addWidget(heading)
+            # Headings may wrap; numeric values keep their actual font size.
+            heading=text(title,'attributeTitle');heading.setWordWrap(True);col.addWidget(heading)
             metric=text(shown,'speed' if key=='speed' else 'statValue');metric.setWordWrap(False)
             metric.setAccessibleName(f"{team}方 {unit['hero_id']} {title}")
             if index>=8:metric.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
@@ -85,6 +87,27 @@ class UnitCard(QFrame):
             if key=='damage_result_bonus':tip+=' 普通与相性增伤同区间；破序之刃10%等未下发条件值不补算。'
             metric.setToolTip(tip);col.addWidget(metric,1);self.cells.append(cell)
         self.reflow(False)
+
+    def resizeEvent(self,event):
+        super().resizeEvent(event)
+        if hasattr(self,'heading_timer'):self.heading_timer.start(0)
+
+    def sync_heading_heights(self):
+        # Qt's nested height-for-width rounding can undershoot a QLabel by a
+        # few pixels. Enforce its requirement at the final allocated width.
+        changed=False
+        for cell in self.cells:
+            heading=cell.layout().itemAt(0).widget()
+            required=max(0,heading.heightForWidth(heading.width()))
+            if heading.minimumHeight()!=required:
+                heading.setMinimumHeight(required);cell.layout().invalidate();cell.updateGeometry();changed=True
+        if changed:
+            self.basic.invalidate();self.extra.invalidate()
+            self.basic.parentWidget().layout().invalidate()
+            self.extra.parentWidget().updateGeometry();self.basic.parentWidget().updateGeometry()
+            self.root.invalidate()
+            self.setMinimumHeight(max(self.root.minimumSize().height(),self.root.heightForWidth(self.width())))
+            self.updateGeometry()
 
     def reflow(self,wide,extra_columns=None,stack_basic=False,stack_extra=False):
         extra_columns=extra_columns or (6 if wide else 3)
@@ -120,7 +143,13 @@ class UnitCard(QFrame):
         # from delivering a smaller resize event to this card.
         self.ensurePolished()
         for cell in self.cells:
-            for widget in cell.findChildren(QWidget):widget.ensurePolished()
+            for widget in cell.findChildren(QWidget):
+                widget.ensurePolished()
+                if widget.objectName()=='attributeTitle':widget.setMinimumHeight(0)
+                if widget.objectName() in ('statValue','speed'):
+                    # Wrapping headers must never squeeze the value's height
+                    # or width below what the polished font requires.
+                    widget.setMinimumSize(widget.sizeHint())
             cell.layout().invalidate();cell.updateGeometry()
         # Compare the actual polished minimum sizes. Different fonts can make
         # either grid the limiting width; choose the shortest arrangement that
@@ -128,15 +157,24 @@ class UnitCard(QFrame):
         candidates=([(True,6,False,False)] if width>=900 else [])+[
             (False,3,False,False),(False,2,False,False),
             (False,3,True,False),(False,2,True,False),
-            (False,3,False,True),(False,3,True,True)]
+            (False,3,False,True),(False,3,True,True),
+            (False,2,False,True),(False,2,True,True)]
         fitting=[];measured=[]
         for priority,configuration in enumerate(candidates):
             self.reflow(*configuration)
             size=self.minimumSizeHint()
+            # A wrapping layout can be much taller than minimumSizeHint.
+            # Rank candidates at the width they will actually receive.
+            height=self.root.heightForWidth(width)
+            if height>=0:size.setHeight(max(size.height(),height))
             measured.append((size.width(),size.height(),priority,configuration))
             if size.width()<=width:fitting.append((size.height(),priority,configuration))
         self.reflow(*(min(fitting)[2] if fitting else min(measured)[3]))
+        height=self.root.heightForWidth(width)
+        self.setMinimumHeight(max(self.root.minimumSize().height(),height))
+        self.heading_timer.start(0)
 
 
 def unit_card(unit,team,action,edit_name,edit_loadout,details):
     return UnitCard(unit,team,action,edit_name,edit_loadout,details)
+

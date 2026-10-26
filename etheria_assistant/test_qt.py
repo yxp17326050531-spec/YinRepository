@@ -184,7 +184,7 @@ class QtTests(unittest.TestCase):
                 self.assertEqual(roster.count(),4)
                 for i in range(roster.count()):
                     card=roster.itemAt(i).widget();rect=QRect(card.mapTo(viewport,QPoint(0,0)),card.size())
-                    self.assertTrue(viewport.rect().contains(rect),(width,height,rect));count+=1
+                    self.assertTrue(viewport.rect().contains(rect),(width,height,rect,viewport.rect(),getattr(card,'configuration',None),card.minimumSizeHint()));count+=1
                     for metric in card.findChildren(QLabel):
                         if metric.objectName() in ('speed','statValue'):
                             self.assertGreaterEqual(metric.width(),metric.sizeHint().width(),metric.accessibleName())
@@ -211,6 +211,21 @@ class QtTests(unittest.TestCase):
         # keep the 1280px width and all exact clipping/scrollbar assertions.
         self.test_eight_characters_and_full_attributes_fit_a_normal_window(
             ((1280,960),(2048,1017),(1536,960),(1280,960)))
+
+    def test_wrapped_headings_preserve_metrics_after_wide_window(self):
+        # The old non-wrapping headings overflow horizontally with CJK fonts
+        # and Windows style. Keep the original normal-window tests unchanged.
+        self.window.setStyleSheet(self.window.styleSheet()+
+            '\nQLabel#attributeTitle {letter-spacing:20px;}'
+            'QLabel#statValue,QLabel#speed {letter-spacing:5px;}')
+        self.test_eight_characters_and_full_attributes_fit_a_normal_window(
+            ((1280,960),(2048,1017),(1280,960)))
+        for roster in self.window.team_layouts.values():
+            for i in range(roster.count()):
+                for heading in roster.itemAt(i).widget().findChildren(QLabel):
+                    if heading.objectName()=='attributeTitle':
+                        expected=heading.heightForWidth(heading.width())
+                        self.assertGreaterEqual(heading.height(),expected,heading.text())
 
     def test_capture_help_is_informational_and_redetection_uses_installed_tool(self):
         from PySide6.QtWidgets import QPushButton
