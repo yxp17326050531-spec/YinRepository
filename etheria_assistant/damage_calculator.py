@@ -208,7 +208,7 @@ def calculate(s):
         before = hp
         harvest = s.harvest and hp > d.hp * .5
         mult = ((1 + (s.defense_up - s.defense_down) / 100) *
-                (1 - a.ignore_defense / 100) * (1 - s.other_ignore / 100) * (.5 if harvest else 1))
+                (1 - a.ignore_defense / 100) * (1 - s.other_ignore / 100) * (.6 if harvest else 1))
         effective, divisor = defense_terms(d.defense, mult, s.flat_defense_down, s.model)
         boil = min(1.8, 1 + .4 * i) if s.boiling and phase=='技能' else 1
         conditional = (.75 if s.spring else 1) * ((.6 if hp < d.hp*.55 else .8) if s.unyielding else 1)

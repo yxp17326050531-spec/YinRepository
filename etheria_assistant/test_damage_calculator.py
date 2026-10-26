@@ -77,12 +77,12 @@ class DamageTests(unittest.TestCase):
                              extra_damage_reduction=15), ratios=(1.1, 1.1, 1.1), target_multiplier=1.75,
                      quilo_passive=True, harvest=True, boiling=True, bloodbath=True, shell='启示录')
         r = calculate(s)
-        self.assertAlmostEqual(r['damage'], 34028.89328993103, places=5)
+        self.assertAlmostEqual(r['damage'], 32179.084544, places=5)
         self.assertEqual([row['harvest'] for row in r['rows']], [True, True, True])
         enhanced = replace(s, attack_up=54, crit_damage_up=50, damage_multiplier=1.3, defense_down=60)
         r = calculate(enhanced)
         self.assertEqual([row['harvest'] for row in r['rows']], [True, True, False])
-        self.assertAlmostEqual(r['rows'][0]['effective_defense'], 450)
+        self.assertAlmostEqual(r['rows'][0]['effective_defense'], 540)
         self.assertEqual(r['kill_hit'], 3); self.assertEqual(r['rows'][2]['shell'], 0)
         self.assertEqual(calculate(replace(enhanced, model='kzone'))['rows'][0]['effective_defense'], 900)
 

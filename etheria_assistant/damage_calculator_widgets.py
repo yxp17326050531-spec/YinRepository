@@ -126,7 +126,7 @@ class DamageCalculatorDialog(QDialog):
         self.defense_down = number(0, 100); effects.addRow('防御降低 %', self.defense_down)
         self.flat_defense_down = number(0, 1_000_000); effects.addRow('固定减防', self.flat_defense_down)
         self.other_ignore = number(0, 100); effects.addRow('额外独立无视防御 %', self.other_ignore)
-        self.harvest = QCheckBox('收割8：段前生命＞50%，无视50%防御')
+        self.harvest = QCheckBox('收割8：段前生命＞50%，无视40%防御')
         self.fury = QCheckBox('狂怒8：暴击伤害独立×1.12（与面板结果增伤乘算）')
         self.boiling = QCheckBox('沸腾打击12：各段×1 / 1.4 / 1.8（上限）')
         self.bloodbath = QCheckBox('守方浴血12：回合扣血超20%部分减伤55%')
