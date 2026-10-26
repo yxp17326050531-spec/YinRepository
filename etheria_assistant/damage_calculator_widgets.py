@@ -125,7 +125,7 @@ class DamageCalculatorDialog(QDialog):
         self.boiling = QCheckBox('沸腾打击12：各段×1 / 1.4 / 1.8（上限）')
         self.bloodbath = QCheckBox('守方浴血12：回合扣血超20%部分减伤55%')
         for w in (self.harvest, self.fury, self.boiling, self.bloodbath): effects.addRow(w)
-        self.shell = QComboBox(); self.shell.addItems(['无 / 手动', '启示录', '伯爵']); effects.addRow('攻方智壳', self.shell)
+        self.shell = QComboBox(); self.shell.addItems(['无 / 手动', '启示录', '伯爵', '噬身之蛇', '宝剑七', '白獠武者（追击待联动）', '寅虎（先手待建模）']); effects.addRow('攻方智壳', self.shell)
         self.enable_shell = QCheckBox('启用智壳研究模型（触发与结算待实测）'); effects.addRow(self.enable_shell)
         self.count_version = QComboBox(); self.count_version.addItems(['旧表格：固定攻击+1200', '假设：+1200及基础面板攻击的10%'])
         effects.addRow('伯爵版本', self.count_version)
@@ -153,12 +153,28 @@ class DamageCalculatorDialog(QDialog):
             for col, role in enumerate(('attacker', 'defender'), 1):
                 choice = QComboBox(); choice.addItem('无', 0)
                 for n in range(1, maximum+1):
-                    text = (f'生效 · 额外基础增益{n-1}种' if key == 'sun' else '明花彩' if key == 'flower' and n == 3 else f'{n}层/次' if maximum > 1 else '生效')
+                    text = (f'生效 · 额外基础增益{n-1}种' if key == 'sun' else '明花彩' if key == 'flower' and n == 3 else f'{n}档（每档500入场防）' if key == 'execution' else f'{n}层/次' if maximum > 1 else '生效')
                     choice.addItem(text, n)
                 choice.setToolTip(desc); choice.currentIndexChanged.connect(self.invalidate)
                 self.status_states[role][key] = choice; states_grid.addWidget(choice, row, col)
         states_layout.addWidget(plain('寒玉层数仅用于确认当前技能是否受到保护，不按每一段扣层；本次试算不模拟下一个技能。心火减伤按层数同区累计。霜花的吸收部分未填容量时不能预测带盾目标击杀。'))
-        self.add_scroll_tab(statuses, '角色状态（25项）')
+        self.add_scroll_tab(statuses, '角色状态（26项）')
+        conditions = QWidget(); cond = QFormLayout(conditions)
+        self.aoe = QCheckBox('本次为群体技能'); cond.addRow(self.aoe)
+        self.secondary = QCheckBox('守方为次目标（未被选为主目标）'); cond.addRow(self.secondary)
+        self.serpent = QSpinBox(); self.serpent.setRange(0,7);cond.addRow('噬身之蛇·已生效层数',self.serpent)
+        self.white_stacks = QSpinBox(); self.white_stacks.setRange(0,8);cond.addRow('白獠武者·已有暴伤层数',self.white_stacks)
+        self.controlled = QCheckBox('宝剑七增伤已生效，目标有持续控制（睡眠除外）');cond.addRow(self.controlled)
+        self.spring = QCheckBox('守方涌泉12：承伤降低25%');cond.addRow(self.spring)
+        self.unyielding = QCheckBox('守方不屈之誓12：减伤20%，段前血量低于55%翻倍');cond.addRow(self.unyielding)
+        self.insight = QCheckBox('攻方洞悉穿刺12：本回合前三次伤害+25%/15%/5%');cond.addRow(self.insight)
+        self.prior_events = QSpinBox();self.prior_events.setRange(0,3);cond.addRow('本回合此前伤害次数（3代表已耗尽）',self.prior_events)
+        self.opportunist = QCheckBox('攻方乘势追击12：目标每种减益/控制+6%');cond.addRow(self.opportunist)
+        self.debuff_count = QSpinBox();self.debuff_count.setRange(0,6);cond.addRow('目标不同减益/控制种类数',self.debuff_count)
+        self.desecrate = QCheckBox('攻方亵渎8：有护盾时额外伤害+40%');cond.addRow(self.desecrate)
+        self.shield_remaining = number(0,1_000_000_000);cond.addRow('守方普通护盾剩余吸收量',self.shield_remaining)
+        cond.addRow(plain('矩阵基础攻/生命/暴伤已在导入面板中，不重复叠加。普通盾按伤害后吸收；与浴血同时使用暂阻止计算。洞悉按本次目标的伤害事件计数，群体多目标消耗顺序待验证。白獠暴伤为此次技能前已有层数，不推断联动。寅虎先手及白獠追击尚未建模。'))
+        self.add_scroll_tab(conditions, '智壳与矩阵条件')
         self.assume_zero = QCheckBox('缺失的增减伤字段暂按0试算（不代表已确认0；不会补入原记录）')
         layout.addWidget(self.assume_zero)
         self.warning = plain(''); layout.addWidget(self.warning)
@@ -174,7 +190,9 @@ class DamageCalculatorDialog(QDialog):
         self.defender_select.currentIndexChanged.connect(lambda: self.load_role('defender'))
         # Never leave a result from old inputs visible as if it were current.
         for w in self.findChildren(QDoubleSpinBox): w.valueChanged.connect(self.invalidate)
-        self.hits.valueChanged.connect(self.invalidate); self.ratios.textChanged.connect(self.invalidate)
+        self.hits.valueChanged.connect(self.invalidate);
+        for w in (self.serpent,self.white_stacks,self.prior_events,self.debuff_count):w.valueChanged.connect(self.invalidate)
+        self.ratios.textChanged.connect(self.invalidate)
         for w in self.findChildren(QCheckBox): w.toggled.connect(self.invalidate)
         for w in (self.model, self.scaling, self.preset, self.flower, self.shell, self.count_version):
             w.currentIndexChanged.connect(self.invalidate)
@@ -220,10 +238,14 @@ class DamageCalculatorDialog(QDialog):
         if role == 'attacker':
             for name, w in (('收割', self.harvest), ('狂怒', self.fury), ('沸腾打击', self.boiling)):
                 w.setChecked(name in active)
-            self.shell.setCurrentText(data['shell'] if data else '无 / 手动')
+            self.shell.setCurrentText(({'白獠武者':'白獠武者（追击待联动）','寅虎':'寅虎（先手待建模）'}.get(data['shell'],data['shell'])) if data else '无 / 手动')
+            for name,w in (('洞悉穿刺',self.insight),('乘势追击',self.opportunist),('亵渎',self.desecrate)):w.setChecked(name in active)
+            self.serpent.setValue(0);self.white_stacks.setValue(0);self.prior_events.setValue(0);self.debuff_count.setValue(0)
             self.enable_shell.setChecked(False)
         else:
             self.bloodbath.setChecked('浴血之躯' in active)
+            self.spring.setChecked('涌泉' in active);self.unyielding.setChecked('不屈之誓' in active)
+            self.shield_remaining.setValue(0)
             self.remaining_hp.setValue(-1); self.bloodbath_spent.setValue(0)
         self.invalidate()
 
@@ -241,6 +263,8 @@ class DamageCalculatorDialog(QDialog):
     def scenario(self):
         required = {'attacker': {self.scaling.currentData()}, 'defender': {'hp', 'defense'}}
         shell = self.shell.currentText() if self.enable_shell.isChecked() else '无 / 手动'
+        if shell in ('白獠武者（追击待联动）','寅虎（先手待建模）'):
+            raise ValueError('该智壳的独立攻击及联动尚未建模；白獠已有暴伤可在条件页单独输入')
         if self.quilo_passive.isChecked(): required['defender'].add('attack')
         if self.quilo_passive.isChecked() or shell != '无 / 手动': required['attacker'].add('attack')
         if self.critical.isChecked(): required['attacker'].add('crit_damage')
@@ -271,14 +295,18 @@ class DamageCalculatorDialog(QDialog):
             raise ValueError('请选择来自不同队伍的攻方与守方；也可改为手动填写')
         self.warning.setText(('缺失暂按0：' + '、'.join(zero) + '。' if zero else '') +
             '模型假设：不含护盾、不死、队友分摊及未建模被动；未套用字段见属性页。')
-        scenario = Scenario(attacker=fighters['attacker'], defender=fighters['defender'],
+        scenario = Scenario(spring=self.spring.isChecked(),unyielding=self.unyielding.isChecked(),
+            insight=self.insight.isChecked(),prior_damage_events=self.prior_events.value(),
+            opportunist=self.debuff_count.value() if self.opportunist.isChecked() else 0,
+            shield_bonus=self.desecrate.isChecked(),shield_hp=self.shield_remaining.value(),
+            seven_control=shell=='宝剑七' and self.controlled.isChecked(),attacker=fighters['attacker'], defender=fighters['defender'],
             model=self.model.currentData(), scaling=self.scaling.currentData(), ratios=ratios,
             critical=self.critical.isChecked(), pvp=self.pvp.isChecked(),
             attack_up=self.attack_up.value() + (48 if self.durand.isChecked() else 0) + self.flower.currentData(),
-            attack_down=self.attack_down.value(), crit_damage_up=self.crit_damage_up.value() + (50 if self.crit50.isChecked() else 0),
+            attack_down=self.attack_down.value(), crit_damage_up=self.crit_damage_up.value() + self.white_stacks.value()*10 + (50 if self.crit50.isChecked() else 0),
             defense_up=self.defense_up.value(), defense_down=self.defense_down.value(), flat_defense_down=self.flat_defense_down.value(),
-            other_ignore=self.other_ignore.value(), damage_multiplier=self.damage_multiplier.value() * (1.3 if self.magic.isChecked() else 1),
-            target_multiplier=self.target_multiplier.value(), harvest=self.harvest.isChecked(), fury=self.fury.isChecked(),
+            other_ignore=self.other_ignore.value(), damage_multiplier=self.damage_multiplier.value() * (1+.1*self.serpent.value() if shell=='噬身之蛇' else 1) * (1.3 if self.magic.isChecked() else 1),
+            target_multiplier=1 if self.secondary.isChecked() else self.target_multiplier.value(), harvest=self.harvest.isChecked(), fury=self.fury.isChecked(),
             boiling=self.boiling.isChecked(), bloodbath=self.bloodbath.isChecked(), bloodbath_spent=self.bloodbath_spent.value(),
             remaining_hp=self.remaining_hp.value() if self.remaining_hp.value() >= 0 else None, shell=shell,
             count_attack_percent=10 if self.count_version.currentIndex() else 0, quilo_passive=self.quilo_passive.isChecked())
@@ -286,8 +314,16 @@ class DamageCalculatorDialog(QDialog):
                   for role, fields in self.status_states.items()}
         if states['attacker'].get('flower') and self.flower.currentData():
             raise ValueError('花种重复：请清除旧技能页的花种或状态页花种之一')
-        if states['defender'].get('frost'):
+        if states['defender'].get('frost') and self.shield_remaining.value() <= 0:
             raise ValueError('守方霜花有吸收伤害效果，缺剩余容量，暂不能预测击杀')
+        if states['defender'].get('void'):
+            if not self.aoe.isChecked() or not self.secondary.isChecked():
+                raise ValueError('虚无目标不能选为主目标：请确认群体技能且守方为次目标')
+            from dataclasses import replace
+            scenario=replace(scenario,damage_multiplier=scenario.damage_multiplier*.3)
+        if states['defender'].get('shield'):
+            if self.shield_remaining.value() <= 0:raise ValueError('请在条件页填写普通护盾剩余吸收量')
+            states['defender'].pop('shield')
         return apply_statuses(scenario, states['attacker'], states['defender'])
 
     @staticmethod
@@ -311,7 +347,7 @@ class DamageCalculatorDialog(QDialog):
         other = calculate(replace(s, model='kzone' if s.model == 'template' else 'template'))
         self.detail.setText(f'{MODELS[s.model]} · 战斗攻击 {r["combat_attack"]:,.2f} · 残心乘数 {r["passive_multiplier"]:.3f}\n'
             f'另一公式仅供对照：{MODELS[other["model"]]} → {self.result_text(other)}\n'
-            '技能/智壳伤害含溢出；实际扣血封顶到当前生命。死亡即停止后续段与智壳触发。两套公式均待游戏实测。')
+            f'剩余普通护盾 {r["rows"][-1]["shield_remaining"]:,.1f} · 技能/智壳伤害含溢出；实际扣血封顶到当前生命。死亡即停止后续段与智壳触发。两套公式均待游戏实测。')
         self.tabs.setCurrentIndex(2)
 
     def compare(self):

@@ -86,6 +86,24 @@ class DamageTests(unittest.TestCase):
         self.assertEqual(r['kill_hit'], 3); self.assertEqual(r['rows'][2]['shell'], 0)
         self.assertEqual(calculate(replace(enhanced, model='kzone'))['rows'][0]['effective_defense'], 900)
 
+    def test_shield_break_and_dynamic_matrix_thresholds(self):
+        s=Scenario(Fighter(attack=105,crit_damage=100),Fighter(hp=1000),pvp=False,ratios=(1,1),shield_hp=100,shield_bonus=True)
+        r=calculate(s)
+        self.assertAlmostEqual(r['rows'][0]['actual'],40)
+        self.assertEqual(r['rows'][0]['shield_remaining'],0)
+        self.assertAlmostEqual(r['rows'][1]['actual'],100)
+        r=calculate(replace(s,shield_hp=0,shield_bonus=False,unyielding=True,remaining_hp=600))
+        self.assertAlmostEqual(r['rows'][0]['actual'],80)
+        self.assertAlmostEqual(r['rows'][1]['actual'],60)
+        r=calculate(replace(s,shield_hp=0,shield_bonus=False,insight=True,ratios=(1,1,1,1)))
+        self.assertEqual([round(x['actual']) for x in r['rows']],[125,115,105,100])
+        with self.assertRaises(ValueError):calculate(replace(s,bloodbath=True))
+
+    def test_seven_sleep_only_boosts_first_segment(self):
+        s=Scenario(Fighter(attack=105,crit_damage=100),Fighter(hp=1000),pvp=False,ratios=(1,1),shell='宝剑七',sleeping=True)
+        r=calculate(s)
+        self.assertEqual([round(x['actual']) for x in r['rows']],[150,100])
+
     def test_rejects_nonfinite_and_unsupported_reductions_without_clamping(self):
         for s in (Scenario(Fighter(attack=math.nan)), Scenario(defender=Fighter(extra_damage_reduction=101)),
                   Scenario(ratios=(math.inf,)), Scenario(remaining_hp=0)):
@@ -121,9 +139,24 @@ class StatusTests(unittest.TestCase):
         r=apply_statuses(replace(s,critical=False),{}, {'scales':1})
         self.assertEqual(r.damage_multiplier,1)
 
+    def test_sharing_is_final_reduction_including_revelation(self):
+        from calculator_statuses import apply_statuses
+        s=Scenario(Fighter(attack=105,crit_damage=100),Fighter(hp=10000),pvp=False,shell='启示录',bloodbath=True,bloodbath_spent=2000)
+        a=calculate(s);b=calculate(apply_statuses(s,{}, {'tiamat':1}))
+        self.assertAlmostEqual(b['damage'],a['damage']*.75)
+        self.assertAlmostEqual(b['rows'][0]['shell'],a['rows'][0]['shell']*.75)
+
+    def test_newly_confirmed_statuses_use_layers_and_skill_wide_paper(self):
+        from calculator_statuses import apply_statuses
+        s=Scenario(Fighter(attack=105,crit_damage=100),Fighter(hp=10000),pvp=False,ratios=(1,1))
+        r=apply_statuses(s,{'execution':4,'weak':1},{'execution':4,'color':5,'feather':10,'paper':5})
+        self.assertAlmostEqual(r.damage_multiplier,1.32*.75*.76*.5*1.6*.65)
+        rows=calculate(r)['rows'];self.assertAlmostEqual(rows[0]['actual'],rows[1]['actual'])
+        with self.assertRaises(ValueError):apply_statuses(s,{}, {'execution':17})
+
     def test_unknown_and_complex_states_cannot_silently_predict_kill(self):
         from calculator_statuses import apply_statuses,STATUSES
-        self.assertEqual(len(STATUSES),25)
+        self.assertEqual(len(STATUSES),26)
         for key,_,_,maximum,supported in STATUSES:
             if not supported:
                 with self.assertRaises(ValueError):apply_statuses(Scenario(),{}, {key:1})
@@ -184,6 +217,18 @@ class CalculatorQtTests(unittest.TestCase):
         d.fields['attacker']['crit_damage'].setValue(-1); d.run()
         self.assertIn('必要面板', d.result_label.text())
         d.critical.setChecked(False); d.run(); self.assertIsNotNone(d.last_result)
+
+    def test_conditional_ui_enforces_void_and_imported_shell_assumptions(self):
+        d=self.dialog;d.assume_zero.setChecked(True)
+        d.status_states['defender']['void'].setCurrentIndex(1);d.run()
+        self.assertIn('虚无目标',d.result_label.text())
+        d.aoe.setChecked(True);d.secondary.setChecked(True);d.target_multiplier.setValue(1.75);d.run()
+        self.assertEqual(d.scenario().target_multiplier,1)
+        self.assertIsNotNone(d.last_result)
+        d.shell.setCurrentText('噬身之蛇');d.enable_shell.setChecked(True);d.serpent.setValue(7)
+        d.run();self.assertIsNotNone(d.last_result)
+        d.shell.setCurrentText('白獠武者（追击待联动）');d.run()
+        self.assertIsNone(d.last_result);self.assertIn('尚未建模',d.result_label.text())
 
     def test_main_window_entry_uses_current_projection_and_reopens_after_close(self):
         from storage import Archive
