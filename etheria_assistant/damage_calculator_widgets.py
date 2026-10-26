@@ -7,10 +7,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QDialog, QWidget, QLabel, QPushButton, QVBoxLayout,
     QHBoxLayout, QFormLayout, QGroupBox, QComboBox, QCheckBox,
     QDoubleSpinBox, QSpinBox, QLineEdit, QTabWidget, QScrollArea, QTableWidget,
-    QTableWidgetItem, QHeaderView, QAbstractItemView, QGridLayout)
+    QTableWidgetItem, QHeaderView, QAbstractItemView, QGridLayout, QStackedWidget)
 from damage_calculator import Fighter, Scenario, MODELS, import_unit, calculate
 from battle_attributes import EXTRA_ATTRIBUTES
 from calculator_statuses import STATUSES, apply_statuses
+from character_presets import CHARACTERS, apply_character
 
 LABELS = {'attack': '攻击', 'defense': '防御', 'hp': '最大生命', 'crit': '暴击率 %',
           'crit_damage': '暴击伤害 %', 'pvp_damage_bonus': 'PVP增伤 %',
@@ -87,8 +88,9 @@ class DamageCalculatorDialog(QDialog):
         skill.addRow('防御模型', self.model)
         self.pvp = QCheckBox('PVP：全局0.7，并启用双方PVP字段'); self.pvp.setChecked(True)
         skill.addRow(self.pvp)
-        self.preset = QComboBox(); self.preset.addItems(['自定义技能', '魁洛三段大招（研究模板）'])
-        self.preset.currentIndexChanged.connect(self.apply_preset); skill.addRow('技能模板', self.preset)
+        self.preset = QComboBox(); self.preset.addItems(['自定义技能']+list(CHARACTERS))
+        self.preset.currentIndexChanged.connect(self.apply_preset); skill.addRow('角色预设', self.preset)
+        self.character_skill=QComboBox();self.character_skill.currentIndexChanged.connect(self.apply_character_skill);skill.addRow('角色技能',self.character_skill)
         self.scaling = QComboBox()
         for title, key in [('攻击', 'attack'), ('防御', 'defense'), ('最大生命', 'hp')]: self.scaling.addItem(title, key)
         skill.addRow('倍率缩放', self.scaling)
@@ -174,7 +176,31 @@ class DamageCalculatorDialog(QDialog):
         self.desecrate = QCheckBox('攻方亵渎8：有护盾时额外伤害+40%');cond.addRow(self.desecrate)
         self.shield_remaining = number(0,1_000_000_000);cond.addRow('守方普通护盾剩余吸收量',self.shield_remaining)
         cond.addRow(plain('矩阵基础攻/生命/暴伤已在导入面板中，不重复叠加。普通盾按伤害后吸收；与浴血同时使用暂阻止计算。洞悉按本次目标的伤害事件计数，群体多目标消耗顺序待验证。白獠暴伤为此次技能前已有层数，不推断联动。寅虎先手及白獠追击尚未建模。'))
+        self.butcher_tier=QComboBox();self.butcher_tier.addItem('不启用',0)
+        for val in (6.4,8.8,11.2,13.6,16):self.butcher_tier.addItem(f'{val:g}%',val)
+        cond.addRow('屠夫·生命高于90%增伤',self.butcher_tier)
+        self.attacker_hp_percent=number(None,100,True);cond.addRow('攻方当前生命 %',self.attacker_hp_percent)
+        self.butcher_not_in_panel=QCheckBox('确认此条件加成未包含在导入面板中，按独立乘区试算');cond.addRow(self.butcher_not_in_panel)
+        self.butcher_tier.currentIndexChanged.connect(self.invalidate)
         self.add_scroll_tab(conditions, '智壳与矩阵条件')
+        character_page=QWidget();cp=QFormLayout(character_page)
+        self.character_note=plain('角色参数只作用于当前选择的角色技能，不会写入其他角色预设。');cp.addRow(self.character_note)
+        self.character_panels=QStackedWidget();cp.addRow(self.character_panels)
+        for name in ['自定义技能']+list(CHARACTERS):
+            panel=QWidget();form=QFormLayout(panel);self.character_panels.addWidget(panel)
+            if name=='博尔涅':
+                self.borne_alive=QSpinBox();self.borne_alive.setRange(0,12);self.borne_alive.setSpecialValueText('请填写');form.addRow('当前存活敌人数',self.borne_alive)
+                self.borne_hp_mode=QComboBox();self.borne_hp_mode.addItems(['入场生命是否已含被动：未确认','导入生命已包含入场被动','导入生命未包含，补加8倍入场攻击']);self.borne_hp_mode.setCurrentIndex(2);form.addRow(self.borne_hp_mode)
+                self.borne_entry_attack=number(0,1_000_000_000);form.addRow('入场攻击（非战斗buff后）',self.borne_entry_attack)
+                self.borne_hp_damage=QComboBox();self.borne_hp_damage.addItems(['60%生命附伤口径：未确认','研究假设：每段附加','研究假设：仅第一段附加']);form.addRow(self.borne_hp_damage)
+                self.borne_passive_checked=QCheckBox('天狼吠月：已手动排除目标被动，保留装备矩阵');form.addRow(self.borne_passive_checked)
+            if name=='弥瑟亚':
+                self.passive_checked=QCheckBox('降神：已手动排除目标被动，装备矩阵与状态来源已核实');form.addRow(self.passive_checked)
+            if name=='千羽':
+                self.qianyu_attack_speed=number(None,100000,True);self.qianyu_defense_speed=number(None,100000,True)
+                form.addRow('攻方原面板速度',self.qianyu_attack_speed);form.addRow('守方原面板速度',self.qianyu_defense_speed)
+                form.addRow(plain('释放明光裁定先加30%速度，不与同名速度上升重复叠加；状态页速度/花种/数据流/逆羽会参与速度差。已有状态若已包含在手填速度中，请勿再选一次。'))
+        self.add_scroll_tab(character_page,'角色专属参数')
         self.assume_zero = QCheckBox('缺失的增减伤字段暂按0试算（不代表已确认0；不会补入原记录）')
         layout.addWidget(self.assume_zero)
         self.warning = plain(''); layout.addWidget(self.warning)
@@ -191,10 +217,10 @@ class DamageCalculatorDialog(QDialog):
         # Never leave a result from old inputs visible as if it were current.
         for w in self.findChildren(QDoubleSpinBox): w.valueChanged.connect(self.invalidate)
         self.hits.valueChanged.connect(self.invalidate);
-        for w in (self.serpent,self.white_stacks,self.prior_events,self.debuff_count):w.valueChanged.connect(self.invalidate)
+        for w in (self.serpent,self.white_stacks,self.prior_events,self.debuff_count,self.borne_alive):w.valueChanged.connect(self.invalidate)
         self.ratios.textChanged.connect(self.invalidate)
         for w in self.findChildren(QCheckBox): w.toggled.connect(self.invalidate)
-        for w in (self.model, self.scaling, self.preset, self.flower, self.shell, self.count_version):
+        for w in (self.model, self.scaling, self.preset, self.flower, self.shell, self.count_version,self.borne_hp_mode,self.borne_hp_damage):
             w.currentIndexChanged.connect(self.invalidate)
         if self.units:
             self.attacker_select.setCurrentIndex(1)
@@ -212,11 +238,24 @@ class DamageCalculatorDialog(QDialog):
         self.result_label.setText('参数已变化，请重新计算。')
         self.process_table.setRowCount(0); self.detail.setText('')
 
-    def apply_preset(self, index):
-        self.scaling.setCurrentIndex(0); self.ratios.clear()
-        self.hits.setValue(3 if index else 1); self.ratio.setValue(110 if index else 100)
-        self.target_multiplier.setValue(1.75 if index else 1)
-        self.quilo_passive.setChecked(bool(index))
+    def apply_preset(self,index):
+        self.character_skill.blockSignals(True);self.character_skill.clear()
+        if index:
+            for key,row in CHARACTERS[self.preset.currentText()]['skills'].items():self.character_skill.addItem(row['name'],key)
+        self.character_skill.blockSignals(False)
+        self.character_panels.setCurrentIndex(index)
+        self.character_note.setText(CHARACTERS[self.preset.currentText()]['note'] if index else '自定义技能不应用角色被动。')
+        self.apply_character_skill()
+
+    def apply_character_skill(self,*_):
+        key=self.character_skill.currentData();name=self.preset.currentText()
+        row=CHARACTERS[name]['skills'][key] if key else {'ratios':(1.0,),'scaling':'attack','aoe':False}
+        self.scaling.setCurrentIndex(self.scaling.findData(row['scaling']));self.ratios.clear()
+        self.hits.setValue(len(row['ratios']));self.ratio.setValue(row['ratios'][0]*100)
+        self.critical.setChecked(name!='博尔涅');self.critical.setEnabled(name!='博尔涅');self.quilo_passive.setChecked(name=='魁洛')
+        self.target_multiplier.setValue(1.75 if name=='魁洛' else 1)
+        self.aoe.setChecked(row['aoe']);self.secondary.setChecked(False)
+        self.invalidate()
 
     def load_role(self, role):
         select = self.attacker_select if role == 'attacker' else self.defender_select
@@ -235,7 +274,11 @@ class DamageCalculatorDialog(QDialog):
         else:
             self.source_labels[role].setText('未导入角色，请手动填写。')
         active = data['active_effects'] if data else set()
+        speed=(self.units[idx][2].get('stats') or {}).get('speed') if idx is not None else None
+        (self.qianyu_attack_speed if role=='attacker' else self.qianyu_defense_speed).setValue(speed if speed is not None else -1)
         if role == 'attacker':
+            self.attacker_hp_percent.setValue(-1);self.butcher_tier.setCurrentIndex(0);self.butcher_not_in_panel.setChecked(False)
+            self.borne_entry_attack.setValue(data['values'].get('attack') or 0 if data else 0)
             for name, w in (('收割', self.harvest), ('狂怒', self.fury), ('沸腾打击', self.boiling)):
                 w.setChecked(name in active)
             self.shell.setCurrentText(({'白獠武者':'白獠武者（追击待联动）','寅虎':'寅虎（先手待建模）'}.get(data['shell'],data['shell'])) if data else '无 / 手动')
@@ -295,7 +338,10 @@ class DamageCalculatorDialog(QDialog):
             raise ValueError('请选择来自不同队伍的攻方与守方；也可改为手动填写')
         self.warning.setText(('缺失暂按0：' + '、'.join(zero) + '。' if zero else '') +
             '模型假设：不含护盾、不死、队友分摊及未建模被动；未套用字段见属性页。')
-        scenario = Scenario(spring=self.spring.isChecked(),unyielding=self.unyielding.isChecked(),
+        if self.butcher_tier.currentData() and not self.butcher_not_in_panel.isChecked():
+            raise ValueError('屠夫：请确认未计入面板，避免重复叠加；已计入时保持不启用')
+        scenario = Scenario(butcher_bonus=self.butcher_tier.currentData(),
+            attacker_hp_percent=self.attacker_hp_percent.value() if self.attacker_hp_percent.value()>=0 else None,spring=self.spring.isChecked(),unyielding=self.unyielding.isChecked(),
             insight=self.insight.isChecked(),prior_damage_events=self.prior_events.value(),
             opportunist=self.debuff_count.value() if self.opportunist.isChecked() else 0,
             shield_bonus=self.desecrate.isChecked(),shield_hp=self.shield_remaining.value(),
@@ -324,6 +370,14 @@ class DamageCalculatorDialog(QDialog):
         if states['defender'].get('shield'):
             if self.shield_remaining.value() <= 0:raise ValueError('请在条件页填写普通护盾剩余吸收量')
             states['defender'].pop('shield')
+        key=self.character_skill.currentData()
+        scenario=apply_character(scenario,key,alive=self.borne_alive.value(),hp_mode=self.borne_hp_mode.currentIndex(),
+            entry_attack=self.borne_entry_attack.value(),hp_damage_mode=self.borne_hp_damage.currentIndex(),
+            attacker_speed=self.qianyu_attack_speed.value() if self.qianyu_attack_speed.value()>=0 else None,
+            defender_speed=self.qianyu_defense_speed.value() if self.qianyu_defense_speed.value()>=0 else None,
+            speed_up=bool(states['attacker'].get('speed_up')),defender_speed_up=bool(states['defender'].get('speed_up')),
+            attacker_speed_down=bool(states['attacker'].get('speed_down')),defender_speed_down=bool(states['defender'].get('speed_down')),
+            legacy_flower=self.flower.currentData(),passive_checked=(self.borne_passive_checked.isChecked() if key=='borne_s3' else self.passive_checked.isChecked()),defense_states=states['defender'],attacker_states=states['attacker'])
         return apply_statuses(scenario, states['attacker'], states['defender'])
 
     @staticmethod

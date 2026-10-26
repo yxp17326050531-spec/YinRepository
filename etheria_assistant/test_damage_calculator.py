@@ -104,6 +104,14 @@ class DamageTests(unittest.TestCase):
         r=calculate(s)
         self.assertEqual([round(x['actual']) for x in r['rows']],[150,100])
 
+    def test_butcher_tiers_require_hp_and_strict_ninety_percent(self):
+        s=Scenario(Fighter(attack=105,crit_damage=100),Fighter(hp=10000),pvp=False)
+        for tier in (6.4,8.8,11.2,13.6,16):
+            self.assertAlmostEqual(calculate(replace(s,butcher_bonus=tier,attacker_hp_percent=90))['damage'],100)
+            self.assertAlmostEqual(calculate(replace(s,butcher_bonus=tier,attacker_hp_percent=90.01))['damage'],100+tier)
+        with self.assertRaises(ValueError):calculate(replace(s,butcher_bonus=16))
+        with self.assertRaises(ValueError):calculate(replace(s,butcher_bonus=10,attacker_hp_percent=100))
+
     def test_rejects_nonfinite_and_unsupported_reductions_without_clamping(self):
         for s in (Scenario(Fighter(attack=math.nan)), Scenario(defender=Fighter(extra_damage_reduction=101)),
                   Scenario(ratios=(math.inf,)), Scenario(remaining_hp=0)):
@@ -163,6 +171,32 @@ class StatusTests(unittest.TestCase):
             with self.assertRaises(ValueError):apply_statuses(Scenario(),{}, {key:maximum+1})
 
 
+class CharacterPresetTests(unittest.TestCase):
+    def test_borne_uses_entry_attack_for_hp_and_cannot_crit(self):
+        from character_presets import apply_character
+        s=Scenario(Fighter(attack=1000,hp=10000),Fighter(hp=100000),attack_up=48)
+        r=apply_character(s,'borne_s3',alive=4,hp_mode=2,entry_attack=1000,hp_damage_mode=1,passive_checked=True)
+        self.assertEqual(r.attacker.hp,18000);self.assertEqual(r.extra_hit_damage,10800)
+        self.assertEqual(r.ratios,(6,2.5));self.assertFalse(r.critical)
+        with self.assertRaises(ValueError):apply_character(s,'borne_s3',alive=4,hp_mode=2,entry_attack=1000)
+
+    def test_misaya_skills_keep_passive_confirmation_separate(self):
+        from character_presets import apply_character
+        s=Scenario()
+        self.assertEqual(apply_character(s,'misaya_s1').other_ignore,70)
+        with self.assertRaises(ValueError):apply_character(s,'misaya_s3')
+        self.assertEqual(apply_character(s,'misaya_s3',passive_checked=True).other_ignore,70)
+        with self.assertRaises(ValueError):apply_character(s,'misaya_s3',passive_checked=True,defense_states={'scales':1})
+
+    def test_qianyu_speed_up_is_applied_once_and_does_not_leak(self):
+        from character_presets import apply_character
+        s=Scenario()
+        r=apply_character(s,'qianyu_s3',attacker_speed=200,defender_speed=200,speed_up=True)
+        self.assertAlmostEqual(r.damage_multiplier,1.36)
+        self.assertEqual(apply_character(s,None),s)
+        with self.assertRaises(ValueError):apply_character(s,'qianyu_s3')
+
+
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QCoreApplication, QEvent
@@ -217,6 +251,21 @@ class CalculatorQtTests(unittest.TestCase):
         d.fields['attacker']['crit_damage'].setValue(-1); d.run()
         self.assertIn('必要面板', d.result_label.text())
         d.critical.setChecked(False); d.run(); self.assertIsNotNone(d.last_result)
+
+    def test_character_switch_keeps_independent_skill_choices(self):
+        d=self.dialog
+        d.preset.setCurrentText('博尔涅')
+        self.assertFalse(d.critical.isChecked());self.assertFalse(d.critical.isEnabled())
+        self.assertEqual(d.borne_hp_mode.currentIndex(),2)
+        self.assertEqual(d.borne_entry_attack.value(),3000)
+        self.assertEqual(d.character_skill.currentData(),'borne_s3')
+        d.preset.setCurrentText('弥瑟亚')
+        self.assertTrue(d.critical.isEnabled());self.assertEqual(d.character_skill.count(),2)
+        d.character_skill.setCurrentIndex(1);self.assertEqual(d.hits.value(),2)
+        d.preset.setCurrentText('千羽');self.assertEqual(d.hits.value(),4)
+        self.assertFalse(d.quilo_passive.isChecked());self.assertEqual(d.target_multiplier.value(),1)
+        d.preset.setCurrentIndex(0);self.assertEqual(d.hits.value(),1)
+        self.assertIsNone(d.character_skill.currentData())
 
     def test_conditional_ui_enforces_void_and_imported_shell_assumptions(self):
         d=self.dialog;d.assume_zero.setChecked(True)

@@ -97,6 +97,10 @@ class Scenario:
     target_multiplier: float = 1
     first_hit_multiplier: float = 1
     final_multiplier: float = 1
+    butcher_bonus: float = 0
+    attacker_hp_percent: float | None = None
+    extra_hit_damage: float = 0
+    extra_first_only: bool = False
     harvest: bool = False
     fury: bool = False
     boiling: bool = False
@@ -123,6 +127,9 @@ def defense_terms(base, multiplier, flat_down, model):
 
 
 def _validate(s):
+    if s.butcher_bonus not in (0,6.4,8.8,11.2,13.6,16):raise ValueError('屠夫请选择五档已确认数值')
+    if s.butcher_bonus and (s.attacker_hp_percent is None or not isfinite(s.attacker_hp_percent) or not 0<=s.attacker_hp_percent<=100):
+        raise ValueError('屠夫：请填写攻方当前生命百分比0–100')
     if s.model not in MODELS or s.scaling not in ('attack', 'defense', 'hp'):
         raise ValueError('请选择支持的防御模型和技能缩放属性')
     if s.shell not in ('无 / 手动', '启示录', '伯爵', '宝剑七', '噬身之蛇'):
@@ -141,7 +148,7 @@ def _validate(s):
         raise ValueError('技能需包含1–20段非负、有限倍率')
     for key in ('attack_up', 'attack_down', 'crit_damage_up', 'defense_up', 'defense_down',
                 'flat_defense_down', 'other_ignore', 'damage_multiplier', 'target_multiplier',
-                'bloodbath_spent', 'count_attack_percent', 'first_hit_multiplier', 'shield_hp', 'final_multiplier'):
+                'bloodbath_spent', 'count_attack_percent', 'first_hit_multiplier', 'shield_hp', 'final_multiplier', 'extra_hit_damage'):
         v = getattr(s, key)
         if not isinstance(v, (int, float)) or not isfinite(v) or v < 0:
             raise ValueError('增减益及乘区必须是非负有限数字')
@@ -168,6 +175,7 @@ def calculate(s):
     factor = (critical * passive * pvp * (1 - d.extra_damage_reduction / 100) *
               (1 + (a.damage_result_bonus + (12 if s.fury and s.critical else 0)) / 100) *
               (1 - d.damage_result_reduction / 100) * s.damage_multiplier * s.target_multiplier)
+    if s.butcher_bonus and s.attacker_hp_percent > 90:factor *= 1+s.butcher_bonus/100
     hp = d.hp if s.remaining_hp is None else s.remaining_hp
     start_hp, spent, rows = hp, s.bloodbath_spent, []
     shield = s.shield_hp
@@ -201,7 +209,7 @@ def calculate(s):
         conditional *= 1.4 if s.shield_bonus and shield > 0 else 1
         conditional *= (1.25,1.15,1.05)[damage_events] if s.insight and damage_events < 3 else 1
         conditional *= 1.5 if s.seven_control or (s.shell == '宝剑七' and s.sleeping and i == 0) else 1
-        direct, direct_actual = apply_damage(scaling * ratio * factor * conditional * boil * (s.first_hit_multiplier if i == 0 else 1) / divisor)
+        direct, direct_actual = apply_damage((scaling * ratio + (s.extra_hit_damage if not s.extra_first_only or i==0 else 0)) * factor * conditional * boil * (s.first_hit_multiplier if i == 0 else 1) / divisor)
         damage_events += 1
         shell = shell_actual = 0.0
         if hp > 0 and s.shell == '启示录' and s.critical:
