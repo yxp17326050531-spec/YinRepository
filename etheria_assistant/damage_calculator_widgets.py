@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import copy
+import math
+import sqlite3
 from dataclasses import replace
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QDialog, QWidget, QLabel, QPushButton, QVBoxLayout,
@@ -42,12 +44,13 @@ def number(value=0, maximum=1000, missing=False):
 
 
 class DamageCalculatorDialog(QDialog):
-    def __init__(self, parent, battle=None):
+    def __init__(self, parent, battle=None, preset_store=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowTitle('伤害试算 · 对局快照')
         self.resize(1100, 790)
         self.setMinimumSize(760, 560)
+        self.preset_store = preset_store if preset_store is not None else getattr(parent,'archive',None)
         self.snapshot = copy.deepcopy(battle or {})
         self.units = [(team, i, u) for team, rows in self.snapshot.get('teams', {}).items()
                       for i, u in enumerate(rows)]
@@ -68,6 +71,12 @@ class DamageCalculatorDialog(QDialog):
         bar.addWidget(swap); bar.addWidget(plain('守方')); bar.addWidget(self.defender_select, 1)
         reload_button = QPushButton('重新导入双方'); reload_button.clicked.connect(self.reload)
         bar.addWidget(reload_button); layout.addLayout(bar)
+        profiles=QHBoxLayout();profiles.addWidget(plain('攻方预设'))
+        self.profile_name=QComboBox();self.profile_name.setEditable(True);self.profile_name.setMinimumContentsLength(12);profiles.addWidget(self.profile_name,1)
+        for title,handler in [('保存',self.save_profile),('载入',self.load_profile),('删除',self.delete_profile)]:
+            button=QPushButton(title);button.clicked.connect(handler);profiles.addWidget(button)
+        layout.addLayout(profiles)
+        layout.addWidget(plain('预设仅保存攻方与模板；守方属性、状态、血量及本场条件不保存。载入后请核实当前守方。'))
         self.tabs = QTabWidget(); layout.addWidget(self.tabs, 1)
         self.fields, self.source_labels = {}, {}
         panels = QWidget(); grid = QHBoxLayout(panels)
@@ -179,7 +188,7 @@ class DamageCalculatorDialog(QDialog):
         self.insight_events=QSpinBox();self.insight_events.setRange(1,12);cond.addRow('洞悉·每段累计伤害次数（群攻口径待验证）',self.insight_events)
         self.skill_kind=QComboBox()
         for title,key in [('其他技能','other'),('终极技能','ultimate'),('普通攻击','basic')]:self.skill_kind.addItem(title,key)
-        self.skill_kind.currentIndexChanged.connect(self.invalidate);cond.addRow('技能类型（降神自动按终极）',self.skill_kind)
+        self.skill_kind.currentIndexChanged.connect(self.invalidate);cond.addRow('技能类型（角色技能预设自动选择）',self.skill_kind)
         self.manual_attribute_bonus=number(0,1000);cond.addRow('相性/普通增伤手动补录 %（并入结果增伤）',self.manual_attribute_bonus)
         cond.addRow(plain('编号待确认，不自动映射。已在结果增伤填写的11%不要在此重复填写。洞悉每段计次默认1；群攻可手动用3作研究对照，不从人数自动推断。'))
         self.opportunist = QCheckBox('攻方乘势追击12：目标每种减益/控制+6%');cond.addRow(self.opportunist)
@@ -247,6 +256,99 @@ class DamageCalculatorDialog(QDialog):
             opposite = next((n + 1 for n, (t, _, _) in enumerate(self.units) if t != attack_team), 0)
             self.defender_select.setCurrentIndex(opposite)
         self.reload()
+        self.refresh_profiles()
+
+    # Explicit allowlist: no defender fields, defender states or target-dependent confirmations.
+    PROFILE_CONTROLS = ('model','pvp','scaling','hits','ratio','ratios','critical',
+        'target_multiplier','damage_multiplier','quilo_passive','attack_up','durand','flower',
+        'attack_down','crit_damage_up','crit50','magic','other_ignore','harvest','fury','boiling',
+        'shell','enable_shell','count_version','aoe','serpent','white_stacks','insight','prior_events',
+        'insight_events','opportunist','desecrate','butcher_tier','butcher_not_in_panel',
+        'attacker_hp_percent','manual_attribute_bonus','sun_base_bonus','sun_per_buff_bonus',
+        'borne_hp_mode','borne_entry_attack','borne_hp_damage','qianyu_attack_speed')
+
+    def profiles(self):
+        data=self.preset_store.settings().get('calculator_attacker_profiles',{}) if self.preset_store is not None else {}
+        return data if isinstance(data,dict) else {}
+
+    def refresh_profiles(self, selected=None):
+        text=selected if selected is not None else self.profile_name.currentText()
+        self.profile_name.clear();self.profile_name.addItems(sorted(self.profiles()))
+        self.profile_name.setEditText(text)
+
+    @staticmethod
+    def profile_value(w):
+        if isinstance(w,QCheckBox):return w.isChecked()
+        if isinstance(w,QComboBox):return {'data':w.currentData(),'text':w.currentText()}
+        if isinstance(w,QLineEdit):return w.text()
+        return w.value()
+
+    @staticmethod
+    def profile_setter(w,value):
+        # Validate all values before restoring any widget.
+        if isinstance(w,QCheckBox):
+            if type(value) is not bool:raise ValueError('预设开关损坏')
+            return lambda:w.setChecked(value)
+        if isinstance(w,QComboBox):
+            if not isinstance(value,dict):raise ValueError('预设选项损坏')
+            i=w.findData(value.get('data')) if value.get('data') is not None else w.findText(value.get('text',''))
+            if i<0:raise ValueError('预设选项已不支持，请重新保存')
+            return lambda:w.setCurrentIndex(i)
+        if isinstance(w,QLineEdit):
+            if not isinstance(value,str) or len(value)>500:raise ValueError('预设倍率损坏')
+            return lambda:w.setText(value)
+        if type(value) not in (int,float) or not math.isfinite(value) or not w.minimum()<=value<=w.maximum():raise ValueError('预设数值超出范围')
+        if isinstance(w,QSpinBox) and int(value)!=value:raise ValueError('预设计次必须为整数')
+        return lambda:w.setValue(int(value) if isinstance(w,QSpinBox) else value)
+
+    def save_profile(self):
+        try:
+            if self.preset_store is None:raise ValueError('请从助手主界面打开计算器以保存预设')
+            name=self.profile_name.currentText().strip()
+            if not name or len(name)>80:raise ValueError('请填写1–80字预设名称')
+            data={'schema':1,'character':self.preset.currentText(),'skill':self.character_skill.currentData(),
+                'attacker':{key:self.profile_value(w) for key,w in self.fields['attacker'].items()},
+                'controls':{key:self.profile_value(getattr(self,key)) for key in self.PROFILE_CONTROLS},
+                'attacker_states':{key:w.currentData() for key,w in self.status_states['attacker'].items()}}
+            profiles=self.profiles();profiles[name]=data
+            self.preset_store.save_settings({'calculator_attacker_profiles':profiles});self.refresh_profiles(name)
+            self.warning.setText('攻方预设已保存：'+name+'；同名保存会更新，守方数据未保存。')
+        except (ValueError,OSError,sqlite3.Error) as e:self.warning.setText(str(e))
+
+    def load_profile(self):
+        try:
+            name=self.profile_name.currentText().strip();data=self.profiles().get(name)
+            if not isinstance(data,dict) or data.get('schema')!=1:raise ValueError('请选择已保存的有效预设')
+            character=data.get('character');index=self.preset.findText(character) if isinstance(character,str) else -1
+            if index<0:raise ValueError('预设角色模板已不支持')
+            skill=data.get('skill')
+            if skill not in (CHARACTERS.get(character,{}).get('skills',{}) or {None:None}):raise ValueError('预设技能已不支持')
+            actions=[]
+            for key,w in self.fields['attacker'].items():actions.append(self.profile_setter(w,data['attacker'][key]))
+            for key in self.PROFILE_CONTROLS:actions.append(self.profile_setter(getattr(self,key),data['controls'][key]))
+            for key,w in self.status_states['attacker'].items():
+                i=w.findData(data['attacker_states'][key])
+                if i<0:raise ValueError('预设攻方状态损坏')
+                actions.append(lambda w=w,i=i:w.setCurrentIndex(i))
+            secondary=self.secondary.isChecked()
+            self.preset.setCurrentIndex(index)
+            if skill is not None:self.character_skill.setCurrentIndex(self.character_skill.findData(skill))
+            for action in actions:action()
+            self.secondary.setChecked(secondary)
+            # Skill switches reset target selection; preserve this encounter's setting.
+            self.profile_name.setEditText(name);self.invalidate()
+            self.source_labels['attacker'].setText('攻方来自已保存预设：'+name+'；覆盖攻方面板，不修改对局记录。')
+            self.warning.setText('已载入攻方预设；守方数据保留。请核实当前目标与双方临时状态。')
+        except (ValueError,KeyError,TypeError,OSError,sqlite3.Error) as e:self.warning.setText('未载入预设：'+str(e))
+
+    def delete_profile(self):
+        try:
+            if self.preset_store is None:raise ValueError('无可用预设存储')
+            name=self.profile_name.currentText().strip();profiles=self.profiles()
+            if name not in profiles:raise ValueError('请选择要删除的已保存预设')
+            profiles.pop(name);self.preset_store.save_settings({'calculator_attacker_profiles':profiles})
+            self.refresh_profiles('');self.warning.setText('已删除预设：'+name+'；当前试算参数保留。')
+        except (ValueError,OSError,sqlite3.Error) as e:self.warning.setText(str(e))
 
     def add_scroll_tab(self, widget, title):
         scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setWidget(widget)
@@ -272,8 +374,9 @@ class DamageCalculatorDialog(QDialog):
         self.scaling.setCurrentIndex(self.scaling.findData(row['scaling']));self.ratios.clear()
         self.hits.setValue(len(row['ratios']));self.ratio.setValue(row['ratios'][0]*100)
         self.critical.setChecked(name!='博尔涅');self.critical.setEnabled(name!='博尔涅');self.quilo_passive.setChecked(name=='魁洛')
-        self.target_multiplier.setValue(1.75 if name=='魁洛' else 1)
+        self.target_multiplier.setValue(1.75 if key=='quilo_s3' else 1)
         self.aoe.setChecked(row['aoe']);self.secondary.setChecked(False)
+        self.profile_name.setEditText(name+' · '+row.get('name','自定义技能'))
         self.invalidate()
 
     def load_role(self, role):
@@ -335,7 +438,8 @@ class DamageCalculatorDialog(QDialog):
         if self.quilo_passive.isChecked(): required['defender'].add('attack')
         if self.quilo_passive.isChecked() or shell != '无 / 手动': required['attacker'].add('attack')
         if self.critical.isChecked(): required['attacker'].add('crit_damage')
-        kind='ultimate' if self.character_skill.currentData()=='misaya_s3' else self.skill_kind.currentData()
+        skill_key=self.character_skill.currentData()
+        kind=('ultimate' if skill_key.endswith('_s3') else 'basic' if skill_key.endswith('_s1') else 'other') if skill_key else self.skill_kind.currentData()
         extra_required = {'attacker': {'ignore_defense', 'damage_result_bonus'},
                           'defender': {'extra_damage_reduction', 'damage_result_reduction'}}
         if self.critical.isChecked():
@@ -441,7 +545,7 @@ class DamageCalculatorDialog(QDialog):
         affinity_note=f'相性后暴击率 {adjusted:g}%' if adjusted is not None else '相性后暴击率未采集'
         self.detail.setText(affinity_note+'；仍按选定的暴击/非暴击假设计算，未算概率。逆克制效果命中降低50%，本次不模拟效果命中。\n'+f'守方：PVP减伤 {s.defender.pvp_damage_reduction:g}%（PVP模式）；额外减伤 {s.defender.extra_damage_reduction:g}%；结果减伤 {s.defender.damage_result_reduction:g}%；浴血 {s.bloodbath}\n技能类型 {s.skill_kind}；终极技能减伤 {s.defender.ultimate_damage_reduction:g}%（仅终极技能）；被暴击减伤 {s.defender.crit_damage_reduction:g}%（仅暴击）；洞悉每段计次 {s.insight_events_per_hit}；手动补录增伤 {s.manual_attribute_bonus:g}%\n戍防官：{s.warden_reduction:g}%（{"暴击生效" if s.critical else "非暴击不生效"}）\n魔术牌/日轮同区增伤 {s.card_sun_bonus:g}%（×{1+s.card_sun_bonus/100:.3f}）\n{MODELS[s.model]} · 战斗攻击 {r["combat_attack"]:,.2f} · 残心乘数 {r["passive_multiplier"]:.3f}\n'
             f'另一公式仅供对照：{MODELS[other["model"]]} → {self.result_text(other)}\n'
-            f'剩余普通护盾 {r["rows"][-1]["shield_remaining"]:,.1f} · 技能/智壳伤害含溢出；实际扣血封顶到当前生命。死亡即停止后续段与智壳触发。两套公式均待游戏实测。')
+            f'末段附伤原值 {r["rows"][-1]["finisher_base"]:,.1f}（技能同乘区研究模型）；目标损血增伤乘数 {r["rows"][0]["lost_hp_multiplier"]:.3f}\n剩余普通护盾 {r["rows"][-1]["shield_remaining"]:,.1f} · 技能/智壳伤害含溢出；实际扣血封顶到当前生命。死亡即停止后续段与智壳触发。两套公式均待游戏实测。')
         self.tabs.setCurrentIndex(2)
 
     def compare(self):

@@ -3,14 +3,16 @@ from dataclasses import replace
 
 # Each character owns its skills and parameter rules; generic edits aren't saved here.
 CHARACTERS = {
- '魁洛': {'skills': {'quilo_s3': {'name':'三段大招（研究模板）','ratios':(1.1,1.1,1.1),'scaling':'attack','aoe':True}},
-         'note':'原研究模板：主目标×1.75，残心攻差上限90%；未加入照破。'},
+ '魁洛': {'skills': {'quilo_s3': {'name':'三段大招（研究模板）','ratios':(1.1,1.1,1.1),'scaling':'attack','aoe':True},
+     'quilo_s2': {'name':'狩杀·Lv5','ratios':(3.9,),'scaling':'attack','aoe':False}},
+         'note':'狩杀390%，目标每损失1%生命伤害提高1%，击杀拉条不参与伤害；原研究模板：主目标×1.75，残心攻差上限90%；未加入照破。'},
  '博尔涅': {'skills': {'borne_s3': {'name':'天狼吠月·Lv5','ratios':(6.0,),'scaling':'attack','aoe':True}},
          'note':'牧夜行Lv5：入场生命增加入场攻击×800%；每次攻击附加自身最大生命60%，无法暴击。天狼吠月以超过4个存活敌人时600%为基础，每少1人追加一段250%。60%生命附伤的攻击/分段口径与乘区待验证，须手选。'},
  '弥瑟亚': {'skills': {
      'misaya_s1': {'name':'反逆十字·Lv4','ratios':(1.3,1.3),'scaling':'attack','aoe':False},
+     'misaya_s2': {'name':'二重审判·Lv5','ratios':(1.0,1.0,1.0),'scaling':'attack','aoe':False},
      'misaya_s3': {'name':'降神·Lv5','ratios':(2.0,2.0),'scaling':'attack','aoe':True}},
-     'note':'审判：攻击无视目标70%防御。降神两段200%，额外无视目标被动；反逆十字25%易伤不自动判定命中。击杀后的无敌/免疫不影响本次输出。'},
+     'note':'审判：攻击无视目标70%防御。二重审判三段100%，末段按段前已损失生命附伤，上限战斗攻击350%；附伤暂按技能同乘区、可暴击研究模型，非已证实真伤。降神两段200%，额外无视目标被动；反逆十字25%易伤不自动判定命中。击杀后的无敌/免疫不影响本次输出。'},
  '千羽': {'skills': {'qianyu_s3': {'name':'明光裁定·Lv5','ratios':(.8,.8,.8,.8),'scaling':'attack','aoe':True}},
          'note':'先为己方附加速度上升30%，再造成4段80%。每高于目标1点速度，伤害额外+0.6%；是否存在隐藏上限待验证。30%驱散按概率，不自动改目标增益。'},
 }
@@ -25,6 +27,7 @@ def apply_character(s, skill, *, alive=0, hp_mode=0, entry_attack=0, hp_damage_m
     if skill is None:return s
     states = defense_states or {}; own = attacker_states or {}
     if skill == 'quilo_s3':return replace(s,quilo_passive=True)
+    if skill == 'quilo_s2':return replace(s,quilo_passive=True,lost_hp_damage_scale=1)
     if skill == 'borne_s3':
         if not 1 <= alive <= 12:raise ValueError('博尔涅：请填写当前存活敌人数1–12，不从开场人数猜存活')
         if hp_mode not in (1,2):raise ValueError('博尔涅：请确认导入生命是否已包含牧夜行入场加成')
@@ -39,12 +42,12 @@ def apply_character(s, skill, *, alive=0, hp_mode=0, entry_attack=0, hp_damage_m
                        extra_hit_damage=extra,extra_first_only=hp_damage_mode==2,
                        followup_ratios=(1.1,1.1) if s.shell=='白獠武者' else (),
                        followup_flat_damage=extra if s.shell=='白獠武者' else 0)
-    if skill in ('misaya_s1','misaya_s3'):
+    if skill in ('misaya_s1','misaya_s2','misaya_s3'):
         if s.other_ignore:raise ValueError('弥瑟亚：70%无视已由角色预设提供，请勿在额外无视栏重复填写')
         if skill=='misaya_s3':
             if not passive_checked:raise ValueError('降神：请确认已手动排除目标被动；不自动猜矩阵、增益是否属于被动')
             if PASSIVE_STATES & states.keys():raise ValueError('降神：请清除目标角色被动状态后再计算（保留装备矩阵）')
-        return replace(s,other_ignore=70)
+        return replace(s,other_ignore=70,missing_hp_finisher=skill=='misaya_s2')
     if skill=='qianyu_s3':
         if attacker_speed is None or defender_speed is None:raise ValueError('千羽：请填写双方速度，缺失不是0')
         # Cast applies speed-up before damage; don't stack it again with an existing identical buff.

@@ -114,6 +114,8 @@ class Scenario:
     attacker_hp_percent: float | None = None
     followup_ratios: tuple[float,...] = ()
     followup_flat_damage: float = 0
+    missing_hp_finisher: bool = False
+    lost_hp_damage_scale: float = 0
     extra_hit_damage: float = 0
     extra_first_only: bool = False
     harvest: bool = False
@@ -168,7 +170,7 @@ def _validate(s):
         raise ValueError('技能需包含1–20段非负、有限倍率')
     for key in ('attack_up', 'attack_down', 'crit_damage_up', 'defense_up', 'defense_down',
                 'flat_defense_down', 'other_ignore', 'damage_multiplier', 'target_multiplier',
-                'card_sun_bonus', 'sun_base_bonus', 'sun_per_buff_bonus', 'manual_attribute_bonus',
+                'card_sun_bonus', 'sun_base_bonus', 'sun_per_buff_bonus', 'manual_attribute_bonus', 'lost_hp_damage_scale',
                 'bloodbath_spent', 'count_attack_percent', 'first_hit_multiplier', 'shield_hp', 'final_multiplier', 'extra_hit_damage', 'followup_flat_damage'):
         v = getattr(s, key)
         if not isinstance(v, (int, float)) or not isfinite(v) or v < 0:
@@ -235,8 +237,11 @@ def calculate(s):
         conditional *= 1.5 if s.seven_control or (s.shell == '宝剑七' and s.sleeping and event_index == 0) else 1
         typed = (1-d.ultimate_damage_reduction/100) if s.skill_kind=='ultimate' and phase=='技能' else (1+a.basic_damage_bonus/100) if s.skill_kind=='basic' and phase=='技能' else 1
         base=(scaling*ratio+(s.extra_hit_damage if not s.extra_first_only or i==0 else 0)) if phase=='技能' else attack*ratio+s.followup_flat_damage
+        finisher = min(max(0,d.hp-before),attack*3.5) if s.missing_hp_finisher and phase=='技能' and i==len(s.ratios)-1 else 0
+        base += finisher
+        lost_multiplier = 1+s.lost_hp_damage_scale*max(0,d.hp-before)/d.hp if phase=='技能' else 1
         target=s.target_multiplier if phase=='技能' else 1
-        direct, direct_actual = apply_damage(base * factor * typed * target * conditional * boil * (s.first_hit_multiplier if event_index == 0 else 1) / divisor)
+        direct, direct_actual = apply_damage(base * lost_multiplier * factor * typed * target * conditional * boil * (s.first_hit_multiplier if event_index == 0 else 1) / divisor)
         damage_events += s.insight_events_per_hit
         shell = shell_actual = 0.0
         if hp > 0 and s.shell == '启示录' and s.critical:
@@ -244,7 +249,7 @@ def calculate(s):
             shell, shell_actual = apply_damage(min(d.hp * .12, attack * 1.8) * (.7 if s.pvp else 1))
             damage_events += 1
         rows.append({'hit': event_index + 1, 'phase': phase, 'phase_hit': i+1, 'before': before, 'effective_defense': effective,
-                     'divisor': divisor, 'harvest': harvest, 'boiling': boil,
+                     'finisher_base':finisher, 'lost_hp_multiplier':lost_multiplier, 'divisor': divisor, 'harvest': harvest, 'boiling': boil,
                      'direct': direct, 'shell': shell, 'actual': direct_actual + shell_actual,
                      'remaining': hp, 'shield_remaining': shield, 'killed_by': (phase if direct_actual >= before else '启示录') if hp == 0 else None})
         if hp == 0:

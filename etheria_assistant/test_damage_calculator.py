@@ -9,6 +9,22 @@ from damage_calculator import Fighter, Scenario, calculate, defense_terms, impor
 
 
 class DamageTests(unittest.TestCase):
+    def test_second_skills_use_live_lost_hp_and_stop_on_death(self):
+        from character_presets import apply_character
+        s=Scenario(Fighter(attack=100,crit_damage=100),Fighter(attack=100,hp=10000),pvp=False,ratios=(1,1,1),remaining_hp=9000)
+        m=apply_character(s,'misaya_s2')
+        self.assertEqual(m.other_ignore,70)
+        rows=calculate(m)['rows'];self.assertEqual(rows[0]['finisher_base'],0)
+        self.assertEqual(rows[1]['finisher_base'],0);self.assertEqual(rows[2]['finisher_base'],350)
+        self.assertAlmostEqual(rows[2]['direct'],450/1.05)
+        full=calculate(replace(m,remaining_hp=None))['rows']
+        self.assertAlmostEqual(full[2]['finisher_base'],200/1.05)
+        dead=calculate(replace(m,defender=replace(s.defender,hp=50),remaining_hp=None))
+        self.assertEqual(len(dead['rows']),1)
+        q=apply_character(replace(s,ratios=(3.9,),remaining_hp=5000),'quilo_s2')
+        self.assertAlmostEqual(calculate(q)['rows'][0]['direct'],390*1.5/1.05)
+        self.assertEqual(calculate(q)['rows'][0]['lost_hp_multiplier'],1.5)
+
     def test_conditional_reductions_and_explicit_aoe_insight_count(self):
         s=Scenario(Fighter(attack=1000,crit_damage=200),Fighter(hp=100000,ultimate_damage_reduction=9.5,crit_damage_reduction=20),pvp=False,ratios=(1,1),insight=True)
         baseline=calculate(s)['rows']
@@ -316,9 +332,54 @@ class CalculatorQtTests(unittest.TestCase):
         d.status_states['attacker']['sun'].setCurrentIndex(0)
         self.assertEqual(d.scenario().card_sun_bonus,30)
 
+    def test_attacker_profiles_persist_without_any_defender_state(self):
+        from storage import Archive
+        with tempfile.TemporaryDirectory() as directory:
+            archive=Archive(directory)
+            try:
+                d=self.dialog;d.preset_store=archive
+                d.preset.setCurrentText('弥瑟亚');d.character_skill.setCurrentIndex(d.character_skill.findData('misaya_s2'))
+                d.fields['attacker']['attack'].setValue(4321);d.manual_attribute_bonus.setValue(11)
+                d.fields['defender']['hp'].setValue(76543);d.remaining_hp.setValue(5555)
+                d.warden_tier.setCurrentIndex(3);d.secondary.setChecked(True)
+                d.status_states['attacker']['heart'].setCurrentIndex(2)
+                d.status_states['defender']['heart'].setCurrentIndex(1)
+                d.profile_name.setEditText('合成二技能');d.save_profile()
+                saved=archive.settings()['calculator_attacker_profiles']['合成二技能']
+                self.assertEqual(set(saved),{'schema','character','skill','attacker','controls','attacker_states'})
+                self.assertNotIn('remaining_hp',saved['controls']);self.assertNotIn('warden_tier',saved['controls'])
+                d.fields['defender']['hp'].setValue(99999);d.remaining_hp.setValue(6666)
+                d.preset.setCurrentText('魁洛');d.fields['attacker']['attack'].setValue(100)
+                d.secondary.setChecked(True);d.profile_name.setEditText('合成二技能');d.load_profile()
+                self.assertEqual(d.character_skill.currentData(),'misaya_s2');self.assertEqual(d.hits.value(),3)
+                self.assertEqual(d.target_multiplier.value(),1);self.assertEqual(d.fields['attacker']['attack'].value(),4321)
+                self.assertEqual(d.fields['defender']['hp'].value(),99999);self.assertEqual(d.remaining_hp.value(),6666)
+                self.assertEqual(d.warden_tier.currentData(),14);self.assertTrue(d.secondary.isChecked())
+                self.assertEqual(d.status_states['defender']['heart'].currentData(),1)
+                self.assertEqual(d.manual_attribute_bonus.value(),11)
+                other=DamageCalculatorDialog(None,self.battle,preset_store=archive)
+                try:
+                    other.profile_name.setEditText('合成二技能');other.load_profile()
+                    self.assertEqual(other.fields['attacker']['attack'].value(),4321)
+                    self.assertEqual(other.fields['defender']['hp'].value(),10000)
+                    other.delete_profile();self.assertEqual(archive.settings()['calculator_attacker_profiles'],{})
+                finally:
+                    other.close();self.app.processEvents();QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
+            finally:
+                for handler in list(archive.logger.handlers):handler.close();archive.logger.removeHandler(handler)
+
+    def test_second_skill_ui_uses_single_target_multiplier_and_correct_kind(self):
+        d=self.dialog;d.assume_zero.setChecked(True)
+        d.preset.setCurrentText('魁洛');d.character_skill.setCurrentIndex(d.character_skill.findData('quilo_s2'))
+        self.assertEqual(d.hits.value(),1);self.assertEqual(d.ratio.value(),390);self.assertEqual(d.target_multiplier.value(),1)
+        self.assertEqual(d.scenario().skill_kind,'other')
+        d.preset.setCurrentText('弥瑟亚');d.character_skill.setCurrentIndex(d.character_skill.findData('misaya_s2'))
+        self.assertEqual(d.scenario().ratios,(1,1,1));self.assertTrue(d.scenario().missing_hp_finisher)
+        self.assertFalse(d.aoe.isChecked())
+
     def test_ultimate_kind_manual_bonus_and_count_controls(self):
         d=self.dialog;d.assume_zero.setChecked(True)
-        d.preset.setCurrentText('弥瑟亚');d.character_skill.setCurrentIndex(1);d.passive_checked.setChecked(True)
+        d.preset.setCurrentText('弥瑟亚');d.character_skill.setCurrentIndex(d.character_skill.findData('misaya_s3'));d.passive_checked.setChecked(True)
         d.fields['defender']['ultimate_damage_reduction'].setValue(9.5)
         d.insight_events.setValue(3);d.manual_attribute_bonus.setValue(11)
         s=d.scenario();self.assertEqual(s.skill_kind,'ultimate');self.assertEqual(s.insight_events_per_hit,3)
@@ -345,8 +406,8 @@ class CalculatorQtTests(unittest.TestCase):
         self.assertEqual(d.borne_entry_attack.value(),3000)
         self.assertEqual(d.character_skill.currentData(),'borne_s3')
         d.preset.setCurrentText('弥瑟亚')
-        self.assertTrue(d.critical.isEnabled());self.assertEqual(d.character_skill.count(),2)
-        d.character_skill.setCurrentIndex(1);self.assertEqual(d.hits.value(),2)
+        self.assertTrue(d.critical.isEnabled());self.assertEqual(d.character_skill.count(),3)
+        d.character_skill.setCurrentIndex(d.character_skill.findData('misaya_s3'));self.assertEqual(d.hits.value(),2)
         d.preset.setCurrentText('千羽');self.assertEqual(d.hits.value(),4)
         self.assertFalse(d.quilo_passive.isChecked());self.assertEqual(d.target_multiplier.value(),1)
         d.preset.setCurrentIndex(0);self.assertEqual(d.hits.value(),1)
