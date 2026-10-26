@@ -121,7 +121,7 @@ class DamageCalculatorDialog(QDialog):
         self.attack_down = number(0, 100); effects.addRow('攻击降低 %', self.attack_down)
         self.crit_damage_up = number(); effects.addRow('暴击伤害增加（百分点）', self.crit_damage_up)
         self.crit50 = QCheckBox('暴击伤害增加50个百分点'); effects.addRow(self.crit50)
-        self.magic = QCheckBox('魔术牌：独立伤害×1.30（假设）'); effects.addRow(self.magic)
+        self.magic = QCheckBox('魔术牌：增伤30%（与日轮花同区加算）'); effects.addRow(self.magic)
         self.defense_up = number(); effects.addRow('防御增加 %', self.defense_up)
         self.defense_down = number(0, 100); effects.addRow('防御降低 %', self.defense_down)
         self.flat_defense_down = number(0, 1_000_000); effects.addRow('固定减防', self.flat_defense_down)
@@ -186,6 +186,9 @@ class DamageCalculatorDialog(QDialog):
         self.attacker_hp_percent=number(None,100,True);cond.addRow('攻方当前生命 %',self.attacker_hp_percent)
         self.butcher_not_in_panel=QCheckBox('确认此条件加成未包含在导入面板中，按独立乘区试算');cond.addRow(self.butcher_not_in_panel)
         self.butcher_tier.currentIndexChanged.connect(self.invalidate)
+        self.sun_base_bonus=number(25,1000);cond.addRow('日轮花·基础增伤 %',self.sun_base_bonus)
+        self.sun_per_buff_bonus=number(4,100);cond.addRow('日轮花·每种基础增益额外 %',self.sun_per_buff_bonus)
+        cond.addRow(plain('日轮花在状态页选生效及持续期间新获得的增益种数。当前默认25%+每种4%，满级可填30%。魔术牌与日轮花仅这一组加算，不自动合并其他增伤或面板字段；不要再在独立乘数重复填写。'))
         self.add_scroll_tab(conditions, '智壳与矩阵条件')
         character_page=QWidget();cp=QFormLayout(character_page)
         self.character_note=plain('角色参数只作用于当前选择的角色技能，不会写入其他角色预设。');cp.addRow(self.character_note)
@@ -348,7 +351,8 @@ class DamageCalculatorDialog(QDialog):
             '模型假设：不含护盾、不死、队友分摊及未建模被动；未套用字段见属性页。')
         if self.butcher_tier.currentData() and not self.butcher_not_in_panel.isChecked():
             raise ValueError('屠夫：请确认未计入面板，避免重复叠加；已计入时保持不启用')
-        scenario = Scenario(affinity=self.affinity.currentData(),butcher_bonus=self.butcher_tier.currentData(),
+        scenario = Scenario(card_sun_bonus=30 if self.magic.isChecked() else 0,
+            sun_base_bonus=self.sun_base_bonus.value(),sun_per_buff_bonus=self.sun_per_buff_bonus.value(),affinity=self.affinity.currentData(),butcher_bonus=self.butcher_tier.currentData(),
             attacker_hp_percent=self.attacker_hp_percent.value() if self.attacker_hp_percent.value()>=0 else None,spring=self.spring.isChecked(),unyielding=self.unyielding.isChecked(),
             insight=self.insight.isChecked(),prior_damage_events=self.prior_events.value(),
             opportunist=self.debuff_count.value() if self.opportunist.isChecked() else 0,
@@ -359,7 +363,7 @@ class DamageCalculatorDialog(QDialog):
             attack_up=self.attack_up.value() + (48 if self.durand.isChecked() else 0) + self.flower.currentData(),
             attack_down=self.attack_down.value(), crit_damage_up=self.crit_damage_up.value() + self.white_stacks.value()*10 + (50 if self.crit50.isChecked() else 0),
             defense_up=self.defense_up.value(), defense_down=self.defense_down.value(), flat_defense_down=self.flat_defense_down.value(),
-            other_ignore=self.other_ignore.value(), damage_multiplier=self.damage_multiplier.value() * (1+.1*self.serpent.value() if shell=='噬身之蛇' else 1) * (1.3 if self.magic.isChecked() else 1),
+            other_ignore=self.other_ignore.value(), damage_multiplier=self.damage_multiplier.value() * (1+.1*self.serpent.value() if shell=='噬身之蛇' else 1),
             target_multiplier=1 if self.secondary.isChecked() else self.target_multiplier.value(), harvest=self.harvest.isChecked(), fury=self.fury.isChecked(),
             boiling=self.boiling.isChecked(), bloodbath=self.bloodbath.isChecked(), bloodbath_spent=self.bloodbath_spent.value(),
             remaining_hp=self.remaining_hp.value() if self.remaining_hp.value() >= 0 else None, shell=shell,
@@ -415,7 +419,7 @@ class DamageCalculatorDialog(QDialog):
         shift={'neutral':0,'advantage':15,'disadvantage':-30}[s.affinity]
         adjusted=max(0,min(100,observed_crit+shift)) if observed_crit>=0 else None
         affinity_note=f'相性后暴击率 {adjusted:g}%' if adjusted is not None else '相性后暴击率未采集'
-        self.detail.setText(affinity_note+'；仍按选定的暴击/非暴击假设计算，未算概率。逆克制效果命中降低50%，本次不模拟效果命中。\n'+f'{MODELS[s.model]} · 战斗攻击 {r["combat_attack"]:,.2f} · 残心乘数 {r["passive_multiplier"]:.3f}\n'
+        self.detail.setText(affinity_note+'；仍按选定的暴击/非暴击假设计算，未算概率。逆克制效果命中降低50%，本次不模拟效果命中。\n'+f'魔术牌/日轮同区增伤 {s.card_sun_bonus:g}%（×{1+s.card_sun_bonus/100:.3f}）\n{MODELS[s.model]} · 战斗攻击 {r["combat_attack"]:,.2f} · 残心乘数 {r["passive_multiplier"]:.3f}\n'
             f'另一公式仅供对照：{MODELS[other["model"]]} → {self.result_text(other)}\n'
             f'剩余普通护盾 {r["rows"][-1]["shield_remaining"]:,.1f} · 技能/智壳伤害含溢出；实际扣血封顶到当前生命。死亡即停止后续段与智壳触发。两套公式均待游戏实测。')
         self.tabs.setCurrentIndex(2)

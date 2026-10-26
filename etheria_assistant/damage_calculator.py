@@ -94,6 +94,9 @@ class Scenario:
     defense_down: float = 0
     flat_defense_down: float = 0
     other_ignore: float = 0
+    card_sun_bonus: float = 0
+    sun_base_bonus: float = 30
+    sun_per_buff_bonus: float = 4
     damage_multiplier: float = 1
     target_multiplier: float = 1
     first_hit_multiplier: float = 1
@@ -153,6 +156,7 @@ def _validate(s):
         raise ValueError('技能需包含1–20段非负、有限倍率')
     for key in ('attack_up', 'attack_down', 'crit_damage_up', 'defense_up', 'defense_down',
                 'flat_defense_down', 'other_ignore', 'damage_multiplier', 'target_multiplier',
+                'card_sun_bonus', 'sun_base_bonus', 'sun_per_buff_bonus',
                 'bloodbath_spent', 'count_attack_percent', 'first_hit_multiplier', 'shield_hp', 'final_multiplier', 'extra_hit_damage', 'followup_flat_damage'):
         v = getattr(s, key)
         if not isinstance(v, (int, float)) or not isfinite(v) or v < 0:
@@ -179,7 +183,7 @@ def calculate(s):
     pvp = .7 * (1 + a.pvp_damage_bonus / 100) * (1 - d.pvp_damage_reduction / 100) if s.pvp else 1
     factor = (critical * passive * pvp * (1 - d.extra_damage_reduction / 100) *
               (1 + a.damage_result_bonus / 100) * (1.12 if s.fury and s.critical else 1) *
-              (1 - d.damage_result_reduction / 100) * s.damage_multiplier)
+              (1 - d.damage_result_reduction / 100) * s.damage_multiplier * (1+s.card_sun_bonus/100))
     factor *= {'neutral':1,'advantage':1.15,'disadvantage':.85}[s.affinity]
     if s.butcher_bonus and s.attacker_hp_percent > 90:factor *= 1+s.butcher_bonus/100
     hp = d.hp if s.remaining_hp is None else s.remaining_hp

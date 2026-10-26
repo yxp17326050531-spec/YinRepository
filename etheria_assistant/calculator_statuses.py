@@ -26,14 +26,14 @@ STATUSES = [
  ('lastwords','遗言','每层被暴击伤害和概率提升7%，最多4层；暴击概率不参与确定性试算',4,True),
  ('dataflow','数据流','每层造成伤害+3.5%、速度+3点，最多12层',12,True),
  ('sleep','睡眠','本次受伤额外+25%，受伤后解除；按首个伤害段解除的研究假设',1,True),
- ('sun','日轮花','造成伤害+30%、受到伤害-20%；不同基础增益每种额外+4%，最多+20%',6,True),
+ ('sun','日轮花','增伤数值在条件页填写；与魔术牌同区加算。选择持续期间新获得的不同基础增益0–5种；减伤仍为20%',6,True),
  ('scales','化鳞（技能5级）','全队被暴击伤害降低30%；反击不参与单次输出试算',1,True),
  ('paper','纸人守护','攻击类技能消耗1层，使本次承伤降低35%；按整次技能生效假设，最多5层',5,True),
 ]
 
 
 def apply_statuses(s, attack_states, defense_states):
-    """Explicit study assumption: different named damage modifiers multiply.
+    """Different named modifiers multiply except the user-confirmed card/sun group.
 
     Inputs are current states, not automatic battle lifecycle predictions.
     """
@@ -67,7 +67,8 @@ def apply_statuses(s, attack_states, defense_states):
     if attack_states.get('weak'):factor*=.75
     if defense_states.get('paper'):factor*=.65
     factor*=1+.035*attack_states.get('dataflow',0)
-    if attack_states.get('sun'):factor*=1.3+.04*(attack_states['sun']-1)
+    shared_bonus=s.card_sun_bonus
+    if attack_states.get('sun'):shared_bonus+=s.sun_base_bonus+s.sun_per_buff_bonus*(attack_states['sun']-1)
     if defense_states.get('sun'):factor*=.8
     if s.critical and defense_states.get('scales'):factor*=.7
     for key,pct in [('guard',30),('threat',30),('jade',40)]:
@@ -78,6 +79,6 @@ def apply_statuses(s, attack_states, defense_states):
     if attack_states.get('frost'):factor*=1.25
     if s.critical:factor*=1+.07*defense_states.get('lastwords',0)
     return replace(s,attacker=a,defender=d,attack_up=attack_up,crit_damage_up=cd,
-                   defense_up=defense_up,damage_multiplier=factor,
+                   defense_up=defense_up,damage_multiplier=factor,card_sun_bonus=shared_bonus,
                    final_multiplier=s.final_multiplier*(.75 if defense_states.get('tiamat') else 1),
                    sleeping=bool(defense_states.get('sleep')),first_hit_multiplier=s.first_hit_multiplier*(1.25 if defense_states.get('sleep') else 1))

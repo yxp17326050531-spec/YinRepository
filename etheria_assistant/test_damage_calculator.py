@@ -128,6 +128,19 @@ class DamageTests(unittest.TestCase):
         r=calculate(apply_character(s,'borne_s3',alive=5,hp_mode=2,entry_attack=1000,hp_damage_mode=1,passive_checked=True))
         self.assertEqual(len(r['rows']),1)
 
+    def test_card_and_sun_share_additive_bonus_only_for_this_pair(self):
+        from calculator_statuses import apply_statuses
+        s=Scenario(Fighter(attack=105,crit_damage=100),Fighter(hp=100000),pvp=False,
+                   card_sun_bonus=30,sun_base_bonus=25,sun_per_buff_bonus=4)
+        combined=apply_statuses(s,{'sun':3},{})
+        self.assertEqual(combined.card_sun_bonus,63)
+        self.assertAlmostEqual(calculate(combined)['damage'],163)
+        self.assertAlmostEqual(calculate(s)['damage'],130)
+        sun_only=apply_statuses(replace(s,card_sun_bonus=0),{'sun':3},{})
+        self.assertAlmostEqual(calculate(sun_only)['damage'],133)
+        self.assertAlmostEqual(calculate(replace(combined,damage_multiplier=1.2))['damage'],163*1.2)
+        with self.assertRaises(ValueError):calculate(replace(s,sun_base_bonus=float('nan')))
+
     def test_rejects_nonfinite_and_unsupported_reductions_without_clamping(self):
         for s in (Scenario(Fighter(attack=math.nan)), Scenario(defender=Fighter(extra_damage_reduction=101)),
                   Scenario(ratios=(math.inf,)), Scenario(remaining_hp=0)):
@@ -157,7 +170,8 @@ class StatusTests(unittest.TestCase):
         from calculator_statuses import apply_statuses
         s=Scenario(Fighter(attack=100,crit_damage=100),Fighter(hp=10000),pvp=False,ratios=(1,1))
         r=apply_statuses(s,{'dataflow':12,'sun':6},{'sleep':1,'scales':1,'sun':1})
-        self.assertAlmostEqual(r.damage_multiplier,1.42*1.5*.7*.8)
+        self.assertAlmostEqual(r.damage_multiplier,1.42*.7*.8)
+        self.assertEqual(r.card_sun_bonus,50)
         rows=calculate(r)['rows']
         self.assertAlmostEqual(rows[0]['direct']/rows[1]['direct'],1.25)
         r=apply_statuses(replace(s,critical=False),{}, {'scales':1})
@@ -267,6 +281,16 @@ class CalculatorQtTests(unittest.TestCase):
         d.fields['attacker']['crit_damage'].setValue(-1); d.run()
         self.assertIn('必要面板', d.result_label.text())
         d.critical.setChecked(False); d.run(); self.assertIsNotNone(d.last_result)
+
+    def test_sun_level_and_buff_count_feed_one_additive_group(self):
+        d=self.dialog;d.assume_zero.setChecked(True);d.magic.setChecked(True)
+        d.status_states['attacker']['sun'].setCurrentIndex(3)
+        s=d.scenario();self.assertEqual(s.card_sun_bonus,63)
+        d.run();self.assertIsNotNone(d.last_result)
+        d.sun_base_bonus.setValue(30);self.assertIsNone(d.last_result)
+        self.assertEqual(d.scenario().card_sun_bonus,68)
+        d.status_states['attacker']['sun'].setCurrentIndex(0)
+        self.assertEqual(d.scenario().card_sun_bonus,30)
 
     def test_character_switch_keeps_independent_skill_choices(self):
         d=self.dialog
