@@ -17,7 +17,8 @@ LABELS = {'attack': '攻击', 'defense': '防御', 'hp': '最大生命', 'crit':
           'crit_damage': '暴击伤害 %', 'pvp_damage_bonus': 'PVP增伤 %',
           'pvp_damage_reduction': 'PVP减伤 %', 'extra_damage_reduction': '额外减伤 %',
           'ignore_defense': '无视防御 %', 'damage_result_bonus': '结果增伤 %',
-          'damage_result_reduction': '结果减伤 %'}
+          'damage_result_reduction': '结果减伤 %', 'crit_damage_bonus':'暴击增伤 %',
+          'crit_damage_reduction':'被暴击减伤 %', 'ultimate_damage_reduction':'终极技能减伤 %', 'basic_damage_bonus':'普攻增伤 %'}
 
 
 def plain(text=''):
@@ -175,17 +176,28 @@ class DamageCalculatorDialog(QDialog):
         self.unyielding = QCheckBox('守方不屈之誓12：减伤20%，段前血量低于55%翻倍');cond.addRow(self.unyielding)
         self.insight = QCheckBox('攻方洞悉穿刺12：本回合前三次伤害+25%/15%/5%');cond.addRow(self.insight)
         self.prior_events = QSpinBox();self.prior_events.setRange(0,3);cond.addRow('本回合此前伤害次数（3代表已耗尽）',self.prior_events)
+        self.insight_events=QSpinBox();self.insight_events.setRange(1,12);cond.addRow('洞悉·每段累计伤害次数（群攻口径待验证）',self.insight_events)
+        self.skill_kind=QComboBox()
+        for title,key in [('其他技能','other'),('终极技能','ultimate'),('普通攻击','basic')]:self.skill_kind.addItem(title,key)
+        self.skill_kind.currentIndexChanged.connect(self.invalidate);cond.addRow('技能类型（降神自动按终极）',self.skill_kind)
+        self.manual_attribute_bonus=number(0,1000);cond.addRow('相性/普通增伤手动补录 %（并入结果增伤）',self.manual_attribute_bonus)
+        cond.addRow(plain('编号待确认，不自动映射。已在结果增伤填写的11%不要在此重复填写。洞悉每段计次默认1；群攻可手动用3作研究对照，不从人数自动推断。'))
         self.opportunist = QCheckBox('攻方乘势追击12：目标每种减益/控制+6%');cond.addRow(self.opportunist)
         self.debuff_count = QSpinBox();self.debuff_count.setRange(0,6);cond.addRow('目标不同减益/控制种类数',self.debuff_count)
         self.desecrate = QCheckBox('攻方亵渎8：有护盾时额外伤害+40%');cond.addRow(self.desecrate)
         self.shield_remaining = number(0,1_000_000_000);cond.addRow('守方普通护盾剩余吸收量',self.shield_remaining)
-        cond.addRow(plain('矩阵基础攻/生命/暴伤已在导入面板中，不重复叠加。普通盾按伤害后吸收；与浴血同时使用暂阻止计算。洞悉按本次目标的伤害事件计数，群体多目标消耗顺序待验证。白獠暴伤为此次技能前已有层数，不推断联动。白獠仅支持博尔涅联动，两段各附加60%最大生命伤害；寅虎先手尚未建模。'))
+        cond.addRow(plain('矩阵基础攻/生命/暴伤已在导入面板中，不重复叠加。普通盾按伤害后吸收；与浴血同时使用暂阻止计算。洞悉按手动计次口径计算，群体多目标消耗顺序待验证。白獠暴伤为此次技能前已有层数，不推断联动。白獠仅支持博尔涅联动，两段各附加60%最大生命伤害；寅虎先手尚未建模。'))
         self.butcher_tier=QComboBox();self.butcher_tier.addItem('不启用',0)
         for val in (6.4,8.8,11.2,13.6,16):self.butcher_tier.addItem(f'{val:g}%',val)
         cond.addRow('屠夫·生命高于90%增伤',self.butcher_tier)
         self.attacker_hp_percent=number(None,100,True);cond.addRow('攻方当前生命 %',self.attacker_hp_percent)
         self.butcher_not_in_panel=QCheckBox('确认此条件加成未包含在导入面板中，按独立乘区试算');cond.addRow(self.butcher_not_in_panel)
         self.butcher_tier.currentIndexChanged.connect(self.invalidate)
+        self.warden_tier=QComboBox();self.warden_tier.addItem('不启用',0)
+        for stage,val in zip(('Ⅰ','Ⅱ','Ⅲ','Ⅳ','Ⅴ'),(8,11,14,17,20)):self.warden_tier.addItem(f'{stage}阶 · {val}%减伤',val)
+        cond.addRow('守方刻影·戍防官（仅被暴击）',self.warden_tier)
+        self.warden_not_in_panel=QCheckBox('确认戍防官条件减伤未重复计入已使用的面板减伤');cond.addRow(self.warden_not_in_panel)
+        self.warden_tier.currentIndexChanged.connect(self.invalidate)
         self.sun_base_bonus=number(25,1000);cond.addRow('日轮花·基础增伤 %',self.sun_base_bonus)
         self.sun_per_buff_bonus=number(4,100);cond.addRow('日轮花·每种基础增益额外 %',self.sun_per_buff_bonus)
         cond.addRow(plain('日轮花在状态页选生效及持续期间新获得的增益种数。当前默认25%+每种4%，满级可填30%。魔术牌与日轮花仅这一组加算，不自动合并其他增伤或面板字段；不要再在独立乘数重复填写。'))
@@ -224,7 +236,7 @@ class DamageCalculatorDialog(QDialog):
         # Never leave a result from old inputs visible as if it were current.
         for w in self.findChildren(QDoubleSpinBox): w.valueChanged.connect(self.invalidate)
         self.hits.valueChanged.connect(self.invalidate);
-        for w in (self.serpent,self.white_stacks,self.prior_events,self.debuff_count,self.borne_alive):w.valueChanged.connect(self.invalidate)
+        for w in (self.serpent,self.white_stacks,self.prior_events,self.insight_events,self.debuff_count,self.borne_alive):w.valueChanged.connect(self.invalidate)
         self.ratios.textChanged.connect(self.invalidate)
         for w in self.findChildren(QCheckBox): w.toggled.connect(self.invalidate)
         for w in (self.model, self.scaling, self.preset, self.flower, self.shell, self.count_version,self.borne_hp_mode,self.borne_hp_damage):
@@ -276,7 +288,7 @@ class DamageCalculatorDialog(QDialog):
             source = '矩阵：' + ('、'.join(data['matrices']) or '未确认 / 无手动矩阵')
             source += '\n智壳：' + (' / '.join(data['shell_names']) or '未确认')
             if unmodeled: source += '\n尚未套用：' + unmodeled
-            source += '\n开场快照；暴击相关字段仍属暂定解码。'
+            source += '\n开场快照；暴击相关字段仍属暂定解码。终极减伤仅终极技能、暴击增减伤仅暴击、普攻增伤仅普攻；均按独立乘区研究模型。'
             self.source_labels[role].setText(source)
         else:
             self.source_labels[role].setText('未导入角色，请手动填写。')
@@ -290,12 +302,13 @@ class DamageCalculatorDialog(QDialog):
                 w.setChecked(name in active)
             self.shell.setCurrentText(({'白獠武者':'白獠武者（博尔涅联动）','寅虎':'寅虎（先手待建模）'}.get(data['shell'],data['shell'])) if data else '无 / 手动')
             for name,w in (('洞悉穿刺',self.insight),('乘势追击',self.opportunist),('亵渎',self.desecrate)):w.setChecked(name in active)
-            self.serpent.setValue(0);self.white_stacks.setValue(0);self.prior_events.setValue(0);self.debuff_count.setValue(0)
+            self.serpent.setValue(0);self.white_stacks.setValue(0);self.prior_events.setValue(0);self.insight_events.setValue(1);self.manual_attribute_bonus.setValue(0);self.skill_kind.setCurrentIndex(0);self.debuff_count.setValue(0)
             self.enable_shell.setChecked(False)
         else:
             self.bloodbath.setChecked('浴血之躯' in active)
             self.spring.setChecked('涌泉' in active);self.unyielding.setChecked('不屈之誓' in active)
             self.shield_remaining.setValue(0)
+            self.warden_tier.setCurrentIndex(0);self.warden_not_in_panel.setChecked(False)
             self.remaining_hp.setValue(-1); self.bloodbath_spent.setValue(0)
         self.invalidate()
 
@@ -322,8 +335,13 @@ class DamageCalculatorDialog(QDialog):
         if self.quilo_passive.isChecked(): required['defender'].add('attack')
         if self.quilo_passive.isChecked() or shell != '无 / 手动': required['attacker'].add('attack')
         if self.critical.isChecked(): required['attacker'].add('crit_damage')
+        kind='ultimate' if self.character_skill.currentData()=='misaya_s3' else self.skill_kind.currentData()
         extra_required = {'attacker': {'ignore_defense', 'damage_result_bonus'},
                           'defender': {'extra_damage_reduction', 'damage_result_reduction'}}
+        if self.critical.isChecked():
+            extra_required['attacker'].add('crit_damage_bonus');extra_required['defender'].add('crit_damage_reduction')
+        if kind=='ultimate':extra_required['defender'].add('ultimate_damage_reduction')
+        if kind=='basic':extra_required['attacker'].add('basic_damage_bonus')
         if self.pvp.isChecked():
             extra_required['attacker'].add('pvp_damage_bonus')
             extra_required['defender'].add('pvp_damage_reduction')
@@ -351,7 +369,9 @@ class DamageCalculatorDialog(QDialog):
             '模型假设：不含护盾、不死、队友分摊及未建模被动；未套用字段见属性页。')
         if self.butcher_tier.currentData() and not self.butcher_not_in_panel.isChecked():
             raise ValueError('屠夫：请确认未计入面板，避免重复叠加；已计入时保持不启用')
-        scenario = Scenario(card_sun_bonus=30 if self.magic.isChecked() else 0,
+        if self.warden_tier.currentData() and not self.warden_not_in_panel.isChecked():
+            raise ValueError('戍防官：请确认没有重复计入面板减伤，已计入时保持不启用')
+        scenario = Scenario(skill_kind=kind,insight_events_per_hit=self.insight_events.value(),manual_attribute_bonus=self.manual_attribute_bonus.value(),warden_reduction=self.warden_tier.currentData(),card_sun_bonus=30 if self.magic.isChecked() else 0,
             sun_base_bonus=self.sun_base_bonus.value(),sun_per_buff_bonus=self.sun_per_buff_bonus.value(),affinity=self.affinity.currentData(),butcher_bonus=self.butcher_tier.currentData(),
             attacker_hp_percent=self.attacker_hp_percent.value() if self.attacker_hp_percent.value()>=0 else None,spring=self.spring.isChecked(),unyielding=self.unyielding.isChecked(),
             insight=self.insight.isChecked(),prior_damage_events=self.prior_events.value(),
@@ -419,7 +439,7 @@ class DamageCalculatorDialog(QDialog):
         shift={'neutral':0,'advantage':15,'disadvantage':-30}[s.affinity]
         adjusted=max(0,min(100,observed_crit+shift)) if observed_crit>=0 else None
         affinity_note=f'相性后暴击率 {adjusted:g}%' if adjusted is not None else '相性后暴击率未采集'
-        self.detail.setText(affinity_note+'；仍按选定的暴击/非暴击假设计算，未算概率。逆克制效果命中降低50%，本次不模拟效果命中。\n'+f'魔术牌/日轮同区增伤 {s.card_sun_bonus:g}%（×{1+s.card_sun_bonus/100:.3f}）\n{MODELS[s.model]} · 战斗攻击 {r["combat_attack"]:,.2f} · 残心乘数 {r["passive_multiplier"]:.3f}\n'
+        self.detail.setText(affinity_note+'；仍按选定的暴击/非暴击假设计算，未算概率。逆克制效果命中降低50%，本次不模拟效果命中。\n'+f'守方：PVP减伤 {s.defender.pvp_damage_reduction:g}%（PVP模式）；额外减伤 {s.defender.extra_damage_reduction:g}%；结果减伤 {s.defender.damage_result_reduction:g}%；浴血 {s.bloodbath}\n技能类型 {s.skill_kind}；终极技能减伤 {s.defender.ultimate_damage_reduction:g}%（仅终极技能）；被暴击减伤 {s.defender.crit_damage_reduction:g}%（仅暴击）；洞悉每段计次 {s.insight_events_per_hit}；手动补录增伤 {s.manual_attribute_bonus:g}%\n戍防官：{s.warden_reduction:g}%（{"暴击生效" if s.critical else "非暴击不生效"}）\n魔术牌/日轮同区增伤 {s.card_sun_bonus:g}%（×{1+s.card_sun_bonus/100:.3f}）\n{MODELS[s.model]} · 战斗攻击 {r["combat_attack"]:,.2f} · 残心乘数 {r["passive_multiplier"]:.3f}\n'
             f'另一公式仅供对照：{MODELS[other["model"]]} → {self.result_text(other)}\n'
             f'剩余普通护盾 {r["rows"][-1]["shield_remaining"]:,.1f} · 技能/智壳伤害含溢出；实际扣血封顶到当前生命。死亡即停止后续段与智壳触发。两套公式均待游戏实测。')
         self.tabs.setCurrentIndex(2)

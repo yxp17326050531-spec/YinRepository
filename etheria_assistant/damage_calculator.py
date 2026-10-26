@@ -12,7 +12,8 @@ from battle_attributes import decode_extra_attributes
 MODELS = {'template': '模板主公式', 'kzone': 'Kzone备选（含条件900下限）'}
 EFFECT_POINTS = {'收割': 8, '狂怒': 8, '沸腾打击': 12, '浴血之躯': 12, '涌泉': 12, '不屈之誓': 12, '洞悉穿刺': 12, '乘势追击': 12, '亵渎': 8}
 EXTRA_KEYS = ('pvp_damage_bonus', 'pvp_damage_reduction', 'extra_damage_reduction',
-              'ignore_defense', 'damage_result_bonus', 'damage_result_reduction')
+              'ignore_defense', 'damage_result_bonus', 'damage_result_reduction',
+              'crit_damage_bonus', 'crit_damage_reduction', 'ultimate_damage_reduction', 'basic_damage_bonus')
 
 
 def _confirmed(row):
@@ -66,6 +67,10 @@ class Fighter:
     ignore_defense: float = 0
     damage_result_bonus: float = 0
     damage_result_reduction: float = 0
+    crit_damage_bonus: float = 0
+    crit_damage_reduction: float = 0
+    ultimate_damage_reduction: float = 0
+    basic_damage_bonus: float = 0
 
 
 @dataclass
@@ -76,6 +81,9 @@ class Scenario:
     unyielding: bool = False
     insight: bool = False
     prior_damage_events: int = 0
+    insight_events_per_hit: int = 1
+    skill_kind: str = "other"
+    manual_attribute_bonus: float = 0
     opportunist: int = 0
     shield_bonus: bool = False
     shield_hp: float = 0
@@ -101,6 +109,7 @@ class Scenario:
     target_multiplier: float = 1
     first_hit_multiplier: float = 1
     final_multiplier: float = 1
+    warden_reduction: float = 0
     butcher_bonus: float = 0
     attacker_hp_percent: float | None = None
     followup_ratios: tuple[float,...] = ()
@@ -133,7 +142,10 @@ def defense_terms(base, multiplier, flat_down, model):
 
 
 def _validate(s):
+    if s.skill_kind not in ('other','ultimate','basic'):raise ValueError('请选择技能类型')
+    if not isinstance(s.insight_events_per_hit,int) or not 1<=s.insight_events_per_hit<=12:raise ValueError('洞悉每段计次须1–12')
     if s.affinity not in ('neutral','advantage','disadvantage'):raise ValueError('请选择正确的相性关系')
+    if s.warden_reduction not in (0,8,11,14,17,20):raise ValueError('戍防官请选择8/11/14/17/20%减伤')
     if s.butcher_bonus not in (0,6.4,8.8,11.2,13.6,16):raise ValueError('屠夫请选择五档已确认数值')
     if s.butcher_bonus and (s.attacker_hp_percent is None or not isfinite(s.attacker_hp_percent) or not 0<=s.attacker_hp_percent<=100):
         raise ValueError('屠夫：请填写攻方当前生命百分比0–100')
@@ -146,17 +158,17 @@ def _validate(s):
             raise ValueError('面板必须是有限数字')
         if f.hp <= 0 or min(f.attack, f.defense, f.crit_damage) < 0:
             raise ValueError('生命须大于0；攻击、防御、暴击伤害不能为负')
-        for k in ('pvp_damage_reduction', 'extra_damage_reduction', 'damage_result_reduction', 'ignore_defense'):
+        for k in ('pvp_damage_reduction', 'extra_damage_reduction', 'damage_result_reduction', 'ignore_defense', 'crit_damage_reduction', 'ultimate_damage_reduction'):
             if not 0 <= getattr(f, k) <= 100:
                 raise ValueError(f'{k} 超出本模型支持的0–100%，请核实原值')
-        if f.pvp_damage_bonus < 0 or f.damage_result_bonus < 0:
+        if min(f.pvp_damage_bonus,f.damage_result_bonus,f.crit_damage_bonus,f.basic_damage_bonus) < 0:
             raise ValueError('增伤不能为负')
     if len(s.followup_ratios)>2 or any(not isfinite(x) or x<0 for x in s.followup_ratios):raise ValueError('追击倍率错误')
     if not s.ratios or len(s.ratios) > 20 or any(not isfinite(x) or x < 0 for x in s.ratios):
         raise ValueError('技能需包含1–20段非负、有限倍率')
     for key in ('attack_up', 'attack_down', 'crit_damage_up', 'defense_up', 'defense_down',
                 'flat_defense_down', 'other_ignore', 'damage_multiplier', 'target_multiplier',
-                'card_sun_bonus', 'sun_base_bonus', 'sun_per_buff_bonus',
+                'card_sun_bonus', 'sun_base_bonus', 'sun_per_buff_bonus', 'manual_attribute_bonus',
                 'bloodbath_spent', 'count_attack_percent', 'first_hit_multiplier', 'shield_hp', 'final_multiplier', 'extra_hit_damage', 'followup_flat_damage'):
         v = getattr(s, key)
         if not isinstance(v, (int, float)) or not isfinite(v) or v < 0:
@@ -182,8 +194,9 @@ def calculate(s):
     passive = 1 + min(.9, max(0.0, attack - d.attack) * .0003) if s.quilo_passive else 1
     pvp = .7 * (1 + a.pvp_damage_bonus / 100) * (1 - d.pvp_damage_reduction / 100) if s.pvp else 1
     factor = (critical * passive * pvp * (1 - d.extra_damage_reduction / 100) *
-              (1 + a.damage_result_bonus / 100) * (1.12 if s.fury and s.critical else 1) *
+              (1 + (a.damage_result_bonus+s.manual_attribute_bonus) / 100) * (1.12 if s.fury and s.critical else 1) *
               (1 - d.damage_result_reduction / 100) * s.damage_multiplier * (1+s.card_sun_bonus/100))
+    if s.critical:factor *= (1-s.warden_reduction/100)*(1-d.crit_damage_reduction/100)*(1+a.crit_damage_bonus/100)
     factor *= {'neutral':1,'advantage':1.15,'disadvantage':.85}[s.affinity]
     if s.butcher_bonus and s.attacker_hp_percent > 90:factor *= 1+s.butcher_bonus/100
     hp = d.hp if s.remaining_hp is None else s.remaining_hp
@@ -220,10 +233,11 @@ def calculate(s):
         conditional *= 1.4 if s.shield_bonus and shield > 0 else 1
         conditional *= (1.25,1.15,1.05)[damage_events] if s.insight and damage_events < 3 and phase=='技能' else 1
         conditional *= 1.5 if s.seven_control or (s.shell == '宝剑七' and s.sleeping and event_index == 0) else 1
+        typed = (1-d.ultimate_damage_reduction/100) if s.skill_kind=='ultimate' and phase=='技能' else (1+a.basic_damage_bonus/100) if s.skill_kind=='basic' and phase=='技能' else 1
         base=(scaling*ratio+(s.extra_hit_damage if not s.extra_first_only or i==0 else 0)) if phase=='技能' else attack*ratio+s.followup_flat_damage
         target=s.target_multiplier if phase=='技能' else 1
-        direct, direct_actual = apply_damage(base * factor * target * conditional * boil * (s.first_hit_multiplier if event_index == 0 else 1) / divisor)
-        damage_events += 1
+        direct, direct_actual = apply_damage(base * factor * typed * target * conditional * boil * (s.first_hit_multiplier if event_index == 0 else 1) / divisor)
+        damage_events += s.insight_events_per_hit
         shell = shell_actual = 0.0
         if hp > 0 and s.shell == '启示录' and s.critical:
             # Optional study assumption: true damage only takes PvP global 0.7 + Bloodbath.

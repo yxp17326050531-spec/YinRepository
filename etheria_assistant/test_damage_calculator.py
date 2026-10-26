@@ -9,6 +9,20 @@ from damage_calculator import Fighter, Scenario, calculate, defense_terms, impor
 
 
 class DamageTests(unittest.TestCase):
+    def test_conditional_reductions_and_explicit_aoe_insight_count(self):
+        s=Scenario(Fighter(attack=1000,crit_damage=200),Fighter(hp=100000,ultimate_damage_reduction=9.5,crit_damage_reduction=20),pvp=False,ratios=(1,1),insight=True)
+        baseline=calculate(s)['rows']
+        ultimate=calculate(replace(s,skill_kind='ultimate'))['rows']
+        self.assertAlmostEqual(ultimate[0]['direct']/baseline[0]['direct'],.905)
+        noncrit=calculate(replace(s,critical=False))['rows']
+        self.assertAlmostEqual(noncrit[0]['direct'],1000/1.05*1.25)
+        aoe=calculate(replace(s,insight_events_per_hit=3))['rows']
+        self.assertAlmostEqual(aoe[1]['direct']/baseline[1]['direct'],1/1.15)
+        bonus=calculate(replace(s,manual_attribute_bonus=11))['rows']
+        self.assertAlmostEqual(bonus[0]['direct']/baseline[0]['direct'],1.11)
+        basic=calculate(replace(s,attacker=replace(s.attacker,basic_damage_bonus=20),skill_kind='basic'))['rows']
+        self.assertAlmostEqual(basic[0]['direct']/baseline[0]['direct'],1.2)
+
     def test_models_use_distinct_denominators_and_conditional_floors(self):
         self.assertEqual(defense_terms(3000, .2, 0, 'template'), (600, 1.65))
         self.assertEqual(defense_terms(3000, .2, 0, 'kzone'), (900, 1.575))
@@ -140,6 +154,16 @@ class DamageTests(unittest.TestCase):
         self.assertAlmostEqual(calculate(sun_only)['damage'],133)
         self.assertAlmostEqual(calculate(replace(combined,damage_multiplier=1.2))['damage'],163*1.2)
         with self.assertRaises(ValueError):calculate(replace(s,sun_base_bonus=float('nan')))
+
+    def test_warden_only_reduces_critical_direct_damage_at_five_tiers(self):
+        s=Scenario(Fighter(attack=105,crit_damage=100),Fighter(hp=100000),pvp=False)
+        for tier in (8,11,14,17,20):
+            self.assertAlmostEqual(calculate(replace(s,warden_reduction=tier))['damage'],100-tier)
+            self.assertAlmostEqual(calculate(replace(s,warden_reduction=tier,critical=False))['damage'],100)
+        with self.assertRaises(ValueError):calculate(replace(s,warden_reduction=10))
+        r=calculate(replace(s,warden_reduction=20,shell='启示录'))
+        base=calculate(replace(s,shell='启示录'))
+        self.assertEqual(r['rows'][0]['shell'],base['rows'][0]['shell'])
 
     def test_rejects_nonfinite_and_unsupported_reductions_without_clamping(self):
         for s in (Scenario(Fighter(attack=math.nan)), Scenario(defender=Fighter(extra_damage_reduction=101)),
@@ -291,6 +315,27 @@ class CalculatorQtTests(unittest.TestCase):
         self.assertEqual(d.scenario().card_sun_bonus,68)
         d.status_states['attacker']['sun'].setCurrentIndex(0)
         self.assertEqual(d.scenario().card_sun_bonus,30)
+
+    def test_ultimate_kind_manual_bonus_and_count_controls(self):
+        d=self.dialog;d.assume_zero.setChecked(True)
+        d.preset.setCurrentText('弥瑟亚');d.character_skill.setCurrentIndex(1);d.passive_checked.setChecked(True)
+        d.fields['defender']['ultimate_damage_reduction'].setValue(9.5)
+        d.insight_events.setValue(3);d.manual_attribute_bonus.setValue(11)
+        s=d.scenario();self.assertEqual(s.skill_kind,'ultimate');self.assertEqual(s.insight_events_per_hit,3)
+        self.assertEqual(s.defender.ultimate_damage_reduction,9.5);self.assertEqual(s.manual_attribute_bonus,11)
+        d.run();self.assertIsNotNone(d.last_result)
+        d.insight_events.setValue(1);self.assertIsNone(d.last_result)
+        d.attacker_select.setCurrentIndex(0);self.assertEqual(d.manual_attribute_bonus.value(),0)
+
+    def test_warden_selection_requires_confirmation_and_invalidates_result(self):
+        d=self.dialog;d.assume_zero.setChecked(True);d.warden_tier.setCurrentIndex(5)
+        d.run();self.assertIsNone(d.last_result);self.assertIn('戍防官',d.result_label.text())
+        d.warden_not_in_panel.setChecked(True);d.run();self.assertIsNotNone(d.last_result)
+        self.assertEqual(d.scenario().warden_reduction,20)
+        d.critical.setChecked(False);self.assertIsNone(d.last_result)
+        d.run();self.assertIsNotNone(d.last_result);self.assertIn('非暴击不生效',d.detail.text())
+        d.defender_select.setCurrentIndex(0)
+        self.assertEqual(d.warden_tier.currentData(),0)
 
     def test_character_switch_keeps_independent_skill_choices(self):
         d=self.dialog
