@@ -31,7 +31,7 @@ from inventory_widgets import GearFilterDialog
 from components import project_component, attribute_text as component_attribute_text, component_detail as component_detail_text
 from battle_attributes import decode_extra_attributes, pending_attributes, pending_text, extra_text
 
-VERSION='2.11.0'
+VERSION='2.11.1-calc-test'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 from battle_metadata import KINDS, result_text
@@ -179,6 +179,7 @@ class MainWindow(QMainWindow):
         self.battle_position=label('','hint');bar.addWidget(self.battle_position)
         self.battle_info=label('等待对局','battleStatus');self.battle_info.setWordWrap(False);bar.addWidget(self.battle_info)
         bar.addWidget(self.action('最新',self.return_live));bar.addWidget(self.action('校正',self.edit_context))
+        bar.addWidget(self.action('伤害试算',self.show_damage_calculator))
         more=self.action('更多',lambda:None);menu=QMenu(more)
         for title,fn in [('记录信息',self.show_record_info),('读取诊断',self.show_capture_diagnostics),('导出本场',self.export_battle),('返回历史日志',self.back_to_history),('缓存与保存',self.show_capture_storage)]:menu.addAction(title,lambda checked=False,f=fn:self.guarded(f))
         more.setMenu(menu);bar.addWidget(more);layout.addLayout(bar)
@@ -214,6 +215,16 @@ class MainWindow(QMainWindow):
             for i in range(roster.count()):
                 card=roster.itemAt(i).widget()
                 if hasattr(card,'fit_width'):card.fit_width(team_width)
+
+    def show_damage_calculator(self):
+        from damage_calculator_widgets import DamageCalculatorDialog
+        old=getattr(self,'calculator_dialog',None)
+        if old is not None:
+            try:
+                if old.isVisible():old.raise_();old.activateWindow();return
+            except RuntimeError:pass  # previous WA_DeleteOnClose dialog
+        self.calculator_dialog=DamageCalculatorDialog(self,self.latest)
+        self.calculator_dialog.show()
 
     def show_record_info(self):
         d=Editor(self,'本场记录信息');d.save.hide()
@@ -913,4 +924,5 @@ def main():
         QMessageBox.information(None,'伊瑟 · 对局助手',str(exc)); return 1
 
 if __name__=='__main__':sys.exit(main())
+
 
