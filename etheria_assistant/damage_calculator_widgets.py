@@ -86,6 +86,10 @@ class DamageCalculatorDialog(QDialog):
         self.model = QComboBox()
         for key, title in MODELS.items(): self.model.addItem(title, key)
         skill.addRow('防御模型', self.model)
+        self.affinity=QComboBox()
+        for name,key in [('无克制 / 未确认','neutral'),('攻方克制守方：伤害×1.15','advantage'),('攻方被克制：伤害×0.85','disadvantage')]:self.affinity.addItem(name,key)
+        skill.addRow('相性关系',self.affinity)
+        self.affinity.currentIndexChanged.connect(self.invalidate)
         self.pvp = QCheckBox('PVP：全局0.7，并启用双方PVP字段'); self.pvp.setChecked(True)
         skill.addRow(self.pvp)
         self.preset = QComboBox(); self.preset.addItems(['自定义技能']+list(CHARACTERS))
@@ -122,12 +126,12 @@ class DamageCalculatorDialog(QDialog):
         self.defense_down = number(0, 100); effects.addRow('防御降低 %', self.defense_down)
         self.flat_defense_down = number(0, 1_000_000); effects.addRow('固定减防', self.flat_defense_down)
         self.other_ignore = number(0, 100); effects.addRow('额外独立无视防御 %', self.other_ignore)
-        self.harvest = QCheckBox('收割8：段前生命＞50%，无视40%防御')
-        self.fury = QCheckBox('狂怒8：暴击结果增伤12%（同结果区）')
+        self.harvest = QCheckBox('收割8：段前生命＞50%，无视50%防御')
+        self.fury = QCheckBox('狂怒8：暴击伤害独立×1.12（与面板结果增伤乘算）')
         self.boiling = QCheckBox('沸腾打击12：各段×1 / 1.4 / 1.8（上限）')
         self.bloodbath = QCheckBox('守方浴血12：回合扣血超20%部分减伤55%')
         for w in (self.harvest, self.fury, self.boiling, self.bloodbath): effects.addRow(w)
-        self.shell = QComboBox(); self.shell.addItems(['无 / 手动', '启示录', '伯爵', '噬身之蛇', '宝剑七', '白獠武者（追击待联动）', '寅虎（先手待建模）']); effects.addRow('攻方智壳', self.shell)
+        self.shell = QComboBox(); self.shell.addItems(['无 / 手动', '启示录', '伯爵', '噬身之蛇', '宝剑七', '白獠武者（博尔涅联动）', '寅虎（先手待建模）']); effects.addRow('攻方智壳', self.shell)
         self.enable_shell = QCheckBox('启用智壳研究模型（触发与结算待实测）'); effects.addRow(self.enable_shell)
         self.count_version = QComboBox(); self.count_version.addItems(['旧表格：固定攻击+1200', '假设：+1200及基础面板攻击的10%'])
         effects.addRow('伯爵版本', self.count_version)
@@ -175,7 +179,7 @@ class DamageCalculatorDialog(QDialog):
         self.debuff_count = QSpinBox();self.debuff_count.setRange(0,6);cond.addRow('目标不同减益/控制种类数',self.debuff_count)
         self.desecrate = QCheckBox('攻方亵渎8：有护盾时额外伤害+40%');cond.addRow(self.desecrate)
         self.shield_remaining = number(0,1_000_000_000);cond.addRow('守方普通护盾剩余吸收量',self.shield_remaining)
-        cond.addRow(plain('矩阵基础攻/生命/暴伤已在导入面板中，不重复叠加。普通盾按伤害后吸收；与浴血同时使用暂阻止计算。洞悉按本次目标的伤害事件计数，群体多目标消耗顺序待验证。白獠暴伤为此次技能前已有层数，不推断联动。寅虎先手及白獠追击尚未建模。'))
+        cond.addRow(plain('矩阵基础攻/生命/暴伤已在导入面板中，不重复叠加。普通盾按伤害后吸收；与浴血同时使用暂阻止计算。洞悉按本次目标的伤害事件计数，群体多目标消耗顺序待验证。白獠暴伤为此次技能前已有层数，不推断联动。白獠仅支持博尔涅联动，两段各附加60%最大生命伤害；寅虎先手尚未建模。'))
         self.butcher_tier=QComboBox();self.butcher_tier.addItem('不启用',0)
         for val in (6.4,8.8,11.2,13.6,16):self.butcher_tier.addItem(f'{val:g}%',val)
         cond.addRow('屠夫·生命高于90%增伤',self.butcher_tier)
@@ -281,7 +285,7 @@ class DamageCalculatorDialog(QDialog):
             self.borne_entry_attack.setValue(data['values'].get('attack') or 0 if data else 0)
             for name, w in (('收割', self.harvest), ('狂怒', self.fury), ('沸腾打击', self.boiling)):
                 w.setChecked(name in active)
-            self.shell.setCurrentText(({'白獠武者':'白獠武者（追击待联动）','寅虎':'寅虎（先手待建模）'}.get(data['shell'],data['shell'])) if data else '无 / 手动')
+            self.shell.setCurrentText(({'白獠武者':'白獠武者（博尔涅联动）','寅虎':'寅虎（先手待建模）'}.get(data['shell'],data['shell'])) if data else '无 / 手动')
             for name,w in (('洞悉穿刺',self.insight),('乘势追击',self.opportunist),('亵渎',self.desecrate)):w.setChecked(name in active)
             self.serpent.setValue(0);self.white_stacks.setValue(0);self.prior_events.setValue(0);self.debuff_count.setValue(0)
             self.enable_shell.setChecked(False)
@@ -306,7 +310,11 @@ class DamageCalculatorDialog(QDialog):
     def scenario(self):
         required = {'attacker': {self.scaling.currentData()}, 'defender': {'hp', 'defense'}}
         shell = self.shell.currentText() if self.enable_shell.isChecked() else '无 / 手动'
-        if shell in ('白獠武者（追击待联动）','寅虎（先手待建模）'):
+        if shell=='白獠武者（博尔涅联动）':
+            if self.character_skill.currentData()!='borne_s3':raise ValueError('白獠追击目前仅支持博尔涅预设，其他角色追击尚未建模')
+            if self.secondary.isChecked():raise ValueError('白獠只追击主目标，次目标请关闭智壳单独试算')
+            shell='白獠武者'
+        if shell == '寅虎（先手待建模）':
             raise ValueError('该智壳的独立攻击及联动尚未建模；白獠已有暴伤可在条件页单独输入')
         if self.quilo_passive.isChecked(): required['defender'].add('attack')
         if self.quilo_passive.isChecked() or shell != '无 / 手动': required['attacker'].add('attack')
@@ -340,7 +348,7 @@ class DamageCalculatorDialog(QDialog):
             '模型假设：不含护盾、不死、队友分摊及未建模被动；未套用字段见属性页。')
         if self.butcher_tier.currentData() and not self.butcher_not_in_panel.isChecked():
             raise ValueError('屠夫：请确认未计入面板，避免重复叠加；已计入时保持不启用')
-        scenario = Scenario(butcher_bonus=self.butcher_tier.currentData(),
+        scenario = Scenario(affinity=self.affinity.currentData(),butcher_bonus=self.butcher_tier.currentData(),
             attacker_hp_percent=self.attacker_hp_percent.value() if self.attacker_hp_percent.value()>=0 else None,spring=self.spring.isChecked(),unyielding=self.unyielding.isChecked(),
             insight=self.insight.isChecked(),prior_damage_events=self.prior_events.value(),
             opportunist=self.debuff_count.value() if self.opportunist.isChecked() else 0,
@@ -378,6 +386,10 @@ class DamageCalculatorDialog(QDialog):
             speed_up=bool(states['attacker'].get('speed_up')),defender_speed_up=bool(states['defender'].get('speed_up')),
             attacker_speed_down=bool(states['attacker'].get('speed_down')),defender_speed_down=bool(states['defender'].get('speed_down')),
             legacy_flower=self.flower.currentData(),passive_checked=(self.borne_passive_checked.isChecked() if key=='borne_s3' else self.passive_checked.isChecked()),defense_states=states['defender'],attacker_states=states['attacker'])
+        if self.critical.isChecked() and key!='borne_s3':
+            crit=self.fields['attacker']['crit'].value()
+            shift={'neutral':0,'advantage':15,'disadvantage':-30}[self.affinity.currentData()]
+            if crit>=0 and crit+shift<=0:raise ValueError('相性修正后暴击率为0，请关闭全暴击假设')
         return apply_statuses(scenario, states['attacker'], states['defender'])
 
     @staticmethod
@@ -394,12 +406,16 @@ class DamageCalculatorDialog(QDialog):
         self.result_label.setText(self.result_text(r))
         self.process_table.setRowCount(len(r['rows']))
         for row, hit in enumerate(r['rows']):
-            values = [str(hit['hit']), f'{hit["before"]:,.1f}', f'{hit["effective_defense"]:,.2f}',
+            values = [f'{hit["phase"]}{hit["phase_hit"]}', f'{hit["before"]:,.1f}', f'{hit["effective_defense"]:,.2f}',
                       '触发' if hit['harvest'] else '—', f'{hit["direct"]:,.1f}', f'{hit["shell"]:,.1f}',
                       f'{hit["actual"]:,.1f}', f'{hit["remaining"]:,.1f}']
             for col, text in enumerate(values): self.process_table.setItem(row, col, QTableWidgetItem(text))
         other = calculate(replace(s, model='kzone' if s.model == 'template' else 'template'))
-        self.detail.setText(f'{MODELS[s.model]} · 战斗攻击 {r["combat_attack"]:,.2f} · 残心乘数 {r["passive_multiplier"]:.3f}\n'
+        observed_crit=self.fields['attacker']['crit'].value()
+        shift={'neutral':0,'advantage':15,'disadvantage':-30}[s.affinity]
+        adjusted=max(0,min(100,observed_crit+shift)) if observed_crit>=0 else None
+        affinity_note=f'相性后暴击率 {adjusted:g}%' if adjusted is not None else '相性后暴击率未采集'
+        self.detail.setText(affinity_note+'；仍按选定的暴击/非暴击假设计算，未算概率。逆克制效果命中降低50%，本次不模拟效果命中。\n'+f'{MODELS[s.model]} · 战斗攻击 {r["combat_attack"]:,.2f} · 残心乘数 {r["passive_multiplier"]:.3f}\n'
             f'另一公式仅供对照：{MODELS[other["model"]]} → {self.result_text(other)}\n'
             f'剩余普通护盾 {r["rows"][-1]["shield_remaining"]:,.1f} · 技能/智壳伤害含溢出；实际扣血封顶到当前生命。死亡即停止后续段与智壳触发。两套公式均待游戏实测。')
         self.tabs.setCurrentIndex(2)

@@ -36,7 +36,9 @@ def apply_character(s, skill, *, alive=0, hp_mode=0, entry_attack=0, hp_damage_m
         extra=a.hp*.6
         # Explicit study assumption: attached HP damage shares the skill's damage divisor.
         return replace(s,attacker=a,critical=False,ratios=(6.0,)+(2.5,)*max(0,5-alive),
-                       extra_hit_damage=extra,extra_first_only=hp_damage_mode==2)
+                       extra_hit_damage=extra,extra_first_only=hp_damage_mode==2,
+                       followup_ratios=(1.1,1.1) if s.shell=='白獠武者' else (),
+                       followup_flat_damage=extra if s.shell=='白獠武者' else 0)
     if skill in ('misaya_s1','misaya_s3'):
         if s.other_ignore:raise ValueError('弥瑟亚：70%无视已由角色预设提供，请勿在额外无视栏重复填写')
         if skill=='misaya_s3':

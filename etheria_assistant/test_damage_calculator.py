@@ -77,12 +77,12 @@ class DamageTests(unittest.TestCase):
                              extra_damage_reduction=15), ratios=(1.1, 1.1, 1.1), target_multiplier=1.75,
                      quilo_passive=True, harvest=True, boiling=True, bloodbath=True, shell='启示录')
         r = calculate(s)
-        self.assertAlmostEqual(r['damage'], 32179.084544, places=5)
+        self.assertAlmostEqual(r['damage'], 34028.89328993103, places=5)
         self.assertEqual([row['harvest'] for row in r['rows']], [True, True, True])
         enhanced = replace(s, attack_up=54, crit_damage_up=50, damage_multiplier=1.3, defense_down=60)
         r = calculate(enhanced)
         self.assertEqual([row['harvest'] for row in r['rows']], [True, True, False])
-        self.assertAlmostEqual(r['rows'][0]['effective_defense'], 540)
+        self.assertAlmostEqual(r['rows'][0]['effective_defense'], 450)
         self.assertEqual(r['kill_hit'], 3); self.assertEqual(r['rows'][2]['shell'], 0)
         self.assertEqual(calculate(replace(enhanced, model='kzone'))['rows'][0]['effective_defense'], 900)
 
@@ -111,6 +111,22 @@ class DamageTests(unittest.TestCase):
             self.assertAlmostEqual(calculate(replace(s,butcher_bonus=tier,attacker_hp_percent=90.01))['damage'],100+tier)
         with self.assertRaises(ValueError):calculate(replace(s,butcher_bonus=16))
         with self.assertRaises(ValueError):calculate(replace(s,butcher_bonus=10,attacker_hp_percent=100))
+
+    def test_fury_multiplies_result_bonus_and_affinity_is_separate(self):
+        s=Scenario(Fighter(attack=105,crit_damage=100,damage_result_bonus=20),Fighter(hp=100000),pvp=False,fury=True,affinity='advantage')
+        self.assertAlmostEqual(calculate(s)['damage'],100*1.2*1.12*1.15)
+        self.assertAlmostEqual(calculate(replace(s,affinity='disadvantage'))['damage'],100*1.2*1.12*.85)
+
+    def test_whitefang_borne_followups_each_add_sixty_percent_hp(self):
+        from character_presets import apply_character
+        s=Scenario(Fighter(attack=1000,hp=10000),Fighter(hp=1000000),shell='白獠武者',pvp=False)
+        r=calculate(apply_character(s,'borne_s3',alive=5,hp_mode=2,entry_attack=1000,hp_damage_mode=2,passive_checked=True))
+        self.assertEqual([x['phase'] for x in r['rows']],['技能','白獠追击','白獠追击'])
+        self.assertAlmostEqual(r['rows'][1]['direct'],(1100+18000*.6)/1.05)
+        self.assertAlmostEqual(r['rows'][2]['direct'],r['rows'][1]['direct'])
+        s=replace(s,defender=Fighter(hp=1))
+        r=calculate(apply_character(s,'borne_s3',alive=5,hp_mode=2,entry_attack=1000,hp_damage_mode=1,passive_checked=True))
+        self.assertEqual(len(r['rows']),1)
 
     def test_rejects_nonfinite_and_unsupported_reductions_without_clamping(self):
         for s in (Scenario(Fighter(attack=math.nan)), Scenario(defender=Fighter(extra_damage_reduction=101)),
@@ -276,8 +292,10 @@ class CalculatorQtTests(unittest.TestCase):
         self.assertIsNotNone(d.last_result)
         d.shell.setCurrentText('噬身之蛇');d.enable_shell.setChecked(True);d.serpent.setValue(7)
         d.run();self.assertIsNotNone(d.last_result)
-        d.shell.setCurrentText('白獠武者（追击待联动）');d.run()
+        d.shell.setCurrentText('白獠武者（博尔涅联动）');d.run()
         self.assertIsNone(d.last_result);self.assertIn('尚未建模',d.result_label.text())
+        d.preset.setCurrentText('博尔涅');d.secondary.setChecked(True);d.run()
+        self.assertIn('白獠只追击主目标',d.result_label.text())
 
     def test_main_window_entry_uses_current_projection_and_reopens_after_close(self):
         from storage import Archive

@@ -81,6 +81,7 @@ class Scenario:
     shield_hp: float = 0
     seven_control: bool = False
     sleeping: bool = False
+    affinity: str = 'neutral'
     model: str = 'template'
     scaling: str = 'attack'
     ratios: tuple[float, ...] = (1.0,)
@@ -99,6 +100,8 @@ class Scenario:
     final_multiplier: float = 1
     butcher_bonus: float = 0
     attacker_hp_percent: float | None = None
+    followup_ratios: tuple[float,...] = ()
+    followup_flat_damage: float = 0
     extra_hit_damage: float = 0
     extra_first_only: bool = False
     harvest: bool = False
@@ -127,12 +130,13 @@ def defense_terms(base, multiplier, flat_down, model):
 
 
 def _validate(s):
+    if s.affinity not in ('neutral','advantage','disadvantage'):raise ValueError('请选择正确的相性关系')
     if s.butcher_bonus not in (0,6.4,8.8,11.2,13.6,16):raise ValueError('屠夫请选择五档已确认数值')
     if s.butcher_bonus and (s.attacker_hp_percent is None or not isfinite(s.attacker_hp_percent) or not 0<=s.attacker_hp_percent<=100):
         raise ValueError('屠夫：请填写攻方当前生命百分比0–100')
     if s.model not in MODELS or s.scaling not in ('attack', 'defense', 'hp'):
         raise ValueError('请选择支持的防御模型和技能缩放属性')
-    if s.shell not in ('无 / 手动', '启示录', '伯爵', '宝剑七', '噬身之蛇'):
+    if s.shell not in ('无 / 手动', '启示录', '伯爵', '宝剑七', '噬身之蛇', '白獠武者'):
         raise ValueError('该智壳尚未建模，请选无 / 手动并自行设置乘区')
     for f in (s.attacker, s.defender):
         if any(not isinstance(v, (int, float)) or not isfinite(v) for v in vars(f).values()):
@@ -144,11 +148,12 @@ def _validate(s):
                 raise ValueError(f'{k} 超出本模型支持的0–100%，请核实原值')
         if f.pvp_damage_bonus < 0 or f.damage_result_bonus < 0:
             raise ValueError('增伤不能为负')
+    if len(s.followup_ratios)>2 or any(not isfinite(x) or x<0 for x in s.followup_ratios):raise ValueError('追击倍率错误')
     if not s.ratios or len(s.ratios) > 20 or any(not isfinite(x) or x < 0 for x in s.ratios):
         raise ValueError('技能需包含1–20段非负、有限倍率')
     for key in ('attack_up', 'attack_down', 'crit_damage_up', 'defense_up', 'defense_down',
                 'flat_defense_down', 'other_ignore', 'damage_multiplier', 'target_multiplier',
-                'bloodbath_spent', 'count_attack_percent', 'first_hit_multiplier', 'shield_hp', 'final_multiplier', 'extra_hit_damage'):
+                'bloodbath_spent', 'count_attack_percent', 'first_hit_multiplier', 'shield_hp', 'final_multiplier', 'extra_hit_damage', 'followup_flat_damage'):
         v = getattr(s, key)
         if not isinstance(v, (int, float)) or not isfinite(v) or v < 0:
             raise ValueError('增减益及乘区必须是非负有限数字')
@@ -173,8 +178,9 @@ def calculate(s):
     passive = 1 + min(.9, max(0.0, attack - d.attack) * .0003) if s.quilo_passive else 1
     pvp = .7 * (1 + a.pvp_damage_bonus / 100) * (1 - d.pvp_damage_reduction / 100) if s.pvp else 1
     factor = (critical * passive * pvp * (1 - d.extra_damage_reduction / 100) *
-              (1 + (a.damage_result_bonus + (12 if s.fury and s.critical else 0)) / 100) *
-              (1 - d.damage_result_reduction / 100) * s.damage_multiplier * s.target_multiplier)
+              (1 + a.damage_result_bonus / 100) * (1.12 if s.fury and s.critical else 1) *
+              (1 - d.damage_result_reduction / 100) * s.damage_multiplier)
+    factor *= {'neutral':1,'advantage':1.15,'disadvantage':.85}[s.affinity]
     if s.butcher_bonus and s.attacker_hp_percent > 90:factor *= 1+s.butcher_bonus/100
     hp = d.hp if s.remaining_hp is None else s.remaining_hp
     start_hp, spent, rows = hp, s.bloodbath_spent, []
@@ -197,29 +203,32 @@ def calculate(s):
         spent += actual
         return mitigated, actual
 
-    for i, ratio in enumerate(s.ratios):
+    events=[('技能',i,r) for i,r in enumerate(s.ratios)]+[('白獠追击',i,r) for i,r in enumerate(s.followup_ratios)]
+    for event_index,(phase,i,ratio) in enumerate(events):
         before = hp
         harvest = s.harvest and hp > d.hp * .5
         mult = ((1 + (s.defense_up - s.defense_down) / 100) *
-                (1 - a.ignore_defense / 100) * (1 - s.other_ignore / 100) * (.6 if harvest else 1))
+                (1 - a.ignore_defense / 100) * (1 - s.other_ignore / 100) * (.5 if harvest else 1))
         effective, divisor = defense_terms(d.defense, mult, s.flat_defense_down, s.model)
-        boil = min(1.8, 1 + .4 * i) if s.boiling else 1
+        boil = min(1.8, 1 + .4 * i) if s.boiling and phase=='技能' else 1
         conditional = (.75 if s.spring else 1) * ((.6 if hp < d.hp*.55 else .8) if s.unyielding else 1)
-        conditional *= 1 + .06*s.opportunist
+        conditional *= 1 + .06*s.opportunist if phase=='技能' else 1
         conditional *= 1.4 if s.shield_bonus and shield > 0 else 1
-        conditional *= (1.25,1.15,1.05)[damage_events] if s.insight and damage_events < 3 else 1
-        conditional *= 1.5 if s.seven_control or (s.shell == '宝剑七' and s.sleeping and i == 0) else 1
-        direct, direct_actual = apply_damage((scaling * ratio + (s.extra_hit_damage if not s.extra_first_only or i==0 else 0)) * factor * conditional * boil * (s.first_hit_multiplier if i == 0 else 1) / divisor)
+        conditional *= (1.25,1.15,1.05)[damage_events] if s.insight and damage_events < 3 and phase=='技能' else 1
+        conditional *= 1.5 if s.seven_control or (s.shell == '宝剑七' and s.sleeping and event_index == 0) else 1
+        base=(scaling*ratio+(s.extra_hit_damage if not s.extra_first_only or i==0 else 0)) if phase=='技能' else attack*ratio+s.followup_flat_damage
+        target=s.target_multiplier if phase=='技能' else 1
+        direct, direct_actual = apply_damage(base * factor * target * conditional * boil * (s.first_hit_multiplier if event_index == 0 else 1) / divisor)
         damage_events += 1
         shell = shell_actual = 0.0
         if hp > 0 and s.shell == '启示录' and s.critical:
             # Optional study assumption: true damage only takes PvP global 0.7 + Bloodbath.
             shell, shell_actual = apply_damage(min(d.hp * .12, attack * 1.8) * (.7 if s.pvp else 1))
             damage_events += 1
-        rows.append({'hit': i + 1, 'before': before, 'effective_defense': effective,
+        rows.append({'hit': event_index + 1, 'phase': phase, 'phase_hit': i+1, 'before': before, 'effective_defense': effective,
                      'divisor': divisor, 'harvest': harvest, 'boiling': boil,
                      'direct': direct, 'shell': shell, 'actual': direct_actual + shell_actual,
-                     'remaining': hp, 'shield_remaining': shield, 'killed_by': ('技能' if direct_actual >= before else '启示录') if hp == 0 else None})
+                     'remaining': hp, 'shield_remaining': shield, 'killed_by': (phase if direct_actual >= before else '启示录') if hp == 0 else None})
         if hp == 0:
             break
     return {'rows': rows, 'damage': start_hp - hp, 'remaining': hp, 'killed': hp == 0,
