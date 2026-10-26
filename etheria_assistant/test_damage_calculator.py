@@ -25,6 +25,20 @@ class DamageTests(unittest.TestCase):
         self.assertAlmostEqual(calculate(q)['rows'][0]['direct'],390*1.5/1.05)
         self.assertEqual(calculate(q)['rows'][0]['lost_hp_multiplier'],1.5)
 
+    def test_shield_absorption_does_not_spend_bloodbath_and_desecrate_stops_after_break(self):
+        s=Scenario(Fighter(attack=315,crit_damage=100),Fighter(hp=1000),pvp=False,ratios=(1,1,1),shield_hp=500,bloodbath=True)
+        rows=calculate(s)['rows']
+        self.assertEqual([round(x['actual'],5) for x in rows],[0,100,190])
+        self.assertIsNone(rows[0]['direct_trace']['bloodbath_available'])
+        self.assertEqual(rows[1]['direct_trace']['bloodbath_available'],200)
+        rows=calculate(replace(s,shield_bonus=True))['rows']
+        self.assertEqual([dict(x['conditional_components'])['亵渎'] for x in rows],[1.4,1.4,1])
+        self.assertAlmostEqual(rows[1]['actual'],263);self.assertAlmostEqual(rows[2]['actual'],135)
+        r=calculate(replace(s,shield_hp=50,bloodbath_spent=200,ratios=(1,)))
+        self.assertAlmostEqual(r['damage'],112.5)
+        zero=calculate(replace(s,final_multiplier=0))
+        self.assertEqual(zero['damage'],0);self.assertEqual(zero['rows'][0]['shield_remaining'],500)
+
     def test_formula_audit_uses_executed_mitigation_and_overkill_values(self):
         from calculator_formula import formula_text
         s=Scenario(Fighter(attack=10000,crit_damage=200),Fighter(hp=1000),pvp=False,bloodbath=True,final_multiplier=.75)
@@ -140,7 +154,7 @@ class DamageTests(unittest.TestCase):
         self.assertAlmostEqual(r['rows'][1]['actual'],60)
         r=calculate(replace(s,shield_hp=0,shield_bonus=False,insight=True,ratios=(1,1,1,1)))
         self.assertEqual([round(x['actual']) for x in r['rows']],[125,115,105,100])
-        with self.assertRaises(ValueError):calculate(replace(s,bloodbath=True))
+        self.assertAlmostEqual(calculate(replace(s,bloodbath=True))['damage'],140)
 
     def test_seven_sleep_only_boosts_first_segment(self):
         s=Scenario(Fighter(attack=105,crit_damage=100),Fighter(hp=1000),pvp=False,ratios=(1,1),shell='宝剑七',sleeping=True)
@@ -384,6 +398,13 @@ class CalculatorQtTests(unittest.TestCase):
                     other.close();self.app.processEvents();QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
             finally:
                 for handler in list(archive.logger.handlers):handler.close();archive.logger.removeHandler(handler)
+
+    def test_shield_and_bloodbath_ui_calculates_with_desecrate_and_formula(self):
+        d=self.dialog;d.assume_zero.setChecked(True);d.shield_remaining.setValue(1000)
+        d.bloodbath.setChecked(True);d.desecrate.setChecked(True);d.run()
+        self.assertIsNotNone(d.last_result)
+        self.assertEqual(dict(d.last_result['rows'][0]['conditional_components'])['亵渎'],1.4)
+        self.assertIn('护盾先吸收且不累计浴血',d.formula_text.toPlainText())
 
     def test_shell_dropdown_alone_switches_effect_and_formula_without_count_residue(self):
         d=self.dialog;d.assume_zero.setChecked(True);d.base_attack.setValue(1000)

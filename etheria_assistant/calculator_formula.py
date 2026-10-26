@@ -39,8 +39,10 @@ def formula_text(s,r):
         f'本次技能类型={s.skill_kind}；终极技能仅使用守方终极减伤 {f(d.ultimate_damage_reduction)}%；普攻仅使用攻方普攻增伤 {f(a.basic_damage_bonus)}%；其他技能类型系数为1。',
         '条件系数合并涌泉、不屈、乘势、亵渎、洞悉、宝剑七；状态与其他独立乘区合计已包含所选角色状态。',
         f'洞悉此前伤害次数={s.prior_damage_events}，每段计次={s.insight_events_per_hit}；默认逐段1次。',
-        f'浴血：余量 A=max(0, 最大生命 {f(d.hp)}×20% − 本回合累计实际扣血)。启用时 M=min(R,A)+max(0,R−A)×0.45；未启用时 M=R。',
-        f'分摊等最终系数={f(s.final_multiplier)}；结算伤害=M×最终系数；先吸收普通盾，再扣血并封顶到当前生命。',
+        '护盾先吸收且不累计浴血；本次盾吸收 S=min(剩余护盾,R×最终系数)。',
+        '溢出原伤 H=max(0,R−S/最终系数)；最终系数为0时H=0。此换算保留无盾时的浴血/分摊模型。',
+        f'浴血：余量 A=max(0, 最大生命 {f(d.hp)}×20% − 本回合累计实际扣血)。仅溢出部分H参与：M=min(H,A)+max(0,H−A)×0.45；未启用时M=H。',
+        f'分摊等最终系数={f(s.final_multiplier)}；生命伤害=M×最终系数；实际扣血封顶到当前生命；结算伤害（含盾吸收）=S+生命伤害。',
         '以下数值来自本次计算实际执行的记录，生命附伤与状态使用角色处理后的面板。']
     for row in r['rows']:
         lines += ['',f"【{row['phase']}{row['phase_hit']}】段前生命 {f(row['before'])} / {f(d.hp)}；有效防御 {f(row['effective_defense'])}；收割 {'触发' if row['harvest'] else '不触发'}",
@@ -50,7 +52,7 @@ def formula_text(s,r):
         for title,trace in [('技能/追击',row['direct_trace']),('启示录',row['shell_trace'])]:
             if trace is None:continue
             if title=='启示录':lines.append(f'启示录研究模型：min(最大生命×12%, 战斗攻击×1.8) × PVP全局系数={f(trace["raw"])}；不套普通直伤共用F。')
-            lines.append(f"{title}：浴血余量={f(trace['bloodbath_available']) if trace['bloodbath_available'] is not None else '未启用'}；浴血后 {f(trace['after_bloodbath'])} × 最终系数 {f(trace['final_multiplier'])}；盾吸收 {f(trace['absorbed'])}；实际扣血 {f(trace['actual'])}")
+            lines.append(f"{title}：先盾吸收 {f(trace['absorbed'])}；溢出原伤 {f(trace['raw_for_hp'])}；浴血余量={f(trace['bloodbath_available']) if trace['bloodbath_available'] is not None else '本次不参与'}；浴血后 {f(trace['after_bloodbath'])} × 最终系数 {f(trace['final_multiplier'])}；实际扣血 {f(trace['actual'])}")
         lines.append(f"本段结算直伤 {f(row['direct'])}；智壳 {f(row['shell'])}；剩余生命 {f(row['remaining'])}")
     lines += ['', '死亡即停止后续段；实际扣血会封顶。同样击杀时，实际扣血可能不变，应同时比较结算伤害（含溢出）和击杀段数。',
         '公式可选中复制；调整参数后重新计算。此处展示实现模型，不能据此承诺所有实测误差均在±5%。']

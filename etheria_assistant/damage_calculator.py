@@ -180,8 +180,6 @@ def _validate(s):
         raise ValueError('减攻、减防、额外无视防御须在0–100%之间')
     if not 0 <= s.opportunist <= 6 or not isinstance(s.opportunist,int) or not isinstance(s.prior_damage_events,int) or not 0 <= s.prior_damage_events <= 3:
         raise ValueError('乘势追击种类须0–6，回合既有伤害次数须0–3')
-    if s.shield_hp and s.bloodbath:
-        raise ValueError('护盾与浴血的结算先后待验证，暂不同时计算')
     if s.remaining_hp is not None and (not isfinite(s.remaining_hp) or not 0 < s.remaining_hp <= s.defender.hp):
         raise ValueError('当前生命须大于0且不超过最大生命')
 
@@ -218,21 +216,22 @@ def calculate(s):
 
     def apply_damage(raw):
         nonlocal hp, spent, shield
-        # Bloodbath: damage up to 20% max HP is full, excess takes 45%.
-        if s.bloodbath:
-            available = max(0.0, d.hp * .2 - spent)
-            mitigated = min(raw, available) + max(0.0, raw - available) * .45
-        else:
-            mitigated = raw
-        after_bloodbath=mitigated
-        mitigated *= s.final_multiplier
-        absorbed = min(shield, mitigated)
+        # Shield bypasses Bloodbath and never spends its HP-loss allowance.
+        # Convert absorbed shield damage back to pre-final units, preserving the
+        # existing Bloodbath/final-sharing model when the shield is absent.
+        absorbed = min(shield, raw*s.final_multiplier)
         shield -= absorbed
-        actual = min(hp, mitigated - absorbed)
-        hp = max(0.0, hp - actual)
-        spent += actual
-        return mitigated, actual, {'raw':raw,'bloodbath_available':available if s.bloodbath else None,
-            'after_bloodbath':after_bloodbath,'final_multiplier':s.final_multiplier,'absorbed':absorbed,'actual':actual}
+        raw_for_hp=max(0.0,raw-absorbed/s.final_multiplier) if s.final_multiplier>0 else 0.0
+        active_bloodbath=s.bloodbath and raw_for_hp>0
+        available=max(0.0,d.hp*.2-spent) if active_bloodbath else None
+        after_bloodbath=(min(raw_for_hp,available)+max(0.0,raw_for_hp-available)*.45) if active_bloodbath else raw_for_hp
+        hp_damage=after_bloodbath*s.final_multiplier
+        actual=min(hp,hp_damage)
+        hp=max(0.0,hp-actual)
+        spent+=actual
+        return absorbed+hp_damage, actual, {'raw':raw,'raw_for_hp':raw_for_hp,
+            'bloodbath_available':available,'after_bloodbath':after_bloodbath,
+            'final_multiplier':s.final_multiplier,'absorbed':absorbed,'actual':actual}
 
     events=[('技能',i,r) for i,r in enumerate(s.ratios)]+[('白獠追击',i,r) for i,r in enumerate(s.followup_ratios)]
     for event_index,(phase,i,ratio) in enumerate(events):

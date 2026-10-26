@@ -212,7 +212,7 @@ class DamageCalculatorDialog(QDialog):
         self.debuff_count = QSpinBox();self.debuff_count.setRange(0,6);cond.addRow('目标不同减益/控制种类数',self.debuff_count)
         self.desecrate = QCheckBox('攻方亵渎8：有护盾时额外伤害+40%');cond.addRow(self.desecrate)
         self.shield_remaining = number(0,1_000_000_000);cond.addRow('守方普通护盾剩余吸收量',self.shield_remaining)
-        cond.addRow(plain('矩阵基础攻/生命/暴伤已在导入面板中，不重复叠加。普通盾按伤害后吸收；与浴血同时使用暂阻止计算。洞悉按手动计次口径计算，群体多目标消耗顺序待验证。白獠暴伤为此次技能前已有层数，不推断联动。白獠仅支持博尔涅联动，两段各附加60%最大生命伤害；寅虎先手尚未建模。'))
+        cond.addRow(plain('矩阵基础攻/生命/暴伤已在导入面板中，不重复叠加。普通盾先吸收，仅溢出生命部分参与浴血且计入累计扣血。洞悉按手动计次口径计算，群体多目标消耗顺序待验证。白獠暴伤为此次技能前已有层数，不推断联动。白獠仅支持博尔涅联动，两段各附加60%最大生命伤害；寅虎先手尚未建模。'))
         self.butcher_tier=QComboBox();self.butcher_tier.addItem('不启用',0)
         for val in (6.4,8.8,11.2,13.6,16):self.butcher_tier.addItem(f'{val:g}%',val)
         cond.addRow('屠夫·生命高于90%增伤',self.butcher_tier)
