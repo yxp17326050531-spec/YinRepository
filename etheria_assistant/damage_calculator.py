@@ -125,7 +125,8 @@ class Scenario:
     bloodbath_spent: float = 0
     remaining_hp: float | None = None
     shell: str = '无 / 手动'
-    count_attack_percent: float = 0   # old workbook=0; user's newer description=10
+    count_attack_percent: float = 0
+    count_base_attack: float | None = None  # white attack, never imported total attack
     quilo_passive: bool = False
 
 
@@ -188,8 +189,10 @@ def _validate(s):
 def calculate(s):
     """Per-hit threshold simulation. Stop on death; overkill never generates a shell proc."""
     _validate(s)
+    if s.shell=='伯爵' and s.count_attack_percent and (s.count_base_attack is None or not isfinite(s.count_base_attack) or s.count_base_attack<0):
+        raise ValueError('伯爵：请填写白字基础攻击，不能用导入总攻击代替')
     a, d = s.attacker, s.defender
-    count_bonus = 1200 + a.attack * s.count_attack_percent / 100 if s.shell == '伯爵' else 0
+    count_bonus = 1200 + (s.count_base_attack or 0) * s.count_attack_percent / 100 if s.shell == '伯爵' else 0
     attack = max(0.0, a.attack * (1 + (s.attack_up - s.attack_down) / 100) + count_bonus)
     scaling = {'attack': attack, 'defense': a.defense, 'hp': a.hp}[s.scaling]
     critical = (a.crit_damage + s.crit_damage_up) / 100 if s.critical else 1

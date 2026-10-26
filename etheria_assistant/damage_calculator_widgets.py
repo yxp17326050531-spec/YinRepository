@@ -43,11 +43,20 @@ def number(value=0, maximum=1000, missing=False):
     return w
 
 
+class CurrentPageStack(QStackedWidget):
+    def sizeHint(self):
+        return self.currentWidget().sizeHint() if self.currentWidget() else super().sizeHint()
+
+    def minimumSizeHint(self):
+        return self.currentWidget().minimumSizeHint() if self.currentWidget() else super().minimumSizeHint()
+
+
 class DamageCalculatorDialog(QDialog):
     def __init__(self, parent, battle=None, preset_store=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowTitle('伤害试算 · 对局快照')
+        self.setStyleSheet('QDoubleSpinBox {background:#1c1926; color:#dce6f2; border:1px solid #40364d; border-radius:6px; padding:7px;} QGroupBox {font-weight:600; margin-top:10px; padding-top:16px;} QGroupBox::title {subcontrol-origin:margin; left:10px;} QCheckBox::indicator {width:15px; height:15px; border:1px solid #80758f; border-radius:3px; background:#1c1926;} QCheckBox::indicator:checked {background:#51cbb2; border-color:#81e8d3;}')
         self.resize(1100, 790)
         self.setMinimumSize(760, 560)
         self.preset_store = preset_store if preset_store is not None else getattr(parent,'archive',None)
@@ -56,7 +65,8 @@ class DamageCalculatorDialog(QDialog):
                       for i, u in enumerate(rows)]
         self.last_result = None
         layout = QVBoxLayout(self)
-        intro = plain('从本场快照导入；可改数值，不影响对局记录。按确定的暴击状态试算，不等于实测伤害。')
+        intro = plain('伤害试算 · 选择模板，核实双方数据后计算')
+        intro.setToolTip('从本场快照导入；修改不影响对局记录。按确定暴击状态试算，结果仍需实测验证。')
         layout.addWidget(intro)
         bar = QHBoxLayout()
         self.attacker_select, self.defender_select = QComboBox(), QComboBox()
@@ -76,7 +86,7 @@ class DamageCalculatorDialog(QDialog):
         for title,handler in [('保存',self.save_profile),('载入',self.load_profile),('删除',self.delete_profile)]:
             button=QPushButton(title);button.clicked.connect(handler);profiles.addWidget(button)
         layout.addLayout(profiles)
-        layout.addWidget(plain('预设仅保存攻方与模板；守方属性、状态、血量及本场条件不保存。载入后请核实当前守方。'))
+        layout.addWidget(plain('预设仅保存攻方；守方沿用当前对局。'))
         self.tabs = QTabWidget(); layout.addWidget(self.tabs, 1)
         self.fields, self.source_labels = {}, {}
         panels = QWidget(); grid = QHBoxLayout(panels)
@@ -143,8 +153,9 @@ class DamageCalculatorDialog(QDialog):
         for w in (self.harvest, self.fury, self.boiling, self.bloodbath): effects.addRow(w)
         self.shell = QComboBox(); self.shell.addItems(['无 / 手动', '启示录', '伯爵', '噬身之蛇', '宝剑七', '白獠武者（博尔涅联动）', '寅虎（先手待建模）']); effects.addRow('攻方智壳', self.shell)
         self.enable_shell = QCheckBox('启用智壳研究模型（触发与结算待实测）'); effects.addRow(self.enable_shell)
-        self.count_version = QComboBox(); self.count_version.addItems(['旧表格：固定攻击+1200', '假设：+1200及基础面板攻击的10%'])
+        self.count_version = QComboBox(); self.count_version.addItems(['旧表格：固定攻击+1200', '+1200及白字基础攻击的10%']);self.count_version.setCurrentIndex(1)
         effects.addRow('伯爵版本', self.count_version)
+        self.base_attack=number(None,1_000_000,True);effects.addRow('白字基础攻击',self.base_attack)
         columns.addWidget(effects_box, 1)
         self.add_scroll_tab(settings, '技能与增减益')
 
@@ -213,7 +224,7 @@ class DamageCalculatorDialog(QDialog):
         self.add_scroll_tab(conditions, '智壳与矩阵条件')
         character_page=QWidget();cp=QFormLayout(character_page)
         self.character_note=plain('角色参数只作用于当前选择的角色技能，不会写入其他角色预设。');cp.addRow(self.character_note)
-        self.character_panels=QStackedWidget();cp.addRow(self.character_panels)
+        self.character_panels=CurrentPageStack();self.character_panels.currentChanged.connect(self.character_panels.updateGeometry);cp.addRow(self.character_panels)
         for name in ['自定义技能']+list(CHARACTERS):
             panel=QWidget();form=QFormLayout(panel);self.character_panels.addWidget(panel)
             if name=='博尔涅':
@@ -257,12 +268,14 @@ class DamageCalculatorDialog(QDialog):
             self.defender_select.setCurrentIndex(opposite)
         self.reload()
         self.refresh_profiles()
+        from calculator_layout import simplify_calculator
+        simplify_calculator(self)
 
     # Explicit allowlist: no defender fields, defender states or target-dependent confirmations.
     PROFILE_CONTROLS = ('model','pvp','scaling','hits','ratio','ratios','critical',
         'target_multiplier','damage_multiplier','quilo_passive','attack_up','durand','flower',
         'attack_down','crit_damage_up','crit50','magic','other_ignore','harvest','fury','boiling',
-        'shell','enable_shell','count_version','aoe','serpent','white_stacks','insight','prior_events',
+        'shell','enable_shell','count_version','base_attack','aoe','serpent','white_stacks','insight','prior_events',
         'insight_events','opportunist','desecrate','butcher_tier','butcher_not_in_panel',
         'attacker_hp_percent','manual_attribute_bonus','sun_base_bonus','sun_per_buff_bonus',
         'borne_hp_mode','borne_entry_attack','borne_hp_damage','qianyu_attack_speed')
@@ -325,7 +338,11 @@ class DamageCalculatorDialog(QDialog):
             if skill not in (CHARACTERS.get(character,{}).get('skills',{}) or {None:None}):raise ValueError('预设技能已不支持')
             actions=[]
             for key,w in self.fields['attacker'].items():actions.append(self.profile_setter(w,data['attacker'][key]))
-            for key in self.PROFILE_CONTROLS:actions.append(self.profile_setter(getattr(self,key),data['controls'][key]))
+            for key in self.PROFILE_CONTROLS:
+                value=data['controls'].get(key, -1 if key=='base_attack' else None)
+                if key=='count_version' and isinstance(value,dict) and value.get('text')=='假设：+1200及基础面板攻击的10%':
+                    value={'data':None,'text':self.count_version.itemText(1)}
+                actions.append(self.profile_setter(getattr(self,key),value))
             for key,w in self.status_states['attacker'].items():
                 i=w.findData(data['attacker_states'][key])
                 if i<0:raise ValueError('预设攻方状态损坏')
@@ -366,6 +383,7 @@ class DamageCalculatorDialog(QDialog):
         self.character_skill.blockSignals(False)
         self.character_panels.setCurrentIndex(index)
         self.character_note.setText(CHARACTERS[self.preset.currentText()]['note'] if index else '自定义技能不应用角色被动。')
+        self.base_attack.setValue(CHARACTERS.get(self.preset.currentText(),{}).get('base_attack',-1))
         self.apply_character_skill()
 
     def apply_character_skill(self,*_):
@@ -471,8 +489,6 @@ class DamageCalculatorDialog(QDialog):
             raise ValueError('请选择来自不同队伍的攻方与守方；也可改为手动填写')
         self.warning.setText(('缺失暂按0：' + '、'.join(zero) + '。' if zero else '') +
             '模型假设：不含护盾、不死、队友分摊及未建模被动；未套用字段见属性页。')
-        if self.butcher_tier.currentData() and not self.butcher_not_in_panel.isChecked():
-            raise ValueError('屠夫：请确认未计入面板，避免重复叠加；已计入时保持不启用')
         if self.warden_tier.currentData() and not self.warden_not_in_panel.isChecked():
             raise ValueError('戍防官：请确认没有重复计入面板减伤，已计入时保持不启用')
         scenario = Scenario(skill_kind=kind,insight_events_per_hit=self.insight_events.value(),manual_attribute_bonus=self.manual_attribute_bonus.value(),warden_reduction=self.warden_tier.currentData(),card_sun_bonus=30 if self.magic.isChecked() else 0,
@@ -491,7 +507,7 @@ class DamageCalculatorDialog(QDialog):
             target_multiplier=1 if self.secondary.isChecked() else self.target_multiplier.value(), harvest=self.harvest.isChecked(), fury=self.fury.isChecked(),
             boiling=self.boiling.isChecked(), bloodbath=self.bloodbath.isChecked(), bloodbath_spent=self.bloodbath_spent.value(),
             remaining_hp=self.remaining_hp.value() if self.remaining_hp.value() >= 0 else None, shell=shell,
-            count_attack_percent=10 if self.count_version.currentIndex() else 0, quilo_passive=self.quilo_passive.isChecked())
+            count_attack_percent=10 if self.count_version.currentIndex() else 0,count_base_attack=self.base_attack.value() if self.base_attack.value()>=0 else None, quilo_passive=self.quilo_passive.isChecked())
         states = {role: {key: w.currentData() for key, w in fields.items() if w.currentData()}
                   for role, fields in self.status_states.items()}
         if states['attacker'].get('flower') and self.flower.currentData():

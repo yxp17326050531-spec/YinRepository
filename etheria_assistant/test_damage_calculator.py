@@ -95,10 +95,12 @@ class DamageTests(unittest.TestCase):
                      critical=False, shell='启示录', fury=True, crit_damage_up=50)
         self.assertAlmostEqual(calculate(s)['damage'], 100 / 1.05)
 
-    def test_count_variants_use_original_panel_and_attack_buff_is_additive(self):
+    def test_count_uses_white_attack_outside_attack_buff(self):
         s = Scenario(Fighter(attack=1000), Fighter(hp=100000), shell='伯爵', attack_up=54)
         self.assertEqual(calculate(s)['combat_attack'], 2740)
-        self.assertEqual(calculate(replace(s, count_attack_percent=10))['combat_attack'], 2840)
+        self.assertEqual(calculate(replace(s, count_attack_percent=10,count_base_attack=300))['combat_attack'], 2770)
+        with self.assertRaises(ValueError):calculate(replace(s,count_attack_percent=10))
+        self.assertEqual(calculate(replace(s,count_attack_percent=10,count_base_attack=600))['combat_attack'],2800)
 
     def test_multihit_study_tracks_thresholds_without_floor_injection(self):
         # Synthetic round-number panels, independent hand-calculated golden total.
@@ -339,7 +341,7 @@ class CalculatorQtTests(unittest.TestCase):
             try:
                 d=self.dialog;d.preset_store=archive
                 d.preset.setCurrentText('弥瑟亚');d.character_skill.setCurrentIndex(d.character_skill.findData('misaya_s2'))
-                d.fields['attacker']['attack'].setValue(4321);d.manual_attribute_bonus.setValue(11)
+                d.base_attack.setValue(1400);d.fields['attacker']['attack'].setValue(4321);d.manual_attribute_bonus.setValue(11)
                 d.fields['defender']['hp'].setValue(76543);d.remaining_hp.setValue(5555)
                 d.warden_tier.setCurrentIndex(3);d.secondary.setChecked(True)
                 d.status_states['attacker']['heart'].setCurrentIndex(2)
@@ -360,13 +362,28 @@ class CalculatorQtTests(unittest.TestCase):
                 other=DamageCalculatorDialog(None,self.battle,preset_store=archive)
                 try:
                     other.profile_name.setEditText('合成二技能');other.load_profile()
-                    self.assertEqual(other.fields['attacker']['attack'].value(),4321)
+                    self.assertEqual(other.fields['attacker']['attack'].value(),4321);self.assertEqual(other.base_attack.value(),1400)
                     self.assertEqual(other.fields['defender']['hp'].value(),10000)
+                    legacy=archive.settings()['calculator_attacker_profiles'];legacy['合成二技能']['controls'].pop('base_attack')
+                    legacy['合成二技能']['controls']['count_version']={'data':None,'text':'假设：+1200及基础面板攻击的10%'}
+                    archive.save_settings({'calculator_attacker_profiles':legacy});other.load_profile()
+                    self.assertEqual(other.base_attack.value(),-1);self.assertEqual(other.count_version.currentIndex(),1)
                     other.delete_profile();self.assertEqual(archive.settings()['calculator_attacker_profiles'],{})
                 finally:
                     other.close();self.app.processEvents();QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
             finally:
                 for handler in list(archive.logger.handlers):handler.close();archive.logger.removeHandler(handler)
+
+    def test_white_attack_templates_butcher_and_legacy_profile(self):
+        d=self.dialog;d.assume_zero.setChecked(True)
+        for name,white in [('魁洛',1133),('弥瑟亚',1302),('博尔涅',1299)]:
+            d.preset.setCurrentText(name);self.assertEqual(d.base_attack.value(),white)
+        d.preset.setCurrentText('魁洛');d.shell.setCurrentText('伯爵');d.enable_shell.setChecked(True)
+        s=d.scenario();self.assertEqual(s.count_attack_percent,10);self.assertEqual(s.count_base_attack,1133)
+        d.butcher_tier.setCurrentIndex(1);d.attacker_hp_percent.setValue(100)
+        self.assertFalse(d.butcher_not_in_panel.isChecked());self.assertEqual(d.scenario().butcher_bonus,6.4)
+        d.base_attack.setValue(-1);d.run();self.assertIsNone(d.last_result);self.assertIn('白字',d.result_label.text())
+        self.assertEqual([d.tabs.tabText(i) for i in range(6)],['双方面板','技能与增益','计算结果','角色状态','装备效果','高级设置'])
 
     def test_second_skill_ui_uses_single_target_multiplier_and_correct_kind(self):
         d=self.dialog;d.assume_zero.setChecked(True)

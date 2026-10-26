@@ -3,12 +3,12 @@ from dataclasses import replace
 
 # Each character owns its skills and parameter rules; generic edits aren't saved here.
 CHARACTERS = {
- '魁洛': {'skills': {'quilo_s3': {'name':'三段大招（研究模板）','ratios':(1.1,1.1,1.1),'scaling':'attack','aoe':True},
+ '魁洛': {'base_attack':1133, 'skills': {'quilo_s3': {'name':'三段大招（研究模板）','ratios':(1.1,1.1,1.1),'scaling':'attack','aoe':True},
      'quilo_s2': {'name':'狩杀·Lv5','ratios':(3.9,),'scaling':'attack','aoe':False}},
          'note':'狩杀390%，目标每损失1%生命伤害提高1%，击杀拉条不参与伤害；原研究模板：主目标×1.75，残心攻差上限90%；未加入照破。'},
- '博尔涅': {'skills': {'borne_s3': {'name':'天狼吠月·Lv5','ratios':(6.0,),'scaling':'attack','aoe':True}},
+ '博尔涅': {'base_attack':1299, 'skills': {'borne_s3': {'name':'天狼吠月·Lv5','ratios':(6.0,),'scaling':'attack','aoe':True}},
          'note':'牧夜行Lv5：入场生命增加入场攻击×800%；每次攻击附加自身最大生命60%，无法暴击。天狼吠月以超过4个存活敌人时600%为基础，每少1人追加一段250%。60%生命附伤的攻击/分段口径与乘区待验证，须手选。'},
- '弥瑟亚': {'skills': {
+ '弥瑟亚': {'base_attack':1302, 'skills': {
      'misaya_s1': {'name':'反逆十字·Lv4','ratios':(1.3,1.3),'scaling':'attack','aoe':False},
      'misaya_s2': {'name':'二重审判·Lv5','ratios':(1.0,1.0,1.0),'scaling':'attack','aoe':False},
      'misaya_s3': {'name':'降神·Lv5','ratios':(2.0,2.0),'scaling':'attack','aoe':True}},
