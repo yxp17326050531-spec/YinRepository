@@ -25,6 +25,17 @@ class DamageTests(unittest.TestCase):
         self.assertAlmostEqual(calculate(q)['rows'][0]['direct'],390*1.5/1.05)
         self.assertEqual(calculate(q)['rows'][0]['lost_hp_multiplier'],1.5)
 
+    def test_formula_audit_uses_executed_mitigation_and_overkill_values(self):
+        from calculator_formula import formula_text
+        s=Scenario(Fighter(attack=10000,crit_damage=200),Fighter(hp=1000),pvp=False,bloodbath=True,final_multiplier=.75)
+        r=calculate(s);row=r['rows'][0];trace=row['direct_trace']
+        self.assertAlmostEqual(trace['raw'],20000/1.05)
+        self.assertAlmostEqual(trace['after_bloodbath'],200+(20000/1.05-200)*.45)
+        self.assertEqual(trace['actual'],1000)
+        self.assertGreater(row['direct'],r['damage'])
+        self.assertIn('原伤 R',formula_text(s,r));self.assertIn('实际生效智壳：无 / 手动',formula_text(s,r))
+        self.assertAlmostEqual(row['factor'],math.prod(v for _,v in r['factor_components']))
+
     def test_conditional_reductions_and_explicit_aoe_insight_count(self):
         s=Scenario(Fighter(attack=1000,crit_damage=200),Fighter(hp=100000,ultimate_damage_reduction=9.5,crit_damage_reduction=20),pvp=False,ratios=(1,1),insight=True)
         baseline=calculate(s)['rows']
@@ -374,11 +385,28 @@ class CalculatorQtTests(unittest.TestCase):
             finally:
                 for handler in list(archive.logger.handlers):handler.close();archive.logger.removeHandler(handler)
 
+    def test_shell_dropdown_alone_switches_effect_and_formula_without_count_residue(self):
+        d=self.dialog;d.assume_zero.setChecked(True);d.base_attack.setValue(1000)
+        d.fields['defender']['hp'].setValue(1000000)
+        d.shell.setCurrentText('伯爵');d.run();count=d.last_result
+        self.assertEqual(count['active_shell'],'伯爵');self.assertEqual(count['combat_attack'],4300)
+        self.assertIn('伯爵固定攻击 = 1200',d.formula_text.toPlainText())
+        d.shell.setCurrentText('无 / 手动');self.assertIsNone(d.last_result);self.assertEqual(d.formula_text.toPlainText(),'')
+        d.run();bare=d.last_result;self.assertEqual(bare['combat_attack'],3000);self.assertLess(bare['damage'],count['damage'])
+        self.assertIn('伯爵固定攻击 = 0',d.formula_text.toPlainText())
+        d.shell.setCurrentText('启示录');d.run();revelation=d.last_result
+        self.assertEqual(revelation['combat_attack'],3000);self.assertGreater(revelation['rows'][0]['shell'],0)
+        self.assertIn('启示录研究模型',d.formula_text.toPlainText())
+        d.shell.setCurrentText('噬身之蛇');d.serpent.setValue(3);d.run()
+        self.assertEqual(d.last_result['combat_attack'],3000);self.assertEqual(d.last_result['rows'][0]['shell'],0)
+        d.shell.setCurrentText('伯爵');d.run();self.assertAlmostEqual(d.last_result['damage'],count['damage'])
+        d.compare();self.assertIn('【收割方案】',d.formula_text.toPlainText());self.assertIn('【狂怒方案】',d.formula_text.toPlainText())
+
     def test_white_attack_templates_butcher_and_legacy_profile(self):
         d=self.dialog;d.assume_zero.setChecked(True)
         for name,white in [('魁洛',1133),('弥瑟亚',1302),('博尔涅',1299)]:
             d.preset.setCurrentText(name);self.assertEqual(d.base_attack.value(),white)
-        d.preset.setCurrentText('魁洛');d.shell.setCurrentText('伯爵');d.enable_shell.setChecked(True)
+        d.preset.setCurrentText('魁洛');d.shell.setCurrentText('伯爵')
         s=d.scenario();self.assertEqual(s.count_attack_percent,10);self.assertEqual(s.count_base_attack,1133)
         d.butcher_tier.setCurrentIndex(1);d.attacker_hp_percent.setValue(100)
         self.assertFalse(d.butcher_not_in_panel.isChecked());self.assertEqual(d.scenario().butcher_bonus,6.4)
@@ -437,7 +465,7 @@ class CalculatorQtTests(unittest.TestCase):
         d.aoe.setChecked(True);d.secondary.setChecked(True);d.target_multiplier.setValue(1.75);d.run()
         self.assertEqual(d.scenario().target_multiplier,1)
         self.assertIsNotNone(d.last_result)
-        d.shell.setCurrentText('噬身之蛇');d.enable_shell.setChecked(True);d.serpent.setValue(7)
+        d.shell.setCurrentText('噬身之蛇');d.serpent.setValue(7)
         d.run();self.assertIsNotNone(d.last_result)
         d.shell.setCurrentText('白獠武者（博尔涅联动）');d.run()
         self.assertIsNone(d.last_result);self.assertIn('尚未建模',d.result_label.text())

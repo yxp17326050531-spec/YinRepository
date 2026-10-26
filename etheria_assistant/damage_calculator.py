@@ -6,7 +6,7 @@ inventory lookups. See DAMAGE_CALCULATOR.md for formulas and unresolved mechanic
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from math import isfinite
+from math import isfinite, prod
 from battle_attributes import decode_extra_attributes
 
 MODELS = {'template': '模板主公式', 'kzone': 'Kzone备选（含条件900下限）'}
@@ -198,12 +198,19 @@ def calculate(s):
     critical = (a.crit_damage + s.crit_damage_up) / 100 if s.critical else 1
     passive = 1 + min(.9, max(0.0, attack - d.attack) * .0003) if s.quilo_passive else 1
     pvp = .7 * (1 + a.pvp_damage_bonus / 100) * (1 - d.pvp_damage_reduction / 100) if s.pvp else 1
-    factor = (critical * passive * pvp * (1 - d.extra_damage_reduction / 100) *
-              (1 + (a.damage_result_bonus+s.manual_attribute_bonus) / 100) * (1.12 if s.fury and s.critical else 1) *
-              (1 - d.damage_result_reduction / 100) * s.damage_multiplier * (1+s.card_sun_bonus/100))
-    if s.critical:factor *= (1-s.warden_reduction/100)*(1-d.crit_damage_reduction/100)*(1+a.crit_damage_bonus/100)
-    factor *= {'neutral':1,'advantage':1.15,'disadvantage':.85}[s.affinity]
-    if s.butcher_bonus and s.attacker_hp_percent > 90:factor *= 1+s.butcher_bonus/100
+    factor_components = [
+        ('暴击倍率',critical),('残心',passive),('PVP全局及双方PVP字段',pvp),
+        ('额外减伤',1-d.extra_damage_reduction/100),
+        ('结果增伤含手动补录',1+(a.damage_result_bonus+s.manual_attribute_bonus)/100),
+        ('狂怒',1.12 if s.fury and s.critical else 1),
+        ('结果减伤',1-d.damage_result_reduction/100),('状态与其他独立乘数合计',s.damage_multiplier),
+        ('魔术牌与日轮同区',1+s.card_sun_bonus/100),
+        ('戍防官',1-s.warden_reduction/100 if s.critical else 1),
+        ('被暴击减伤',1-d.crit_damage_reduction/100 if s.critical else 1),
+        ('暴击增伤',1+a.crit_damage_bonus/100 if s.critical else 1),
+        ('相性',{'neutral':1,'advantage':1.15,'disadvantage':.85}[s.affinity]),
+        ('屠夫',1+s.butcher_bonus/100 if s.butcher_bonus and s.attacker_hp_percent>90 else 1)]
+    factor=prod(value for _,value in factor_components)
     hp = d.hp if s.remaining_hp is None else s.remaining_hp
     start_hp, spent, rows = hp, s.bloodbath_spent, []
     shield = s.shield_hp
@@ -217,13 +224,15 @@ def calculate(s):
             mitigated = min(raw, available) + max(0.0, raw - available) * .45
         else:
             mitigated = raw
+        after_bloodbath=mitigated
         mitigated *= s.final_multiplier
         absorbed = min(shield, mitigated)
         shield -= absorbed
         actual = min(hp, mitigated - absorbed)
         hp = max(0.0, hp - actual)
         spent += actual
-        return mitigated, actual
+        return mitigated, actual, {'raw':raw,'bloodbath_available':available if s.bloodbath else None,
+            'after_bloodbath':after_bloodbath,'final_multiplier':s.final_multiplier,'absorbed':absorbed,'actual':actual}
 
     events=[('技能',i,r) for i,r in enumerate(s.ratios)]+[('白獠追击',i,r) for i,r in enumerate(s.followup_ratios)]
     for event_index,(phase,i,ratio) in enumerate(events):
@@ -233,30 +242,39 @@ def calculate(s):
                 (1 - a.ignore_defense / 100) * (1 - s.other_ignore / 100) * (.6 if harvest else 1))
         effective, divisor = defense_terms(d.defense, mult, s.flat_defense_down, s.model)
         boil = min(1.8, 1 + .4 * i) if s.boiling and phase=='技能' else 1
-        conditional = (.75 if s.spring else 1) * ((.6 if hp < d.hp*.55 else .8) if s.unyielding else 1)
-        conditional *= 1 + .06*s.opportunist if phase=='技能' else 1
-        conditional *= 1.4 if s.shield_bonus and shield > 0 else 1
-        conditional *= (1.25,1.15,1.05)[damage_events] if s.insight and damage_events < 3 and phase=='技能' else 1
-        conditional *= 1.5 if s.seven_control or (s.shell == '宝剑七' and s.sleeping and event_index == 0) else 1
+        conditional_components=[
+            ('涌泉',.75 if s.spring else 1),
+            ('不屈',(.6 if hp<d.hp*.55 else .8) if s.unyielding else 1),
+            ('乘势追击',1+.06*s.opportunist if phase=='技能' else 1),
+            ('亵渎',1.4 if s.shield_bonus and shield>0 else 1),
+            ('洞悉穿刺',(1.25,1.15,1.05)[damage_events] if s.insight and damage_events<3 and phase=='技能' else 1),
+            ('宝剑七',1.5 if s.seven_control or (s.shell=='宝剑七' and s.sleeping and event_index==0) else 1)]
+        conditional=prod(v for _,v in conditional_components)
         typed = (1-d.ultimate_damage_reduction/100) if s.skill_kind=='ultimate' and phase=='技能' else (1+a.basic_damage_bonus/100) if s.skill_kind=='basic' and phase=='技能' else 1
         base=(scaling*ratio+(s.extra_hit_damage if not s.extra_first_only or i==0 else 0)) if phase=='技能' else attack*ratio+s.followup_flat_damage
         finisher = min(max(0,d.hp-before),attack*3.5) if s.missing_hp_finisher and phase=='技能' and i==len(s.ratios)-1 else 0
         base += finisher
         lost_multiplier = 1+s.lost_hp_damage_scale*max(0,d.hp-before)/d.hp if phase=='技能' else 1
         target=s.target_multiplier if phase=='技能' else 1
-        direct, direct_actual = apply_damage(base * lost_multiplier * factor * typed * target * conditional * boil * (s.first_hit_multiplier if event_index == 0 else 1) / divisor)
+        first_multiplier=s.first_hit_multiplier if event_index==0 else 1
+        direct, direct_actual, direct_trace = apply_damage(base * lost_multiplier * factor * typed * target * conditional * boil * first_multiplier / divisor)
         damage_events += s.insight_events_per_hit
         shell = shell_actual = 0.0
+        shell_trace=None
         if hp > 0 and s.shell == '启示录' and s.critical:
             # Optional study assumption: true damage only takes PvP global 0.7 + Bloodbath.
-            shell, shell_actual = apply_damage(min(d.hp * .12, attack * 1.8) * (.7 if s.pvp else 1))
+            shell, shell_actual, shell_trace = apply_damage(min(d.hp * .12, attack * 1.8) * (.7 if s.pvp else 1))
             damage_events += 1
         rows.append({'hit': event_index + 1, 'phase': phase, 'phase_hit': i+1, 'before': before, 'effective_defense': effective,
-                     'finisher_base':finisher, 'lost_hp_multiplier':lost_multiplier, 'divisor': divisor, 'harvest': harvest, 'boiling': boil,
+                     'base_damage':base,'ratio':ratio,'factor':factor,'typed_multiplier':typed,'target_multiplier':target,
+                     'conditional_components':conditional_components,'conditional_multiplier':conditional,'first_multiplier':first_multiplier,
+                     'direct_trace':direct_trace,'shell_trace':shell_trace,'finisher_base':finisher, 'lost_hp_multiplier':lost_multiplier, 'divisor': divisor, 'harvest': harvest, 'boiling': boil,
                      'direct': direct, 'shell': shell, 'actual': direct_actual + shell_actual,
                      'remaining': hp, 'shield_remaining': shield, 'killed_by': (phase if direct_actual >= before else '启示录') if hp == 0 else None})
         if hp == 0:
             break
     return {'rows': rows, 'damage': start_hp - hp, 'remaining': hp, 'killed': hp == 0,
             'kill_hit': rows[-1]['hit'] if hp == 0 else None, 'combat_attack': attack,
-            'passive_multiplier': passive, 'model': s.model}
+            'passive_multiplier': passive, 'model': s.model,'active_shell':s.shell,
+            'count_bonus':count_bonus,'factor_components':factor_components,'factor':factor,
+            'scaling_value':scaling,'start_hp':start_hp}

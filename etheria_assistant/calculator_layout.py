@@ -47,7 +47,7 @@ def simplify_calculator(d):
     shorter={'durand':'攻击增加48%','crit50':'暴伤增加50个百分点','magic':'魔术牌30%',
         'harvest':'收割 · 高于半血穿防40%','fury':'狂怒 · 暴击×1.12','boiling':'沸腾打击',
         'insight':'洞悉穿刺 · 25% / 15% / 5%','opportunist':'乘势追击','desecrate':'亵渎 · 有盾增伤',
-        'bloodbath':'浴血之躯','spring':'涌泉','unyielding':'不屈之誓','enable_shell':'启用智壳效果',
+        'bloodbath':'浴血之躯','spring':'涌泉','unyielding':'不屈之誓',
         'critical':'每段暴击','pvp':'PVP模式','controlled':'宝剑七控制增伤已触发'}
     for key,text in shorter.items():
         w=getattr(d,key);w.setToolTip(w.text());w.setText(text)
@@ -92,7 +92,7 @@ def simplify_calculator(d):
     statuses.addStretch()
     equipment=page(4,'装备效果');cols=QHBoxLayout();equipment.addLayout(cols);a=QVBoxLayout();b=QVBoxLayout();cols.addLayout(a,1);cols.addLayout(b,1)
     group(a,'攻方 · 矩阵',rows(('','harvest'),('','fury'),('','boiling'),('','insight'),('','opportunist'),('目标减益种类','debuff_count'),('','desecrate')))
-    group(a,'攻方 · 智壳',rows(('智壳','shell'),('','enable_shell'),('伯爵算法','count_version'),('噬身之蛇层数','serpent'),('白獠暴伤层数','white_stacks'),('','controlled')))
+    group(a,'攻方 · 智壳',rows(('智壳','shell'),('','shell_status'),('伯爵算法','count_version'),('噬身之蛇层数','serpent'),('白獠暴伤层数','white_stacks'),('','controlled')))
     group(b,'攻方 · 屠夫',rows(('增伤档位','butcher_tier'),('当前生命 %','attacker_hp_percent')))
     group(b,'守方 · 矩阵与刻影',rows(('','bloodbath'),('','spring'),('','unyielding'),('戍防官（仅暴击）','warden_tier'),('','warden_not_in_panel')))
     group(b,'守方 · 当前血量与护盾',rows(('当前生命','remaining_hp'),('浴血本回合已扣血','bloodbath_spent'),('护盾剩余量','shield_remaining')))

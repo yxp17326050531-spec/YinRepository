@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QDialog, QWidget, QLabel, QPushButton, QVBoxLayout,
     QHBoxLayout, QFormLayout, QGroupBox, QComboBox, QCheckBox,
     QDoubleSpinBox, QSpinBox, QLineEdit, QTabWidget, QScrollArea, QTableWidget,
-    QTableWidgetItem, QHeaderView, QAbstractItemView, QGridLayout, QStackedWidget)
+    QTableWidgetItem, QHeaderView, QAbstractItemView, QGridLayout, QStackedWidget, QPlainTextEdit)
 from damage_calculator import Fighter, Scenario, MODELS, import_unit, calculate
 from battle_attributes import EXTRA_ATTRIBUTES
 from calculator_statuses import STATUSES, apply_statuses
@@ -152,7 +152,7 @@ class DamageCalculatorDialog(QDialog):
         self.bloodbath = QCheckBox('守方浴血12：回合扣血超20%部分减伤55%')
         for w in (self.harvest, self.fury, self.boiling, self.bloodbath): effects.addRow(w)
         self.shell = QComboBox(); self.shell.addItems(['无 / 手动', '启示录', '伯爵', '噬身之蛇', '宝剑七', '白獠武者（博尔涅联动）', '寅虎（先手待建模）']); effects.addRow('攻方智壳', self.shell)
-        self.enable_shell = QCheckBox('启用智壳研究模型（触发与结算待实测）'); effects.addRow(self.enable_shell)
+        self.shell_status=plain();effects.addRow(self.shell_status)
         self.count_version = QComboBox(); self.count_version.addItems(['旧表格：固定攻击+1200', '+1200及白字基础攻击的10%']);self.count_version.setCurrentIndex(1)
         effects.addRow('伯爵版本', self.count_version)
         self.base_attack=number(None,1_000_000,True);effects.addRow('白字基础攻击',self.base_attack)
@@ -165,7 +165,13 @@ class DamageCalculatorDialog(QDialog):
         self.process_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.process_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         p.addWidget(self.process_table)
-        self.detail = plain(); p.addWidget(self.detail)
+        self.detail = plain()
+        self.result_details=QTabWidget()
+        summary_scroll=QScrollArea();summary_scroll.setWidgetResizable(True);summary_scroll.setWidget(self.detail)
+        self.result_details.addTab(summary_scroll,'条件摘要')
+        self.formula_text=QPlainTextEdit();self.formula_text.setReadOnly(True);self.formula_text.setMinimumHeight(180)
+        self.result_details.addTab(self.formula_text,'本次公式与代入');p.addWidget(self.result_details,1)
+        self.process_table.setMinimumHeight(180)
         self.tabs.addTab(process, '计算过程')
         statuses = QWidget(); states_layout = QVBoxLayout(statuses)
         states_layout.addWidget(plain('选择当前已生效状态，不自动推断技能或层数。每侧独立；不要与原有花种、手填增减益重复填写。不同命名增减伤暂按独立乘区假设。待补充项可选，但会阻止输出击杀结论。'))
@@ -261,6 +267,8 @@ class DamageCalculatorDialog(QDialog):
         for w in self.findChildren(QCheckBox): w.toggled.connect(self.invalidate)
         for w in (self.model, self.scaling, self.preset, self.flower, self.shell, self.count_version,self.borne_hp_mode,self.borne_hp_damage):
             w.currentIndexChanged.connect(self.invalidate)
+        self.shell.currentIndexChanged.connect(self.shell_selection_changed)
+        self.shell.activated.connect(self.shell_selection_changed)
         if self.units:
             self.attacker_select.setCurrentIndex(1)
             attack_team = self.units[0][0]
@@ -270,12 +278,21 @@ class DamageCalculatorDialog(QDialog):
         self.refresh_profiles()
         from calculator_layout import simplify_calculator
         simplify_calculator(self)
+        self.update_shell_state()
+
+    def shell_selection_changed(self,*_):
+        self.update_shell_state();self.invalidate()
+
+    def update_shell_state(self,*_):
+        active=self.shell.currentText()
+        self.shell_status.setText('本次生效：'+active+'（所选智壳直接计算）')
+        self.count_version.setEnabled(active=='伯爵');self.serpent.setEnabled(active=='噬身之蛇');self.controlled.setEnabled(active=='宝剑七')
 
     # Explicit allowlist: no defender fields, defender states or target-dependent confirmations.
     PROFILE_CONTROLS = ('model','pvp','scaling','hits','ratio','ratios','critical',
         'target_multiplier','damage_multiplier','quilo_passive','attack_up','durand','flower',
         'attack_down','crit_damage_up','crit50','magic','other_ignore','harvest','fury','boiling',
-        'shell','enable_shell','count_version','base_attack','aoe','serpent','white_stacks','insight','prior_events',
+        'shell','count_version','base_attack','aoe','serpent','white_stacks','insight','prior_events',
         'insight_events','opportunist','desecrate','butcher_tier','butcher_not_in_panel',
         'attacker_hp_percent','manual_attribute_bonus','sun_base_bonus','sun_per_buff_bonus',
         'borne_hp_mode','borne_entry_attack','borne_hp_damage','qianyu_attack_speed')
@@ -374,7 +391,7 @@ class DamageCalculatorDialog(QDialog):
     def invalidate(self, *_):
         self.last_result = None
         self.result_label.setText('参数已变化，请重新计算。')
-        self.process_table.setRowCount(0); self.detail.setText('')
+        self.process_table.setRowCount(0); self.detail.setText('');self.formula_text.clear()
 
     def apply_preset(self,index):
         self.character_skill.blockSignals(True);self.character_skill.clear()
@@ -424,7 +441,6 @@ class DamageCalculatorDialog(QDialog):
             self.shell.setCurrentText(({'白獠武者':'白獠武者（博尔涅联动）','寅虎':'寅虎（先手待建模）'}.get(data['shell'],data['shell'])) if data else '无 / 手动')
             for name,w in (('洞悉穿刺',self.insight),('乘势追击',self.opportunist),('亵渎',self.desecrate)):w.setChecked(name in active)
             self.serpent.setValue(0);self.white_stacks.setValue(0);self.prior_events.setValue(0);self.insight_events.setValue(1);self.manual_attribute_bonus.setValue(0);self.skill_kind.setCurrentIndex(0);self.debuff_count.setValue(0)
-            self.enable_shell.setChecked(False)
         else:
             self.bloodbath.setChecked('浴血之躯' in active)
             self.spring.setChecked('涌泉' in active);self.unyielding.setChecked('不屈之誓' in active)
@@ -435,7 +451,7 @@ class DamageCalculatorDialog(QDialog):
 
     def reload(self):
         self.load_role('attacker'); self.load_role('defender')
-        self.warning.setText('已导入快照。候选矩阵不会自动启用；智壳只导入名称，需勾选研究模型。')
+        self.warning.setText('已导入快照；智壳按下拉框直接计算，候选矩阵需手选确认。')
 
     def swap(self):
         a, d = self.attacker_select.currentIndex(), self.defender_select.currentIndex()
@@ -446,7 +462,7 @@ class DamageCalculatorDialog(QDialog):
 
     def scenario(self):
         required = {'attacker': {self.scaling.currentData()}, 'defender': {'hp', 'defense'}}
-        shell = self.shell.currentText() if self.enable_shell.isChecked() else '无 / 手动'
+        shell = self.shell.currentText()
         if shell=='白獠武者（博尔涅联动）':
             if self.character_skill.currentData()!='borne_s3':raise ValueError('白獠追击目前仅支持博尔涅预设，其他角色追击尚未建模')
             if self.secondary.isChecked():raise ValueError('白獠只追击主目标，次目标请关闭智壳单独试算')
@@ -488,7 +504,7 @@ class DamageCalculatorDialog(QDialog):
         if a is not None and d is not None and self.units[a][0] == self.units[d][0]:
             raise ValueError('请选择来自不同队伍的攻方与守方；也可改为手动填写')
         self.warning.setText(('缺失暂按0：' + '、'.join(zero) + '。' if zero else '') +
-            '模型假设：不含护盾、不死、队友分摊及未建模被动；未套用字段见属性页。')
+            '当前采用研究模型；实际生效条件与逐段公式见计算结果，未套用属性见双方面板。')
         if self.warden_tier.currentData() and not self.warden_not_in_panel.isChecked():
             raise ValueError('戍防官：请确认没有重复计入面板减伤，已计入时保持不启用')
         scenario = Scenario(skill_kind=kind,insight_events_per_hit=self.insight_events.value(),manual_attribute_bonus=self.manual_attribute_bonus.value(),warden_reduction=self.warden_tier.currentData(),card_sun_bonus=30 if self.magic.isChecked() else 0,
@@ -539,7 +555,7 @@ class DamageCalculatorDialog(QDialog):
     @staticmethod
     def result_text(r):
         state = f'模型预测第{r["kill_hit"]}段击杀' if r['killed'] else f'模型预测未击杀，剩余 {r["remaining"]:,.1f}'
-        return f'{state} · 实际扣血 {r["damage"]:,.1f}'
+        return f'{state} · 实际扣血 {r["damage"]:,.1f} · 结算伤害（含溢出） {sum(x["direct"]+x["shell"] for x in r["rows"]):,.1f}'
 
     def run(self):
         try:
@@ -547,6 +563,9 @@ class DamageCalculatorDialog(QDialog):
         except ValueError as e:
             self.invalidate(); self.result_label.setText(str(e)); return
         self.last_result = r
+        from calculator_formula import formula_text
+        self.formula_text.setPlainText('下拉框选择：'+self.shell.currentText()+'\n'+formula_text(s,r))
+        self.result_details.setCurrentIndex(1)
         self.result_label.setText(self.result_text(r))
         self.process_table.setRowCount(len(r['rows']))
         for row, hit in enumerate(r['rows']):
@@ -573,6 +592,8 @@ class DamageCalculatorDialog(QDialog):
             self.invalidate(); self.result_label.setText(str(e)); return
         self.last_result = None; self.process_table.setRowCount(0)
         self.result_label.setText('收割：' + self.result_text(h) + '\n狂怒：' + self.result_text(f))
+        from calculator_formula import formula_text
+        self.formula_text.setPlainText('【收割方案】\n'+formula_text(replace(s,harvest=True,fury=False),h)+'\n\n【狂怒方案】\n'+formula_text(replace(s,harvest=False,fury=True),f))
         self.detail.setText('只替换8点效果，其他属性保持相同；未模拟换装后副属性变化。\n'
                             '双方都击杀时实际扣血相同，应比较击杀段数。')
         self.tabs.setCurrentIndex(2)
