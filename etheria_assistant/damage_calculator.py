@@ -86,6 +86,7 @@ class Scenario:
     other_ignore: float = 0
     damage_multiplier: float = 1
     target_multiplier: float = 1
+    first_hit_multiplier: float = 1
     harvest: bool = False
     fury: bool = False
     boiling: bool = False
@@ -130,7 +131,7 @@ def _validate(s):
         raise ValueError('技能需包含1–20段非负、有限倍率')
     for key in ('attack_up', 'attack_down', 'crit_damage_up', 'defense_up', 'defense_down',
                 'flat_defense_down', 'other_ignore', 'damage_multiplier', 'target_multiplier',
-                'bloodbath_spent', 'count_attack_percent'):
+                'bloodbath_spent', 'count_attack_percent', 'first_hit_multiplier'):
         v = getattr(s, key)
         if not isinstance(v, (int, float)) or not isfinite(v) or v < 0:
             raise ValueError('增减益及乘区必须是非负有限数字')
@@ -176,7 +177,7 @@ def calculate(s):
                 (1 - a.ignore_defense / 100) * (1 - s.other_ignore / 100) * (.6 if harvest else 1))
         effective, divisor = defense_terms(d.defense, mult, s.flat_defense_down, s.model)
         boil = min(1.8, 1 + .4 * i) if s.boiling else 1
-        direct, direct_actual = apply_damage(scaling * ratio * factor * boil / divisor)
+        direct, direct_actual = apply_damage(scaling * ratio * factor * boil * (s.first_hit_multiplier if i == 0 else 1) / divisor)
         shell = shell_actual = 0.0
         if hp > 0 and s.shell == '启示录' and s.critical:
             # Optional study assumption: true damage only takes PvP global 0.7 + Bloodbath.

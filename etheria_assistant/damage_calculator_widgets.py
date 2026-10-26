@@ -7,9 +7,10 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QDialog, QWidget, QLabel, QPushButton, QVBoxLayout,
     QHBoxLayout, QFormLayout, QGroupBox, QComboBox, QCheckBox,
     QDoubleSpinBox, QSpinBox, QLineEdit, QTabWidget, QScrollArea, QTableWidget,
-    QTableWidgetItem, QHeaderView, QAbstractItemView)
+    QTableWidgetItem, QHeaderView, QAbstractItemView, QGridLayout)
 from damage_calculator import Fighter, Scenario, MODELS, import_unit, calculate
 from battle_attributes import EXTRA_ATTRIBUTES
+from calculator_statuses import STATUSES, apply_statuses
 
 LABELS = {'attack': '攻击', 'defense': '防御', 'hp': '最大生命', 'crit': '暴击率 %',
           'crit_damage': '暴击伤害 %', 'pvp_damage_bonus': 'PVP增伤 %',
@@ -139,6 +140,25 @@ class DamageCalculatorDialog(QDialog):
         p.addWidget(self.process_table)
         self.detail = plain(); p.addWidget(self.detail)
         self.tabs.addTab(process, '计算过程')
+        statuses = QWidget(); states_layout = QVBoxLayout(statuses)
+        states_layout.addWidget(plain('选择当前已生效状态，不自动推断技能或层数。每侧独立；不要与原有花种、手填增减益重复填写。不同命名增减伤暂按独立乘区假设。待补充项可选，但会阻止输出击杀结论。'))
+        states_grid = QGridLayout(); states_layout.addLayout(states_grid)
+        states_grid.addWidget(plain('效果与说明'), 0, 0)
+        states_grid.addWidget(plain('攻方当前状态'), 0, 1)
+        states_grid.addWidget(plain('守方当前状态'), 0, 2)
+        self.status_states = {'attacker': {}, 'defender': {}}
+        for row, (key, title, desc, maximum, supported) in enumerate(STATUSES, 1):
+            name = plain(title + (' · 待补充/建模' if not supported else ''))
+            name.setToolTip(desc); states_grid.addWidget(name, row, 0)
+            for col, role in enumerate(('attacker', 'defender'), 1):
+                choice = QComboBox(); choice.addItem('无', 0)
+                for n in range(1, maximum+1):
+                    text = (f'生效 · 额外基础增益{n-1}种' if key == 'sun' else '明花彩' if key == 'flower' and n == 3 else f'{n}层/次' if maximum > 1 else '生效')
+                    choice.addItem(text, n)
+                choice.setToolTip(desc); choice.currentIndexChanged.connect(self.invalidate)
+                self.status_states[role][key] = choice; states_grid.addWidget(choice, row, col)
+        states_layout.addWidget(plain('寒玉层数仅用于确认当前技能是否受到保护，不按每一段扣层；本次试算不模拟下一个技能。心火减伤按层数同区累计。霜花的吸收部分未填容量时不能预测带盾目标击杀。'))
+        self.add_scroll_tab(statuses, '角色状态（25项）')
         self.assume_zero = QCheckBox('缺失的增减伤字段暂按0试算（不代表已确认0；不会补入原记录）')
         layout.addWidget(self.assume_zero)
         self.warning = plain(''); layout.addWidget(self.warning)
@@ -251,7 +271,7 @@ class DamageCalculatorDialog(QDialog):
             raise ValueError('请选择来自不同队伍的攻方与守方；也可改为手动填写')
         self.warning.setText(('缺失暂按0：' + '、'.join(zero) + '。' if zero else '') +
             '模型假设：不含护盾、不死、队友分摊及未建模被动；未套用字段见属性页。')
-        return Scenario(attacker=fighters['attacker'], defender=fighters['defender'],
+        scenario = Scenario(attacker=fighters['attacker'], defender=fighters['defender'],
             model=self.model.currentData(), scaling=self.scaling.currentData(), ratios=ratios,
             critical=self.critical.isChecked(), pvp=self.pvp.isChecked(),
             attack_up=self.attack_up.value() + (48 if self.durand.isChecked() else 0) + self.flower.currentData(),
@@ -262,6 +282,13 @@ class DamageCalculatorDialog(QDialog):
             boiling=self.boiling.isChecked(), bloodbath=self.bloodbath.isChecked(), bloodbath_spent=self.bloodbath_spent.value(),
             remaining_hp=self.remaining_hp.value() if self.remaining_hp.value() >= 0 else None, shell=shell,
             count_attack_percent=10 if self.count_version.currentIndex() else 0, quilo_passive=self.quilo_passive.isChecked())
+        states = {role: {key: w.currentData() for key, w in fields.items() if w.currentData()}
+                  for role, fields in self.status_states.items()}
+        if states['attacker'].get('flower') and self.flower.currentData():
+            raise ValueError('花种重复：请清除旧技能页的花种或状态页花种之一')
+        if states['defender'].get('frost'):
+            raise ValueError('守方霜花有吸收伤害效果，缺剩余容量，暂不能预测击杀')
+        return apply_statuses(scenario, states['attacker'], states['defender'])
 
     @staticmethod
     def result_text(r):

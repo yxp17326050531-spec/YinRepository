@@ -92,6 +92,44 @@ class DamageTests(unittest.TestCase):
             with self.assertRaises(ValueError): calculate(s)
 
 
+class StatusTests(unittest.TestCase):
+    def test_flower_conversion_and_heart_are_additive_not_compounded(self):
+        from calculator_statuses import apply_statuses
+        s=Scenario(Fighter(attack=1000,defense=1000),Fighter(attack=1000,hp=10000,defense=1000))
+        r=apply_statuses(s,{'flower':3,'heart':2},{'flower':1,'defense':1,'heart':1})
+        self.assertEqual(r.attack_up,80);self.assertEqual(r.crit_damage_up,30)
+        self.assertEqual(r.defense_up,66);self.assertEqual(r.attacker.defense,1300)
+        self.assertEqual(r.defender.attack,1310)
+        self.assertAlmostEqual(r.damage_multiplier,.82)
+
+    def test_damage_states_and_critical_lastwords(self):
+        from calculator_statuses import apply_statuses
+        s=Scenario(Fighter(attack=100),Fighter(hp=10000))
+        r=apply_statuses(s,{'frost':1},{'vulnerable':1,'nightmare':1,'guard':1,'lastwords':4,'jade':5})
+        self.assertAlmostEqual(r.damage_multiplier,1.25*1.3*1.15*.7*1.28*.6)
+        r=apply_statuses(replace(s,critical=False),{}, {'lastwords':4})
+        self.assertEqual(r.damage_multiplier,1)
+        self.assertEqual(apply_statuses(s,{'speed_up':1},{'speed_down':1}).damage_multiplier,1)
+
+    def test_new_states_and_sleep_only_affects_first_hit(self):
+        from calculator_statuses import apply_statuses
+        s=Scenario(Fighter(attack=100,crit_damage=100),Fighter(hp=10000),pvp=False,ratios=(1,1))
+        r=apply_statuses(s,{'dataflow':12,'sun':6},{'sleep':1,'scales':1,'sun':1})
+        self.assertAlmostEqual(r.damage_multiplier,1.42*1.5*.7*.8)
+        rows=calculate(r)['rows']
+        self.assertAlmostEqual(rows[0]['direct']/rows[1]['direct'],1.25)
+        r=apply_statuses(replace(s,critical=False),{}, {'scales':1})
+        self.assertEqual(r.damage_multiplier,1)
+
+    def test_unknown_and_complex_states_cannot_silently_predict_kill(self):
+        from calculator_statuses import apply_statuses,STATUSES
+        self.assertEqual(len(STATUSES),25)
+        for key,_,_,maximum,supported in STATUSES:
+            if not supported:
+                with self.assertRaises(ValueError):apply_statuses(Scenario(),{}, {key:1})
+            with self.assertRaises(ValueError):apply_statuses(Scenario(),{}, {key:maximum+1})
+
+
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QCoreApplication, QEvent
