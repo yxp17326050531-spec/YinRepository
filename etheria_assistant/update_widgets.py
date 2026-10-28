@@ -1,6 +1,7 @@
 """Background release checks and explicit user-started EXE updates."""
 from datetime import datetime
 from pathlib import Path
+import sys
 from PySide6.QtCore import QObject,QThread,Signal,QTimer
 from PySide6.QtWidgets import QPushButton,QLabel,QMessageBox
 import exe_updater as updater
@@ -17,7 +18,7 @@ class UpdateController(QObject):
         super().__init__(window);self.window=window;self.version=version;self.task=None;self.release=None
         self.status=QLabel('程序更新：GitHub官方源；编号、历史与预设保存在本地，不被更新包覆盖。');self.status.setWordWrap(True);layout.addWidget(self.status)
         self.button=QPushButton('检查程序更新');layout.addWidget(self.button);self.button.clicked.connect(self.clicked)
-        if updater.install_root() is not None:QTimer.singleShot(3000,self.check)
+        if updater.install_root() is not None and '--smoke-test' not in sys.argv:QTimer.singleShot(3000,self.check)
     def start(self,callback,success):
         if self.task and self.task.isRunning():return
         self.button.setEnabled(False)

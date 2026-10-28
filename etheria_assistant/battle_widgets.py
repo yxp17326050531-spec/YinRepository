@@ -19,8 +19,8 @@ class UnitCard(QFrame):
         super().__init__();self.setObjectName('heroRow');self.wide=None
         self.heading_timer=QTimer(self);self.heading_timer.setSingleShot(True);self.heading_timer.timeout.connect(self.sync_heading_heights)
         self.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Maximum)
-        self.root=QHBoxLayout(self);self.root.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint);self.root.setContentsMargins(4,1,4,1);self.root.setSpacing(4)
-        identity=QWidget();identity.setObjectName('unitIdentity');identity.setFixedWidth(112)
+        self.root=QHBoxLayout(self);self.root.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint);self.root.setContentsMargins(3,1,3,1);self.root.setSpacing(3)
+        identity=QWidget();identity.setObjectName('unitIdentity');identity.setFixedWidth(96)
         left=QVBoxLayout(identity);left.setContentsMargins(0,0,0,0);left.setSpacing(4)
         top=QHBoxLayout();top.setSpacing(6);top.addWidget(image_label('heroes',unit['hero_name'],28))
         name=action(unit['hero_name'],lambda:edit_name(unit));name.setObjectName('link')
@@ -111,9 +111,9 @@ class UnitCard(QFrame):
             self.setMinimumHeight(max(self.root.minimumSize().height(),self.root.heightForWidth(self.width())))
             self.updateGeometry()
 
-    def reflow(self,wide,extra_columns=None,stack_basic=False,stack_extra=False):
+    def reflow(self,wide,extra_columns=None,stack_basic=False,stack_extra=False,balanced=False):
         extra_columns=extra_columns or (6 if wide else 3)
-        configuration=(wide,extra_columns,stack_basic,stack_extra)
+        configuration=(wide,extra_columns,stack_basic,stack_extra,balanced)
         if getattr(self,'configuration',None)==configuration:return
         self.configuration=configuration;self.wide=wide
         for index,cell in enumerate(self.cells):
@@ -127,10 +127,13 @@ class UnitCard(QFrame):
         for layout in (self.basic,self.extra):
             while layout.count():layout.takeAt(0)
             for column in range(8):layout.setColumnStretch(column,0)
+        basic_order=sorted(range(8),key=lambda i:self.cells[i].layout().itemAt(1).widget().minimumWidth(),reverse=True) if balanced else list(range(8))
         for index,cell in enumerate(self.cells):
             grid=self.basic if index<8 else self.extra;i=index if index<8 else index-8
             columns=(8 if wide else 4) if index<8 else extra_columns
-            grid.addWidget(cell,i//columns,i%columns)
+            if index<8 and balanced:
+                position=basic_order.index(index);grid.addWidget(cell,position%2,position//2)
+            else:grid.addWidget(cell,i//columns,i%columns)
         # Recompute from the cells upward before testing the new minimum.
         # Otherwise QWidgetItem caches can still describe the previous grid.
         self.basic.invalidate();self.extra.invalidate()
@@ -161,7 +164,8 @@ class UnitCard(QFrame):
             (False,3,False,False),(False,2,False,False),
             (False,3,True,False),(False,2,True,False),
             (False,3,False,True),(False,3,True,True),
-            (False,2,False,True),(False,2,True,True)]
+            (False,2,False,True),(False,2,True,True),
+            (False,3,True,True,True),(False,2,True,True,True)]
         fitting=[];measured=[]
         for priority,configuration in enumerate(candidates):
             self.reflow(*configuration)

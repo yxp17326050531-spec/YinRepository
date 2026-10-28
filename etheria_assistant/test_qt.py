@@ -227,6 +227,21 @@ class QtTests(unittest.TestCase):
                         expected=heading.heightForWidth(heading.width())
                         self.assertGreaterEqual(heading.height(),expected,heading.text())
 
+    def test_windows_numeric_widths_have_a_fitting_balanced_fallback(self):
+        from PySide6.QtCore import QSize
+        from battle_widgets import unit_card
+        unit=copy.deepcopy(self.battle['teams']['A'][0])
+        card=unit_card(unit,'A',self.window.action,lambda u:None,lambda u:None,lambda u:None)
+        try:
+            widths=[115,92,92,150,115,138,115,115,115,92,115,115,92,92]
+            for cell,width in zip(card.cells,widths):
+                metric=cell.layout().itemAt(1).widget();height=metric.sizeHint().height()
+                metric.sizeHint=lambda width=width,height=height:QSize(width,height)
+            card.fit_width(593)
+            self.assertLessEqual(card.minimumSizeHint().width(),593)
+            self.assertTrue(card.configuration[-1])
+        finally:card.close();card.deleteLater();self.app.processEvents()
+
     def test_capture_help_is_informational_and_redetection_uses_installed_tool(self):
         from PySide6.QtWidgets import QPushButton
         with patch('qt_app.QDesktopServices.openUrl') as opened:
