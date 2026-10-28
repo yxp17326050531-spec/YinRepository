@@ -52,3 +52,30 @@ class UpdaterTests(unittest.TestCase):
         with patch('exe_updater.download',side_effect=fetch):
             self.assertEqual(check('2.11.14-calc-test')['version'],'2.11.21-calc-test')
         self.assertEqual(calls,[API,FEED])
+
+    def test_utf8_release_metadata_on_gbk_windows(self):
+        import json
+        from unittest.mock import patch
+        original=Path.read_text
+        def windows_read(path,*args,**kwargs):
+            kwargs.setdefault('encoding','gbk')
+            return original(path,*args,**kwargs)
+        def fetch(url,path,maximum):
+            row=self.release('2.11.22-calc-test')
+            row['body']='更新修复：中文说明 £'
+            Path(path).write_bytes(json.dumps([row],ensure_ascii=False).encode('utf-8'))
+        with patch.object(Path,'read_text',windows_read),patch('exe_updater.download',side_effect=fetch):
+            result=check('2.11.21-calc-test')
+        self.assertEqual(result['version'],'2.11.22-calc-test')
+        self.assertIn('中文说明 £',result['notes'])
+
+    def test_updater_text_reads_have_explicit_utf8_encoding(self):
+        import ast
+        import exe_updater
+        tree=ast.parse(Path(exe_updater.__file__).read_text(encoding='utf-8'))
+        reads=[node for node in ast.walk(tree) if isinstance(node,ast.Call)
+               and isinstance(node.func,ast.Attribute) and node.func.attr=='read_text']
+        self.assertGreaterEqual(len(reads),4)
+        for node in reads:
+            self.assertTrue(any(k.arg=='encoding' and isinstance(k.value,ast.Constant)
+                                and k.value.value=='utf-8' for k in node.keywords),node.lineno)

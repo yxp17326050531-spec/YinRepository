@@ -76,7 +76,7 @@ def check(current,releases=None):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/'releases.json'
             try:
-                download(API,p,4*1024*1024);releases=json.loads(p.read_text())
+                download(API,p,4*1024*1024);releases=json.loads(p.read_text(encoding='utf-8'))
             except (urllib.error.URLError,TimeoutError,json.JSONDecodeError):
                 download(FEED,p,4*1024*1024);releases=feed_releases(p.read_text(encoding='utf-8'))
     choices=[]
@@ -125,7 +125,7 @@ def prepare(release,root):
     task=Path(tempfile.mkdtemp(prefix='EtheriaUpdate-',dir=root.parent))
     try:
         manifest=task/'release.json';download(release['manifest']['browser_download_url'],manifest,1024*1024)
-        m=json.loads(manifest.read_text())
+        m=json.loads(manifest.read_text(encoding='utf-8'))
         name=release['asset']['name']
         if m.get('version')!=release['version'] or m.get('file')!=name or not re.fullmatch('[0-9a-f]{64}',m.get('sha256','')):raise ValueError('更新清单版本或文件不匹配')
         archive=task/'update.zip';download(release['asset']['browser_download_url'],archive)
@@ -172,7 +172,7 @@ def worker_main(task,root,pids):
             env=dict(os.environ,ETHERIA_PORTABLE_ROOT=str(root),QT_QPA_PLATFORM='offscreen')
             report=task/'startup.json'
             subprocess.run([str(root/'EtheriaAssistant.exe'),'--smoke-test',str(report)],cwd=root,env=env,timeout=60,check=True)
-            if not json.loads(report.read_text())['ok']:raise RuntimeError('新版启动检查失败')
+            if not json.loads(report.read_text(encoding='utf-8'))['ok']:raise RuntimeError('新版启动检查失败')
         except Exception:
             if root.exists():root.rename(task/'failed-new')
             old.rename(root);raise

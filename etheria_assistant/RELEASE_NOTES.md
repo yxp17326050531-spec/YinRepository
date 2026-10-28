@@ -1,4 +1,4 @@
-2.11.21-calc-test Windows计算器测试发行版
+2.11.22-calc-test Windows计算器测试发行版
 
 - 设置页新增检查程序更新，EXE启动后后台检查本项目GitHub发行渠道。选择下载并安装后校验清单与SHA256，备份本地数据库，退出后替换。
 - 不覆盖自定义编号、历史、计算器预设；旧程序在更新任务目录保留。
@@ -9,3 +9,5 @@
 完整解压ZIP后运行EtheriaAssistant.exe，保留_internal。实时监听需自行安装Wireshark及Npcap。
 
 - GitHub匿名API限流或请求失败时，回退到本项目GitHub官方发行订阅源；继续从官方发行包地址下载并验证哈希，不需要令牌。
+
+- 修复中文Windows下检查更新时误用GBK读取GitHub UTF-8内容导致更新中断；更新清单及启动报告统一显式UTF-8读取。
