@@ -77,7 +77,9 @@ class UnitCard(QFrame):
             cell=QWidget();col=QBoxLayout(QBoxLayout.Direction.LeftToRight,cell)
             col.setContentsMargins(0,0,0,0);col.setSpacing(3 if index>=8 else 0)
             # Headings may wrap; numeric values keep their actual font size.
-            heading=text(title,'attributeTitle');heading.setWordWrap(True);col.addWidget(heading)
+            heading=text(title,'attributeTitle');heading.setWordWrap(True)
+            policy=heading.sizePolicy();policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored);heading.setSizePolicy(policy)
+            col.addWidget(heading)
             metric=text(shown,'speed' if key=='speed' else 'statValue');metric.setWordWrap(False)
             metric.setAccessibleName(f"{team}方 {unit['hero_id']} {title}")
             if index>=8:metric.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)

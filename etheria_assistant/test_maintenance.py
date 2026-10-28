@@ -110,15 +110,16 @@ class MaintenanceTests(unittest.TestCase):
         root=Path(self.temp.name)/'app';runtime=root/'vendor'/'dumpcap'/'dumpcap.exe'
         runtime.parent.mkdir(parents=True);runtime.write_bytes(b'placeholder')
         with patch('base_ui.ROOT',root),patch.object(sys,'frozen',False,create=True),patch('base_ui.shutil.which',return_value=None):
-            self.assertEqual(find_dumpcap(),str(runtime))
+            self.assertEqual(Path(find_dumpcap()).resolve(),runtime.resolve())
         internal=root/'_internal';internal.mkdir()
         with patch('base_ui.ROOT',internal),patch.object(sys,'executable',str(root/'EtheriaAssistant.exe')),patch.object(sys,'frozen',True,create=True),patch('base_ui.shutil.which',return_value=None):
-            self.assertEqual(find_dumpcap(),str(runtime))
+            self.assertEqual(Path(find_dumpcap()).resolve(),runtime.resolve())
         bundled=internal/'vendor'/'dumpcap'/'dumpcap.exe'
         bundled.parent.mkdir(parents=True);bundled.write_bytes(b'placeholder')
         runtime.unlink()
         with patch('base_ui.ROOT',internal),patch.object(sys,'executable',str(root/'EtheriaAssistant.exe')),patch.object(sys,'frozen',True,create=True),patch('base_ui.shutil.which',return_value=None):
-            self.assertEqual(find_dumpcap(),str(bundled))
+            self.assertEqual(Path(find_dumpcap()).resolve(),bundled.resolve())
 
 
 if __name__=='__main__':unittest.main()
+

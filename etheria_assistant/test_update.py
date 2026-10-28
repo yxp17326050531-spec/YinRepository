@@ -38,7 +38,7 @@ class Updates(unittest.TestCase):
             self.assertNotEqual(before,after)
             self.assertEqual(source_version(launch),'2.10.1')
             self.assertIn('Source version: 2.10.1',output.getvalue())
-            self.assertIn(str(launch/'start.cmd'),output.getvalue())
+            self.assertIn(str((launch/'start.cmd').resolve()),output.getvalue())
             self.assertIn('撤销删除',(launch/'qt_app.py').read_text(encoding='utf-8'))
 
     def test_fast_forward_repeat_dirty_tree_and_lock(self):
@@ -61,3 +61,4 @@ class Updates(unittest.TestCase):
             self.assertEqual((client/'app.py').read_text(),'my edits')
             with RuntimeLock(data):
                 with self.assertRaises(RuntimeError):update(client,data)
+
