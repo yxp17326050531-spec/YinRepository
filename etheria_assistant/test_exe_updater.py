@@ -37,3 +37,5 @@ class UpdaterTests(unittest.TestCase):
             with patch.dict('os.environ',{'ETHERIA_PORTABLE_ROOT':tmp}),patch('exe_updater.subprocess.Popen') as popen:
                 launch_worker(tmp,tmp)
                 self.assertEqual(popen.call_args.args[0][0],str(Path(tmp)/'worker/EtheriaAssistant.exe'))
+                import os
+                self.assertEqual(popen.call_args.args[0][-1],str(os.getpid()))
