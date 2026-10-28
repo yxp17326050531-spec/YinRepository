@@ -28,10 +28,12 @@ from equipment import (project_gear, attribute_text, matches_gear, normalize_fil
                        filter_options, filter_summary, RARITIES, UNKNOWN, ATTRIBUTES,
                        normalize_sort, sort_gear, gear_sort_value)
 from inventory_widgets import GearFilterDialog
+from gear_scoring import ROLES, default_rules, validate_rules, score_gear, score_text
+from preset_widgets import MappingPresetDialog, ScoringPresetDialog
 from components import project_component, attribute_text as component_attribute_text, component_detail as component_detail_text
 from battle_attributes import decode_extra_attributes, pending_attributes, pending_text, extra_text
 
-VERSION='2.11.22-calc-test'
+VERSION='2.11.23-calc-test'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 from battle_metadata import KINDS, result_text
@@ -127,6 +129,9 @@ class MainWindow(QMainWindow):
         self.gear_filters=normalize_filters(self.preferences.get('gear_filters',{}))
         self.gear_sort=normalize_sort(self.preferences.get('gear_sort',{}))
         self.gear_metadata=self.archive.gear_metadata()
+        try:self.scoring_rules=validate_rules(self.preferences.get('gear_scoring_active',default_rules()))
+        except (ValueError,TypeError,KeyError):self.scoring_rules=default_rules()
+        self._score_input=None;self.gear_scores={}
         if self.bag_snapshot:self.inventory_rows=self.bag_snapshot.get('loadout_rows',[])
         self.setWindowTitle('伊瑟 · 对局助手 '+VERSION); self.resize(1280,800); self.setMinimumSize(1050,700)
         self.setStyleSheet(STYLE); self.setup(); self.refresh_all()
@@ -513,8 +518,19 @@ class MainWindow(QMainWindow):
         self.gear_sort_order=combo(['从高到低','从低到高'],'从高到低' if self.gear_sort['descending'] else '从低到高')
         for w in (self.gear_sort_key,self.gear_sort_scope,self.gear_sort_order):sorting.addWidget(w); w.currentIndexChanged.connect(self.change_gear_sort)
         sorting.addStretch(); sorting.addWidget(label('按解码小数值排序 · 缺少该属性的源器排在末尾','hint')); layout.addLayout(sorting)
+        scoring=QHBoxLayout();self.score_preset_label=label('');scoring.addWidget(self.score_preset_label,1)
+        scoring.addWidget(self.action('评分预设',self.edit_scoring_presets))
+        self.gear_score_role=QComboBox();self.gear_score_role.addItem('全部用途 / 最高分',None)
+        for key,name in ROLES.items():self.gear_score_role.addItem(name,key)
+        self.gear_score_role.setCurrentIndex(max(0,self.gear_score_role.findData(self.preferences.get('gear_score_role'))))
+        scoring.addWidget(self.gear_score_role)
+        self.gear_score_sort=QCheckBox('按评分排序');self.gear_score_sort.setChecked(self.preferences.get('gear_score_sort',False) is True);scoring.addWidget(self.gear_score_sort)
+        self.gear_score_role.currentIndexChanged.connect(self.change_score_view);self.gear_score_sort.toggled.connect(self.change_score_view)
+        layout.addLayout(scoring);self.gear_score_summary=label('','hint');layout.addWidget(self.gear_score_summary)
         self.gear_filter_info=label('','hint'); layout.addWidget(self.gear_filter_info)
-        tabs=QTabWidget(); self.inventory_tabs=tabs; self.gear_table=table(['源器编号','等级','排序数值','矩阵','点数','稀有度','初始副属性','主属性','副属性','装备关联']); self.loadout_table=table(['角色','精确编号','配装类型','智壳','矩阵'])
+        tabs=QTabWidget(); self.inventory_tabs=tabs; self.gear_table=table(['源器编号','等级','排序数值','矩阵','点数','稀有度','初始副属性','主属性','副属性','装备关联','用途倾向','用途评分']); self.loadout_table=table(['角色','精确编号','配装类型','智壳','矩阵'])
+        self.gear_table.horizontalHeader().moveSection(self.gear_table.horizontalHeader().visualIndex(11),2)
+        self.gear_table.horizontalHeader().moveSection(self.gear_table.horizontalHeader().visualIndex(10),3)
         tabs.addTab(self.gear_table,'源器背包'); tabs.addTab(self.loadout_table,'本号智壳与矩阵'); layout.addWidget(tabs,1)
         self.component_table=table(['元件编号','名称 / 配置','基础主属性','基础副属性','专属刻影','装配引用','锁定标志'])
         tabs.addTab(self.component_table,'元件背包')
@@ -523,6 +539,28 @@ class MainWindow(QMainWindow):
         self.component_table.itemSelectionChanged.connect(self.component_detail)
         tabs.currentChanged.connect(lambda _:self.component_detail() if tabs.currentWidget()==self.component_table else self.gear_detail())
         self.gear_table.cellDoubleClicked.connect(lambda r,c:self.edit_gear_metadata())
+    def edit_scoring_presets(self):
+        ScoringPresetDialog(self.archive,self.scoring_rules,self.use_scoring_rules,self).exec()
+    def use_scoring_rules(self,rules):
+        self.scoring_rules=validate_rules(rules)
+        self.archive.save_settings({'gear_scoring_active':self.scoring_rules});self.render_inventory()
+    def change_score_view(self):
+        self.archive.save_settings({'gear_score_role':self.gear_score_role.currentData(),'gear_score_sort':self.gear_score_sort.isChecked()})
+        self.render_inventory()
+    def score_for_view(self,gear):
+        result=self.gear_scores[gear['uid']];role=self.gear_score_role.currentData()
+        return next((r for r in result['roles'] if r['key']==role and r['eligible']),None) if role else result['best']
+    def refresh_gear_scores(self):
+        inputs=((self.bag_snapshot or {}).get('gear',[]),self.mappings.get('matrices',{}),self.scoring_rules)
+        if inputs!=self._score_input:
+            self.gear_scores={g['uid']:score_gear(g,self.mappings,self.scoring_rules) for g in inputs[0]}
+            self._score_input=copy.deepcopy(inputs)
+        self.score_preset_label.setText(self.scoring_rules['name']+' · '+self.scoring_rules['revision'])
+        total=sum(r['score'] or 0 for r in self.gear_scores.values())
+        incomplete=sum(not r['complete'] for r in self.gear_scores.values())
+        self.gear_score_summary.setText(f'全库存用途总分 {total:.2f} · UID去重 {len(self.gear_scores)} 件 · 词条不完整 {incomplete} 件 · 每件只取最高用途分；初版评分不代表实战伤害，主属性/配装兼容性未计入。')
+    def edit_mapping_presets(self):
+        MappingPresetDialog(self.archive,self.mapping_changed,self).exec()
     def change_gear_sort(self):
         self.gear_sort=normalize_sort({'key':self.gear_sort_key.currentData(),'scope':self.gear_sort_scope.currentData(),
                                        'descending':self.gear_sort_order.currentIndex()==0})
@@ -534,7 +572,7 @@ class MainWindow(QMainWindow):
             self.gear_filters=dialog.selected(); self.archive.save_settings({'gear_filters':self.gear_filters}); self.render_inventory()
     def clear_gear_filters(self):
         self.gear_filters=normalize_filters({}); self.archive.save_settings({'gear_filters':self.gear_filters})
-        self.gear_query.clear(); self.render_inventory()
+        self.gear_score_role.setCurrentIndex(0);self.gear_query.clear(); self.render_inventory()
     def edit_gear_metadata(self):
         row=self.gear_table.currentRow()
         if not 0<=row<len(self.gear_display):self.notify('请先选择一件源器'); return
@@ -552,6 +590,7 @@ class MainWindow(QMainWindow):
     def render_inventory(self):
         self._inventory_dirty=False
         snap=self.bag_snapshot or {}; query=self.gear_query.text().strip().lower(); holders={}
+        self.refresh_gear_scores()
         oldrow=self.gear_table.currentRow()
         selected=self.gear_display[oldrow]['uid'] if hasattr(self,'gear_display') and 0<=oldrow<len(self.gear_display) else None
         for hero in snap.get('heroes',[]):
@@ -560,12 +599,20 @@ class MainWindow(QMainWindow):
         rows=[]; self.gear_display=[]
         attr_sort=self.gear_sort['key'].startswith('attr:')
         self.gear_sort_scope.setEnabled(attr_sort)
-        self.gear_sort_order.setEnabled(self.gear_sort['key']!='default')
+        self.gear_sort_order.setEnabled(self.gear_sort['key']!='default' or self.gear_score_sort.isChecked())
         self.gear_table.setColumnHidden(2,self.gear_sort['key']=='default')
         self.gear_table.horizontalHeaderItem(2).setText(self.gear_sort_key.currentText()+' · 排序值')
-        for gear in sort_gear(snap.get('gear',[]),self.gear_sort):
+        ordered=sort_gear(snap.get('gear',[]),self.gear_sort)
+        if self.gear_score_sort.isChecked():
+            def score_key(g):
+                row=self.score_for_view(g);v=row['score'] if row else None
+                return (v is None,(-v if self.gear_sort['descending'] else v) if v is not None else 0,g['uid'])
+            ordered=sorted(ordered,key=score_key)
+        for gear in ordered:
             metadata=self.gear_metadata.get(gear['uid'])
             if not matches_gear(gear,self.gear_filters,metadata):continue
+            result=self.gear_scores[gear['uid']];scored=self.score_for_view(gear)
+            if self.gear_score_role.currentData() and scored is None:continue
             p=project_gear(gear,metadata); matrix=gear.get('matrix') or {}
             sort_value=gear_sort_value(gear,self.gear_sort)
             suffix=ATTRIBUTES[int(self.gear_sort['key'].split(':')[1])][2] if attr_sort else ''
@@ -576,7 +623,9 @@ class MainWindow(QMainWindow):
                     p['rarity'] if p['rarity']!=UNKNOWN else '未知',p['initial'] if p['initial']!=UNKNOWN else '未知',
                     attribute_text(p['main']) if p['main'] else '未知',
                     ' / '.join(attribute_text(a) for a in p['subs']) or '未知',
-                    ' / '.join(holders.get(gear['uid'],[])) or '无已观测关联']
+                    ' / '.join(holders.get(gear['uid'],[])) or '无已观测关联',
+                    ' / '.join(r['name'] for r in result['roles'] if r['eligible']) or ('评分不完整' if not result['complete'] else '待培养'),
+                    f"{scored['score']:.2f}" if scored else '—']
             if query and query not in (' '.join(map(str,values))+' '+str(gear['config_id'])).lower():continue
             rows.append(values); self.gear_display.append(gear)
         self.gear_table.blockSignals(True); fill(self.gear_table,rows); self.gear_table.clearSelection(); self.gear_table.setCurrentCell(-1,-1)
@@ -626,7 +675,9 @@ class MainWindow(QMainWindow):
             gear=self.gear_display[row]; p=project_gear(gear,self.gear_metadata.get(gear['uid']))
             text='\n'.join(('主属性：' if i==0 else '副属性：')+attribute_text(a)+
                            (f" · 追加次数 {a['upgrade_count_tentative']}（观测推定）" if i else '') for i,a in enumerate(p['attributes']))
-            self.gear_details.setPlainText(text+'\n\n原始记录：\n'+json.dumps(gear,ensure_ascii=False,indent=2))
+            result=self.gear_scores[gear['uid']]
+            summary='用途评分：'+' / '.join(f"{r['name']} {r['score']:.2f}" for r in result['roles'] if r['eligible'])
+            self.gear_details.setPlainText(summary+'\n\n'+text+'\n\n'+score_text(result,self.scoring_rules)+'\n\n原始记录：\n'+json.dumps(gear,ensure_ascii=False,indent=2))
     def build_history(self):
         layout=self.page(); row=QHBoxLayout(); self.history_info=label('','hint'); row.addWidget(self.history_info,1)
         self.history_filter=QComboBox();self.history_filter.addItem('全部类型',None)
@@ -711,7 +762,7 @@ class MainWindow(QMainWindow):
         layout=self.page(); row=QHBoxLayout(); self.map_category=combo(list(CATEGORIES)); self.map_query=QLineEdit(); self.map_query.setPlaceholderText('搜索编号或名称'); row.addWidget(self.map_category); row.addWidget(self.map_query,1)
         layout.addLayout(row)
         actions=QHBoxLayout()
-        actions.addWidget(self.action('新增',self.new_mapping)); actions.addWidget(self.action('编辑选中',self.edit_selected_mapping))
+        actions.addWidget(self.action('映射预设 / 导入导出',self.edit_mapping_presets)); actions.addWidget(self.action('新增',self.new_mapping)); actions.addWidget(self.action('编辑选中',self.edit_selected_mapping))
         actions.addWidget(self.action('删除自定义',self.restore_mapping))
         self.undo_mapping_btn=self.action('撤销删除',self.undo_mapping_delete); actions.addWidget(self.undo_mapping_btn)
         actions.addWidget(self.action('智壳候选编号清单',self.shell_catalogue)); actions.addStretch(); layout.addLayout(actions)
