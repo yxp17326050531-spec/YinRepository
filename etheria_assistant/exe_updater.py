@@ -129,7 +129,7 @@ def wait_pid(pid,seconds=90):
 def launch_worker(task,root):
     worker=Path(task)/'worker'
     args=['--update-worker',str(Path(task).resolve()),str(Path(root).resolve()),str(os.getpid()),str(os.getppid())]
-    if os.environ.get('ETHERIA_PORTABLE_ROOT'):
+    if (worker/'_internal/python/pythonw.exe').is_file():
         command=[str(worker/'_internal/python/pythonw.exe'),str(worker/'_internal/app/portable_bootstrap.py'),*args]
     else:command=[str(worker/'EtheriaAssistant.exe'),*args]
     return subprocess.Popen(command,cwd=worker,creationflags=0x00000008|0x00000200,close_fds=True)

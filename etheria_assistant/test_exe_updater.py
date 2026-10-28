@@ -29,3 +29,11 @@ class UpdaterTests(unittest.TestCase):
             with zipfile.ZipFile(archive,'w') as z:
                 z.writestr('EtheriaAssistant/EtheriaAssistant.exe',b'MZtest');z.writestr('EtheriaAssistant/_internal/test.txt','ok')
             root=extract_checked(archive,Path(tmp)/'stage');self.assertTrue((root/'EtheriaAssistant.exe').exists())
+
+    def test_worker_uses_actual_bundle_layout_even_with_inherited_portable_env(self):
+        from unittest.mock import patch
+        from exe_updater import launch_worker
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict('os.environ',{'ETHERIA_PORTABLE_ROOT':tmp}),patch('exe_updater.subprocess.Popen') as popen:
+                launch_worker(tmp,tmp)
+                self.assertEqual(popen.call_args.args[0][0],str(Path(tmp)/'worker/EtheriaAssistant.exe'))
