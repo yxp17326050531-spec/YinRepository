@@ -28,12 +28,13 @@ from equipment import (project_gear, attribute_text, matches_gear, normalize_fil
                        filter_options, filter_summary, RARITIES, UNKNOWN, ATTRIBUTES,
                        normalize_sort, sort_gear, gear_sort_value)
 from inventory_widgets import GearFilterDialog
+from overview_widgets import GearOverview
 from gear_scoring import ROLES, default_rules, validate_rules, score_gear, score_text
 from preset_widgets import MappingPresetDialog, ScoringPresetDialog
 from components import project_component, attribute_text as component_attribute_text, component_detail as component_detail_text
 from battle_attributes import decode_extra_attributes, pending_attributes, pending_text, extra_text
 
-VERSION='2.11.23-calc-test'
+VERSION='2.11.24-calc-test'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 from battle_metadata import KINDS, result_text
@@ -526,7 +527,10 @@ class MainWindow(QMainWindow):
         scoring.addWidget(self.gear_score_role)
         self.gear_score_sort=QCheckBox('按评分排序');self.gear_score_sort.setChecked(self.preferences.get('gear_score_sort',False) is True);scoring.addWidget(self.gear_score_sort)
         self.gear_score_role.currentIndexChanged.connect(self.change_score_view);self.gear_score_sort.toggled.connect(self.change_score_view)
-        layout.addLayout(scoring);self.gear_score_summary=label('','hint');layout.addWidget(self.gear_score_summary)
+        layout.addLayout(scoring);self.gear_score_summary=label('','hint');self.gear_score_summary.hide()
+        self.gear_overview=GearOverview(self.preferences.get('gear_overview_expanded',True) is not False,
+                                        self.preferences.get('gear_overview_top_n',5))
+        self.gear_overview.preferencesChanged.connect(self.save_overview_preferences);layout.addWidget(self.gear_overview)
         self.gear_filter_info=label('','hint'); layout.addWidget(self.gear_filter_info)
         tabs=QTabWidget(); self.inventory_tabs=tabs; self.gear_table=table(['源器编号','等级','排序数值','矩阵','点数','稀有度','初始副属性','主属性','副属性','装备关联','用途倾向','用途评分']); self.loadout_table=table(['角色','精确编号','配装类型','智壳','矩阵'])
         self.gear_table.horizontalHeader().moveSection(self.gear_table.horizontalHeader().visualIndex(11),2)
@@ -534,11 +538,13 @@ class MainWindow(QMainWindow):
         tabs.addTab(self.gear_table,'源器背包'); tabs.addTab(self.loadout_table,'本号智壳与矩阵'); layout.addWidget(tabs,1)
         self.component_table=table(['元件编号','名称 / 配置','基础主属性','基础副属性','专属刻影','装配引用','锁定标志'])
         tabs.addTab(self.component_table,'元件背包')
-        self.gear_details=QPlainTextEdit(); self.gear_details.setReadOnly(True); self.gear_details.setMaximumHeight(180); layout.addWidget(self.gear_details)
+        self.gear_details=QPlainTextEdit(); self.gear_details.setReadOnly(True); self.gear_details.setMaximumHeight(85); layout.addWidget(self.gear_details)
         self.gear_table.itemSelectionChanged.connect(self.gear_detail)
         self.component_table.itemSelectionChanged.connect(self.component_detail)
         tabs.currentChanged.connect(lambda _:self.component_detail() if tabs.currentWidget()==self.component_table else self.gear_detail())
         self.gear_table.cellDoubleClicked.connect(lambda r,c:self.edit_gear_metadata())
+    def save_overview_preferences(self,expanded,n):
+        self.archive.save_settings({'gear_overview_expanded':expanded,'gear_overview_top_n':n})
     def edit_scoring_presets(self):
         ScoringPresetDialog(self.archive,self.scoring_rules,self.use_scoring_rules,self).exec()
     def use_scoring_rules(self,rules):
@@ -555,6 +561,7 @@ class MainWindow(QMainWindow):
         if inputs!=self._score_input:
             self.gear_scores={g['uid']:score_gear(g,self.mappings,self.scoring_rules) for g in inputs[0]}
             self._score_input=copy.deepcopy(inputs)
+        self.gear_overview.set_scores(self.gear_scores,self.scoring_rules)
         self.score_preset_label.setText(self.scoring_rules['name']+' · '+self.scoring_rules['revision'])
         total=sum(r['score'] or 0 for r in self.gear_scores.values())
         incomplete=sum(not r['complete'] for r in self.gear_scores.values())
@@ -659,6 +666,7 @@ class MainWindow(QMainWindow):
         component_time=f" · 元件观测 {stamp(snap.get('components_capture_time'))}" if 'components' in snap else ''
         self.bag_info.setText(f"筛出 {len(rows)} / {len(snap.get('gear',[]))} 件源器 · 智壳 {len(snap.get('shells',[]))} 个 · 元件 {component_count} · 采集 {stamp(snap.get('capture_time'))}"+component_time)
         self.gear_filter_info.setText(filter_summary(self.gear_filters,filter_options(self.mappings,snap.get('gear',[]))))
+        self.gear_filter_info.setVisible(any(self.gear_filters.values()))
         self.gear_details.setPlainText('点击源器查看属性与原值。主副属性按已对照规则解码；未确认字段显示未知。稀有度和初始副属性条数可通过“校正分类”记录。')
         if self.inventory_tabs.currentWidget()==self.component_table:self.component_detail()
         else:self.gear_detail()
