@@ -13,11 +13,14 @@ import sys
 import tempfile
 import time
 import urllib.request
+import urllib.error
+import xml.etree.ElementTree as ET
 from urllib.parse import urlparse
 import zipfile
 
 REPO='yxp17326050531-spec/YinRepository'
 API=f'https://api.github.com/repos/{REPO}/releases?per_page=100'
+FEED=f'https://github.com/{REPO}/releases.atom'
 LIMIT=400*1024*1024
 
 def version_key(value):
@@ -29,7 +32,7 @@ def allowed_url(url):
     p=urlparse(url)
     if p.scheme!='https' or p.username or p.password or p.port not in (None,443):return False
     return ((p.hostname=='api.github.com' and p.path.startswith('/repos/'+REPO+'/')) or
-            (p.hostname=='github.com' and p.path.startswith('/'+REPO+'/releases/download/')) or
+            (p.hostname=='github.com' and (p.path.startswith('/'+REPO+'/releases/download/') or p.path=='/'+REPO+'/releases.atom')) or
             p.hostname=='release-assets.githubusercontent.com' or p.hostname=='objects.githubusercontent.com')
 
 class SafeRedirect(urllib.request.HTTPRedirectHandler):
@@ -50,10 +53,32 @@ def download(url,path,maximum=LIMIT):
     except Exception:
         Path(path).unlink(missing_ok=True);raise
 
+def feed_releases(xml):
+    """Official Atom fallback avoids anonymous REST API rate-limit dependence."""
+    releases=[];prefix=f'https://github.com/{REPO}/releases/tag/v'
+    for entry in ET.fromstring(xml).findall('{http://www.w3.org/2005/Atom}entry'):
+        for link in entry.findall('{http://www.w3.org/2005/Atom}link'):
+            href=link.get('href','')
+            if not href.startswith(prefix):continue
+            version=href[len(prefix):]
+            try:version_key(version)
+            except ValueError:continue
+            base=f'https://github.com/{REPO}/releases/download/v{version}/'
+            names=['release.json',f'EtheriaAssistant-{version}-windows-x64.zip']
+            releases.append({'tag_name':'v'+version,'prerelease':version.endswith('-calc-test'),
+                'body':'GitHub官方发行订阅源回退；详情请查看发行页。',
+                'assets':[{'name':name,'browser_download_url':base+name} for name in names]})
+            break
+    return releases
+
 def check(current,releases=None):
     if releases is None:
         with tempfile.TemporaryDirectory() as tmp:
-            p=Path(tmp)/'releases.json';download(API,p,4*1024*1024);releases=json.loads(p.read_text())
+            p=Path(tmp)/'releases.json'
+            try:
+                download(API,p,4*1024*1024);releases=json.loads(p.read_text())
+            except (urllib.error.URLError,TimeoutError,json.JSONDecodeError):
+                download(FEED,p,4*1024*1024);releases=feed_releases(p.read_text(encoding='utf-8'))
     choices=[]
     for release in releases:
         v=release.get('tag_name','').removeprefix('v')

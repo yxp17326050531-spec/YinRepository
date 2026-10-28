@@ -39,3 +39,16 @@ class UpdaterTests(unittest.TestCase):
                 self.assertEqual(popen.call_args.args[0][0],str(Path(tmp)/'worker/EtheriaAssistant.exe'))
                 import os
                 self.assertEqual(popen.call_args.args[0][-1],str(os.getpid()))
+
+    def test_official_feed_fallback_when_anonymous_api_is_rate_limited(self):
+        from unittest.mock import patch
+        import urllib.error
+        from exe_updater import check,API,FEED
+        calls=[]
+        def fetch(url,path,maximum):
+            calls.append(url)
+            if url==API:raise urllib.error.HTTPError(url,403,'rate limit',{},None)
+            Path(path).write_text('<feed xmlns="http://www.w3.org/2005/Atom"><entry><link href="https://github.com/yxp17326050531-spec/YinRepository/releases/tag/v2.11.21-calc-test" /></entry></feed>',encoding='utf-8')
+        with patch('exe_updater.download',side_effect=fetch):
+            self.assertEqual(check('2.11.14-calc-test')['version'],'2.11.21-calc-test')
+        self.assertEqual(calls,[API,FEED])
