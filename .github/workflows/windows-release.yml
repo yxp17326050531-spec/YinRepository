@@ -1,0 +1,35 @@
+name: Windows calculator release
+on:
+  push:
+    branches: [experiment/damage-calculator]
+    paths: [etheria_assistant/qt_app.py, .github/workflows/windows-release.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: windows-calculator-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - run: python -m pip install -r requirements-build.txt
+        working-directory: etheria_assistant
+      - run: python release_tools.py build
+        working-directory: etheria_assistant
+      - name: Publish exact tested build
+        working-directory: etheria_assistant
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $m = Get-Content release/release.json | ConvertFrom-Json
+          $tag = 'v' + $m.version
+          gh release create $tag "release/$($m.file)" release/SHA256SUMS.txt release/release.json --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "$($m.version) Windows" --notes-file RELEASE_NOTES.md --prerelease
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

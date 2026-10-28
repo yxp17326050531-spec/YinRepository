@@ -31,7 +31,7 @@ from inventory_widgets import GearFilterDialog
 from components import project_component, attribute_text as component_attribute_text, component_detail as component_detail_text
 from battle_attributes import decode_extra_attributes, pending_attributes, pending_text, extra_text
 
-VERSION='2.11.14-calc-test'
+VERSION='2.11.15-calc-test'
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 from battle_metadata import KINDS, result_text
@@ -786,6 +786,8 @@ class MainWindow(QMainWindow):
         c.addWidget(self.action('保存设置',self.save_preferences,True)); c.addWidget(label('使用已安装的 Wireshark / dumpcap 和 Npcap。网卡刷新在后台执行，抓包只在你点击开始后运行。','hint'))
         helpbar=QHBoxLayout();helpbar.addWidget(self.action('抓包组件安装说明',self.capture_setup_help));helpbar.addWidget(self.action('重新检测 dumpcap',self.detect_dumpcap));helpbar.addStretch();c.addLayout(helpbar)
         c.addWidget(label('默认发布包复用已安装的抓包组件；Npcap需要单独安装。离线导入无需实时抓包驱动。','hint'))
+        from update_widgets import UpdateController
+        self.updates=UpdateController(self,c,VERSION)
         saved=self.preferences.get('interface_id')
         if saved:self.interface.addItem(self.preferences.get('interface_label',saved),saved)
     def capture_setup_help(self):
@@ -904,6 +906,8 @@ class MainWindow(QMainWindow):
         d=Editor(self,'本地观测 · 最近 100 条'); d.save.hide(); t=QPlainTextEdit(json.dumps(self.archive.observations(limit=100),ensure_ascii=False,indent=2)); t.setReadOnly(True); t.setMinimumHeight(300); d.form.addRow(t)
         d.actions.insertWidget(1,self.action('导出结算资料',lambda:self.write_json(self.archive.validation_dataset(),'etheria_result_validation.json'))); d.exec()
     def closeEvent(self,event):
+        if hasattr(self,'updates') and self.updates.task and self.updates.task.isRunning():
+            self.notify('正在检查或下载更新，请稍候再关闭');event.ignore();return
         try:self.save_preferences()
         except Exception:self.archive.logger.exception('close preferences')
         if self.job and self.job.thread.is_alive():

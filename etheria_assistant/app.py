@@ -1,6 +1,9 @@
 """Launch the PySide6 dark desktop application."""
 import sys
 if __name__ == '__main__':
+    if len(sys.argv)==6 and sys.argv[1]=='--update-worker':
+        from exe_updater import worker_main
+        sys.exit(worker_main(sys.argv[2],sys.argv[3],[int(sys.argv[4]),int(sys.argv[5])]))
     if len(sys.argv)==3 and sys.argv[1]=='--smoke-test':
         from release_smoke import run
         sys.exit(run(sys.argv[2]))
@@ -11,3 +14,4 @@ if __name__ == '__main__':
             print('Missing PySide6. Run install_windows.cmd first, or pip install -r requirements.txt')
         raise
     sys.exit(main())
+
