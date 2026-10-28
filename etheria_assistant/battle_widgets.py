@@ -1,7 +1,7 @@
 """Responsive Qt battle rows, with identity and two distinct attribute groups."""
 from html import escape
 from PySide6.QtCore import Qt,QTimer
-from PySide6.QtWidgets import QWidget,QFrame,QLabel,QVBoxLayout,QHBoxLayout,QGridLayout,QMenu,QSizePolicy,QBoxLayout
+from PySide6.QtWidgets import QWidget,QFrame,QLabel,QVBoxLayout,QHBoxLayout,QGridLayout,QMenu,QSizePolicy,QBoxLayout,QLayout
 from artwork import image_label,matrix_color
 from capture import shell_text,matrix_text,imprint_text
 from battle_attributes import decode_extra_attributes
@@ -19,7 +19,7 @@ class UnitCard(QFrame):
         super().__init__();self.setObjectName('heroRow');self.wide=None
         self.heading_timer=QTimer(self);self.heading_timer.setSingleShot(True);self.heading_timer.timeout.connect(self.sync_heading_heights)
         self.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Maximum)
-        self.root=QHBoxLayout(self);self.root.setContentsMargins(4,1,4,1);self.root.setSpacing(4)
+        self.root=QHBoxLayout(self);self.root.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint);self.root.setContentsMargins(4,1,4,1);self.root.setSpacing(4)
         identity=QWidget();identity.setObjectName('unitIdentity');identity.setFixedWidth(112)
         left=QVBoxLayout(identity);left.setContentsMargins(0,0,0,0);left.setSpacing(4)
         top=QHBoxLayout();top.setSpacing(6);top.addWidget(image_label('heroes',unit['hero_name'],28))
@@ -59,10 +59,10 @@ class UnitCard(QFrame):
             overflow=action('+'+str(len(unique)-3),lambda:details(unit));overflow.setObjectName('heroMore')
             overflow.setToolTip(matrix_text(unit));equipment.addWidget(overflow)
         left.addLayout(equipment);left.addStretch();self.root.addWidget(identity)
-        attributes=QWidget();right=QVBoxLayout(attributes);right.setContentsMargins(0,0,0,0);right.setSpacing(1)
+        attributes=QWidget();right=QVBoxLayout(attributes);right.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint);right.setContentsMargins(0,0,0,0);right.setSpacing(1)
         self.basic=QGridLayout();self.basic.setHorizontalSpacing(3);self.basic.setVerticalSpacing(0)
         right.addLayout(self.basic)
-        secondary=QFrame();secondary.setObjectName('extraAttributes');self.extra=QGridLayout(secondary)
+        secondary=QFrame();secondary.setObjectName('extraAttributes');self.extra=QGridLayout(secondary);self.extra.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
         self.extra.setContentsMargins(3,1,3,1);self.extra.setHorizontalSpacing(3);self.extra.setVerticalSpacing(0)
         right.addWidget(secondary);right.addStretch();self.root.addWidget(attributes,1)
         specs=[('hp','生命'),('attack','攻击'),('defense','防御'),('speed','速度'),
@@ -75,7 +75,7 @@ class UnitCard(QFrame):
             value=(values or {}).get(key)
             shown='—' if not isinstance(value,(int,float)) else f'{value:g}%' if index>=4 else f'{value:.2f}' if key=='speed' else f'{value:g}'
             cell=QWidget();col=QBoxLayout(QBoxLayout.Direction.LeftToRight,cell)
-            col.setContentsMargins(0,0,0,0);col.setSpacing(3 if index>=8 else 0)
+            col.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint);col.setContentsMargins(0,0,0,0);col.setSpacing(3 if index>=8 else 0)
             # Headings may wrap; numeric values keep their actual font size.
             heading=text(title,'attributeTitle');heading.setWordWrap(True)
             policy=heading.sizePolicy();policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored);heading.setSizePolicy(policy)
@@ -144,6 +144,7 @@ class UnitCard(QFrame):
         # the wide grid's minimum can otherwise prevent a shrinking window
         # from delivering a smaller resize event to this card.
         self.ensurePolished()
+        self.setMinimumWidth(0)
         for cell in self.cells:
             for widget in cell.findChildren(QWidget):
                 widget.ensurePolished()
@@ -152,7 +153,7 @@ class UnitCard(QFrame):
                     # Wrapping headers must never squeeze the value's height
                     # or width below what the polished font requires.
                     widget.setMinimumSize(widget.sizeHint())
-            cell.layout().invalidate();cell.updateGeometry()
+            cell.setMinimumSize(0,0);cell.layout().invalidate();cell.updateGeometry()
         # Compare the actual polished minimum sizes. Different fonts can make
         # either grid the limiting width; choose the shortest arrangement that
         # fits, rather than adding rows when stacking labels is sufficient.
@@ -164,6 +165,8 @@ class UnitCard(QFrame):
         fitting=[];measured=[]
         for priority,configuration in enumerate(candidates):
             self.reflow(*configuration)
+            for cell in self.cells:cell.layout().activate()
+            self.basic.parentWidget().layout().activate();self.root.invalidate()
             size=self.minimumSizeHint()
             # A wrapping layout can be much taller than minimumSizeHint.
             # Rank candidates at the width they will actually receive.

@@ -184,7 +184,7 @@ class QtTests(unittest.TestCase):
                 self.assertEqual(roster.count(),4)
                 for i in range(roster.count()):
                     card=roster.itemAt(i).widget();rect=QRect(card.mapTo(viewport,QPoint(0,0)),card.size())
-                    self.assertTrue(viewport.rect().contains(rect),(width,height,rect,viewport.rect(),getattr(card,'configuration',None),card.minimumSizeHint()));count+=1
+                    self.assertTrue(viewport.rect().contains(rect),(width,height,rect,viewport.rect(),getattr(card,'configuration',None),card.minimumSizeHint(),card.minimumWidth(),card.root.minimumSize(),[(c.minimumWidth(),c.minimumSizeHint().width(),c.layout().minimumSize().width()) for c in card.cells]));count+=1
                     for metric in card.findChildren(QLabel):
                         if metric.objectName() in ('speed','statValue'):
                             self.assertGreaterEqual(metric.width(),metric.sizeHint().width(),metric.accessibleName())
