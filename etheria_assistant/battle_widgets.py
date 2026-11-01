@@ -108,7 +108,7 @@ class UnitCard(QFrame):
             self.basic.parentWidget().layout().invalidate()
             self.extra.parentWidget().updateGeometry();self.basic.parentWidget().updateGeometry()
             self.root.invalidate()
-            self.setMinimumHeight(max(self.root.minimumSize().height(),self.root.heightForWidth(self.width())))
+            self.setMinimumHeight(max(self.minimumSizeHint().height(),self.root.heightForWidth(self.width())+2*self.frameWidth()))
             self.updateGeometry()
 
     def reflow(self,wide,extra_columns=None,stack_basic=False,stack_extra=False,balanced=False):
@@ -121,6 +121,13 @@ class UnitCard(QFrame):
             # fonts. Stacking them also in compact mode prevents their summed
             # minimum widths from forcing both teams beyond the viewport.
             stacked=(wide or stack_basic or index>=4) if index<8 else stack_extra
+            heading=cell.layout().itemAt(0).widget()
+            # An inline label must reserve its text width before the numeric
+            # value claims space. Ignored size policy otherwise permits zero.
+            policy=heading.sizePolicy()
+            policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored if stacked else QSizePolicy.Policy.Preferred)
+            heading.setSizePolicy(policy)
+            heading.setMinimumWidth(0 if stacked else heading.sizeHint().width())
             cell.layout().setDirection(QBoxLayout.Direction.TopToBottom if stacked else QBoxLayout.Direction.LeftToRight)
             cell.layout().setSpacing(0 if stacked else 3)
             cell.layout().invalidate();cell.updateGeometry()
@@ -180,7 +187,7 @@ class UnitCard(QFrame):
             if size.width()<=width:fitting.append((size.height(),priority,configuration))
         self.reflow(*(min(fitting)[2] if fitting else min(measured)[3]))
         height=self.root.heightForWidth(width)
-        self.setMinimumHeight(max(self.root.minimumSize().height(),height))
+        self.setMinimumHeight(max(self.minimumSizeHint().height(),height+2*self.frameWidth()))
         self.heading_timer.start(0)
 
 

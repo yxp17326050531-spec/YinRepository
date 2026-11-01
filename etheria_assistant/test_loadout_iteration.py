@@ -17,6 +17,29 @@ class IterationTests(unittest.TestCase):
         s=Scenario(Fighter(attack=105),Fighter(hp=220),ratios=(.1,),pvp=False,shell='寅虎',tiger_target=True,harvest=True,shield_hp=20)
         a,b=calculate(s)['rows'];self.assertEqual(a['direct_trace']['absorbed'],20)
         self.assertTrue(a['harvest']);self.assertFalse(b['harvest']);self.assertAlmostEqual(b['before'],60)
+    def test_borne_tiger_applies_passive_once_before_mark(self):
+        from character_presets import apply_character
+        from calculator_formula import formula_text
+
+        base = Scenario(Fighter(attack=1000, hp=10000), Fighter(hp=1000000),
+                        shell='寅虎', tiger_target=True, pvp=False)
+        # Entry attack 1000 adds 8000 HP. 牧夜行 contributes 10800 per trigger.
+        for mode, second_base in ((1, 13300), (2, 2500)):
+            with self.subTest(mode=mode):
+                s = apply_character(base, 'borne_s3', alive=4, hp_mode=2, entry_attack=1000,
+                                    hp_damage_mode=mode, passive_checked=True)
+                result = calculate(s)
+                opener, first, second = result['rows']
+                self.assertAlmostEqual(opener['direct'], (1800 + 10800) / 1.05)
+                self.assertAlmostEqual(first['direct'], (6000 + 10800) * 1.5 / 1.05)
+                self.assertAlmostEqual(second['direct'], second_base / 1.05)
+                self.assertIn('牧夜行随寅虎先手触发一次', formula_text(s, result))
+                other = calculate(replace(s, tiger_target=False))['rows']
+                self.assertEqual([row['phase'] for row in other], ['技能', '技能'])
+                self.assertAlmostEqual(other[0]['direct'], (6000 + 10800) / 1.05)
+                lethal = calculate(replace(s, remaining_hp=10000))
+                self.assertEqual([row['killed_by'] for row in lethal['rows']], ['寅虎先手'])
+
     def test_main_stat_gate_and_speed_exception(self):
         for main,role in [(7,'attack'),(3,'hp'),(11,'defense'),(25,'accuracy'),(28,'resistance')]:
             g=gear(attrs=[attr(main,100),attr(16,1800),attr(11,130),attr(22,150),attr(19,100)],matrix=4)

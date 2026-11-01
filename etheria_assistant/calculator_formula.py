@@ -47,6 +47,8 @@ def formula_text(s,r):
     if s.shell=='寅虎':
         lines.append('寅虎：当前守方' + ('被先手命中：战斗攻击×180%，存活后下一技能段独立×1.50一次。' if s.tiger_target else '不是先手目标，本目标无先手及标记。') +
                      '研究口径：先手暂沿用本次暴击设定和共用乘区，独立过防御/护盾/浴血，不套角色技能倍率或主目标加成。')
+        if s.tiger_target and s.tiger_passive_damage:
+            lines.append(f'牧夜行随寅虎先手触发一次：博尔涅最大生命 {f(a.hp)} × 60% = {f(s.tiger_passive_damage)}，计入先手基础伤害。先手结算后再上标记。')
     for row in r['rows']:
         lines += ['',f"【{row['phase']}{row['phase_hit']}】段前生命 {f(row['before'])} / {f(d.hp)}；有效防御 {f(row['effective_defense'])}；收割 {'触发' if row['harvest'] else '不触发'}",
             '条件系数：'+' × '.join(name+' '+f(v) for name,v in row['conditional_components']),

@@ -129,6 +129,7 @@ class Scenario:
     count_attack_percent: float = 0
     count_base_attack: float | None = None  # white attack, never imported total attack
     quilo_passive: bool = False
+    tiger_passive_damage: float = 0  # Borne's 牧夜行 attached to the opener
 
 
 def defense_terms(base, multiplier, flat_down, model):
@@ -174,7 +175,7 @@ def _validate(s):
     for key in ('attack_up', 'attack_down', 'crit_damage_up', 'defense_up', 'defense_down',
                 'flat_defense_down', 'other_ignore', 'damage_multiplier', 'target_multiplier',
                 'card_sun_bonus', 'sun_base_bonus', 'sun_per_buff_bonus', 'manual_attribute_bonus', 'lost_hp_damage_scale',
-                'bloodbath_spent', 'count_attack_percent', 'first_hit_multiplier', 'shield_hp', 'final_multiplier', 'extra_hit_damage', 'followup_flat_damage'):
+                'bloodbath_spent', 'count_attack_percent', 'first_hit_multiplier', 'shield_hp', 'final_multiplier', 'extra_hit_damage', 'followup_flat_damage', 'tiger_passive_damage'):
         v = getattr(s, key)
         if not isinstance(v, (int, float)) or not isfinite(v) or v < 0:
             raise ValueError('增减益及乘区必须是非负有限数字')
@@ -255,7 +256,12 @@ def calculate(s):
         if tiger_here and phase=='技能' and i==0:conditional_components.append(('寅虎标记（消耗）',1.5))
         conditional=prod(v for _,v in conditional_components)
         typed = (1-d.ultimate_damage_reduction/100) if s.skill_kind=='ultimate' and phase=='技能' else (1+a.basic_damage_bonus/100) if s.skill_kind=='basic' and phase=='技能' else 1
-        base=(scaling*ratio+(s.extra_hit_damage if not s.extra_first_only or i==0 else 0)) if phase=='技能' else attack*ratio+(s.followup_flat_damage if phase=='白獠追击' else 0)
+        if phase == '寅虎先手':
+            base = attack * ratio + s.tiger_passive_damage
+        elif phase == '白獠追击':
+            base = attack * ratio + s.followup_flat_damage
+        else:
+            base = scaling * ratio + (s.extra_hit_damage if not s.extra_first_only or i == 0 else 0)
         finisher = min(max(0,d.hp-before),attack*3.5) if s.missing_hp_finisher and phase=='技能' and i==len(s.ratios)-1 else 0
         base += finisher
         lost_multiplier = 1+s.lost_hp_damage_scale*max(0,d.hp-before)/d.hp if phase=='技能' else 1

@@ -26,7 +26,7 @@ def overview_metrics(scores,rules,n=5):
             single=max(sum(rules['roles'][k]['weights'].values())*rules['attribute_scale'] for k in keys)*max(1,rules['speed']['two_points_factor'])
         reference=single*n
         percent=raw/reference*100 if reference>0 else None
-        axes.append({'key':key,'name':name,'raw':raw,'reference':reference,'percent':percent,
+        axes.append({'key':key,'name':name,'raw':raw,'reference':reference,'percent':percent,'eligible_count':len(values),
                      'draw_percent':min(100,max(0,percent)) if percent is not None else 0,'count':len(chosen)})
     bins={key:0 for key in ('低于14','14–16','17','18','19','20+')};unknown_speed=0
     for item in items:
@@ -38,3 +38,4 @@ def overview_metrics(scores,rules,n=5):
     return {'total':sum(i['score'] or 0 for i in items),'count':len(items),
             'rated':sum(i['score'] is not None for i in items),'incomplete':sum(not i['complete'] for i in items),
             'axes':axes,'speed_bins':bins,'unknown_speed':unknown_speed,'top_n':n}
+
