@@ -565,7 +565,7 @@ class MainWindow(QMainWindow):
         self.score_preset_label.setText(self.scoring_rules['name']+' · '+self.scoring_rules['revision'])
         total=sum(r['score'] or 0 for r in self.gear_scores.values())
         incomplete=sum(not r['complete'] for r in self.gear_scores.values())
-        self.gear_score_summary.setText(f'全库存用途总分 {total:.2f} · UID去重 {len(self.gear_scores)} 件 · 词条不完整 {incomplete} 件 · 每件只取最高用途分；初版评分不代表实战伤害，主属性/配装兼容性未计入。')
+        self.gear_score_summary.setText(f'全库存用途总分 {total:.2f} · UID去重 {len(self.gear_scores)} 件 · 词条不完整 {incomplete} 件 · 每件只取最高用途分；初版评分不代表实战伤害，按主属性筛选用途，未计整套配装。')
     def edit_mapping_presets(self):
         MappingPresetDialog(self.archive,self.mapping_changed,self).exec()
     def change_gear_sort(self):

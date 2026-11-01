@@ -124,6 +124,7 @@ class Scenario:
     bloodbath: bool = False
     bloodbath_spent: float = 0
     remaining_hp: float | None = None
+    tiger_target: bool | None = None  # current defender received opener; never inferred from opening HP
     shell: str = '无 / 手动'
     count_attack_percent: float = 0
     count_base_attack: float | None = None  # white attack, never imported total attack
@@ -154,7 +155,8 @@ def _validate(s):
         raise ValueError('屠夫：请填写攻方当前生命百分比0–100')
     if s.model not in MODELS or s.scaling not in ('attack', 'defense', 'hp'):
         raise ValueError('请选择支持的防御模型和技能缩放属性')
-    if s.shell not in ('无 / 手动', '启示录', '伯爵', '宝剑七', '噬身之蛇', '白獠武者'):
+    if s.shell=='寅虎' and type(s.tiger_target) is not bool:raise ValueError('请选择寅虎先手命中了哪个目标')
+    if s.shell not in ('无 / 手动', '启示录', '伯爵', '宝剑七', '噬身之蛇', '白獠武者','寅虎'):
         raise ValueError('该智壳尚未建模，请选无 / 手动并自行设置乘区')
     for f in (s.attacker, s.defender):
         if any(not isinstance(v, (int, float)) or not isfinite(v) for v in vars(f).values()):
@@ -234,6 +236,8 @@ def calculate(s):
             'final_multiplier':s.final_multiplier,'absorbed':absorbed,'actual':actual}
 
     events=[('技能',i,r) for i,r in enumerate(s.ratios)]+[('白獠追击',i,r) for i,r in enumerate(s.followup_ratios)]
+    tiger_here=s.shell=='寅虎' and s.tiger_target is True
+    if tiger_here:events.insert(0,('寅虎先手',0,1.8))
     for event_index,(phase,i,ratio) in enumerate(events):
         before = hp
         harvest = s.harvest and hp > d.hp * .5
@@ -248,16 +252,17 @@ def calculate(s):
             ('亵渎',1.4 if s.shield_bonus and shield>0 else 1),
             ('洞悉穿刺',(1.25,1.15,1.05)[damage_events] if s.insight and damage_events<3 and phase=='技能' else 1),
             ('宝剑七',1.5 if s.seven_control or (s.shell=='宝剑七' and s.sleeping and event_index==0) else 1)]
+        if tiger_here and phase=='技能' and i==0:conditional_components.append(('寅虎标记（消耗）',1.5))
         conditional=prod(v for _,v in conditional_components)
         typed = (1-d.ultimate_damage_reduction/100) if s.skill_kind=='ultimate' and phase=='技能' else (1+a.basic_damage_bonus/100) if s.skill_kind=='basic' and phase=='技能' else 1
-        base=(scaling*ratio+(s.extra_hit_damage if not s.extra_first_only or i==0 else 0)) if phase=='技能' else attack*ratio+s.followup_flat_damage
+        base=(scaling*ratio+(s.extra_hit_damage if not s.extra_first_only or i==0 else 0)) if phase=='技能' else attack*ratio+(s.followup_flat_damage if phase=='白獠追击' else 0)
         finisher = min(max(0,d.hp-before),attack*3.5) if s.missing_hp_finisher and phase=='技能' and i==len(s.ratios)-1 else 0
         base += finisher
         lost_multiplier = 1+s.lost_hp_damage_scale*max(0,d.hp-before)/d.hp if phase=='技能' else 1
         target=s.target_multiplier if phase=='技能' else 1
         first_multiplier=s.first_hit_multiplier if event_index==0 else 1
         direct, direct_actual, direct_trace = apply_damage(base * lost_multiplier * factor * typed * target * conditional * boil * first_multiplier / divisor)
-        damage_events += s.insight_events_per_hit
+        damage_events += 1 if phase=='寅虎先手' else s.insight_events_per_hit
         shell = shell_actual = 0.0
         shell_trace=None
         if hp > 0 and s.shell == '启示录' and s.critical:

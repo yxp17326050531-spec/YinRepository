@@ -92,7 +92,7 @@ def simplify_calculator(d):
     statuses.addStretch()
     equipment=page(4,'装备效果');cols=QHBoxLayout();equipment.addLayout(cols);a=QVBoxLayout();b=QVBoxLayout();cols.addLayout(a,1);cols.addLayout(b,1)
     group(a,'攻方 · 矩阵',rows(('','harvest'),('','fury'),('','boiling'),('','insight'),('','opportunist'),('目标减益种类','debuff_count'),('','desecrate')))
-    group(a,'攻方 · 智壳',rows(('智壳','shell'),('','shell_status'),('伯爵算法','count_version'),('噬身之蛇层数','serpent'),('白獠暴伤层数','white_stacks'),('','controlled')))
+    group(a,'攻方 · 智壳',rows(('智壳','shell'),('','shell_status'),('寅虎先手目标','tiger_target'),('伯爵算法','count_version'),('噬身之蛇层数','serpent'),('白獠暴伤层数','white_stacks'),('','controlled')))
     group(b,'攻方 · 屠夫',rows(('增伤档位','butcher_tier'),('当前生命 %','attacker_hp_percent')))
     group(b,'守方 · 矩阵与刻影',rows(('','bloodbath'),('','spring'),('','unyielding'),('戍防官（仅暴击）','warden_tier'),('','warden_not_in_panel')))
     group(b,'守方 · 当前血量与护盾',rows(('当前生命','remaining_hp'),('浴血本回合已扣血','bloodbath_spent'),('护盾剩余量','shield_remaining')))

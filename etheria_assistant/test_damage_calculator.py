@@ -423,6 +423,18 @@ class CalculatorQtTests(unittest.TestCase):
         d.shell.setCurrentText('伯爵');d.run();self.assertAlmostEqual(d.last_result['damage'],count['damage'])
         d.compare();self.assertIn('【收割方案】',d.formula_text.toPlainText());self.assertIn('【狂怒方案】',d.formula_text.toPlainText())
 
+    def test_loadout_dialog_and_tiger_target_are_independent(self):
+        from loadout_comparison import ComparisonDialog
+        d=self.dialog;d.assume_zero.setChecked(True);d.base_attack.setValue(1000)
+        d.shell.setCurrentText('启示录');v=ComparisonDialog(d)
+        try:
+            v.shell.setCurrentText('寅虎');self.assertIn('无法比较',v.output.toPlainText())
+            v.tiger.setCurrentIndex(1);self.assertIn('寅虎先手',v.output.toPlainText())
+            v.flags['harvest'].setChecked(True);self.assertIn('B 相对 A',v.output.toPlainText())
+            self.assertEqual(d.shell.currentText(),'启示录');self.assertFalse(d.harvest.isChecked())
+            v.shell.setCurrentText('伯爵');self.assertIn('B　伯爵',v.output.toPlainText())
+        finally:v.close()
+
     def test_white_attack_templates_butcher_and_legacy_profile(self):
         d=self.dialog;d.assume_zero.setChecked(True)
         for name,white in [('魁洛',1133),('弥瑟亚',1302),('博尔涅',1299)]:

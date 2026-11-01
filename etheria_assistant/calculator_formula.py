@@ -44,6 +44,9 @@ def formula_text(s,r):
         f'浴血：余量 A=max(0, 最大生命 {f(d.hp)}×20% − 本回合累计实际扣血)。仅溢出部分H参与：M=min(H,A)+max(0,H−A)×0.45；未启用时M=H。',
         f'分摊等最终系数={f(s.final_multiplier)}；生命伤害=M×最终系数；实际扣血封顶到当前生命；结算伤害（含盾吸收）=S+生命伤害。',
         '以下数值来自本次计算实际执行的记录，生命附伤与状态使用角色处理后的面板。']
+    if s.shell=='寅虎':
+        lines.append('寅虎：当前守方' + ('被先手命中：战斗攻击×180%，存活后下一技能段独立×1.50一次。' if s.tiger_target else '不是先手目标，本目标无先手及标记。') +
+                     '研究口径：先手暂沿用本次暴击设定和共用乘区，独立过防御/护盾/浴血，不套角色技能倍率或主目标加成。')
     for row in r['rows']:
         lines += ['',f"【{row['phase']}{row['phase_hit']}】段前生命 {f(row['before'])} / {f(d.hp)}；有效防御 {f(row['effective_defense'])}；收割 {'触发' if row['harvest'] else '不触发'}",
             '条件系数：'+' × '.join(name+' '+f(v) for name,v in row['conditional_components']),

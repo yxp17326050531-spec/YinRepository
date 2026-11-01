@@ -90,7 +90,7 @@ def curve_score(value,curve):
 
 def score_gear(gear,mappings,rules,metadata=None):
     """Caller validates the selected rules once, not once per inventory row."""
-    metadata=metadata or {};subs=project_gear(gear)['subs'];values={};lines=[];unknown=[]
+    projection=project_gear(gear);main=(projection['main'] or {}).get('type');subs=projection['subs'];values={};lines=[];unknown=[]
     for a in subs:
         if a['value'] is None:unknown.append(a['type']);continue
         tag=str(a['type']);v=a['value'];equivalent=tag
@@ -112,8 +112,13 @@ def score_gear(gear,mappings,rules,metadata=None):
             score+=points
         for tag,w in role['weights'].items():
             if w and values.get(tag,0)/rules['references'][tag]>=rules['meaningful_fraction']:meaningful.add(tag)
-        eligible=score>=rules['minimum_score'] and len(meaningful)>=rules['minimum_attributes'] and bool(meaningful & set(role['core']))
-        results.append({'key':key,'name':ROLES[key],'score':score*point_factor if complete and point_factor is not None else None,'partial_score':score,
+        eligible=score>=rules['minimum_score'] and len(meaningful)>=rules['minimum_attributes'] and bool((meaningful | {str(main)}) & set(role['core']))
+        # Selectable main stats determine fit; fixed main stats impose no role restriction.
+        allowed={'attack':{7,19,22},'hp':{3,19,22},'defense':{11,19,22},
+                 'survival':{3,11},'accuracy':{3,11,25},'resistance':{3,11,28}}
+        compatible=main in (4,8,12) or main in allowed[key]
+        eligible=eligible and compatible
+        results.append({'compatible':compatible,'key':key,'name':ROLES[key],'score':score*point_factor if complete and compatible and point_factor is not None else None,'partial_score':score,
                         'eligible':eligible and complete and point_factor is not None,'point_factor':point_factor,'contributions':contributions})
     speed=values.get('16')
     factor=s['top_factor'] if name in s['top'] else s['second_factor'] if name in s['second'] else s['other_factor']
@@ -132,7 +137,7 @@ def score_gear(gear,mappings,rules,metadata=None):
 
 def score_text(result,rules):
     out=[f"评分预设：{rules['name']} · {rules['revision']}（初版启发式，非实际战斗力）",
-         '用途分为有效副属性折算；当前输出/辅助不套用一速矩阵系数，主属性与配装兼容性未计入。',
+         '用途分为有效副属性折算；主属性决定可用倾向，固定攻防血主属性不限用途；一速不受主属性限制。',
          f"参考上限、用途门槛、速度曲线及其他矩阵{rules['speed']['other_factor']:g}折扣为可调整暂定值，不截断超出参考值的属性。"]
     if not result['complete']:out.append('评分不完整：存在未知或缺失副属性，暂不计入总分。')
     for r in result['roles']:
@@ -142,7 +147,9 @@ def score_text(result,rules):
                 out.append(f"实际速度 {v:g} / 显示 {rounded_speed(v)}；基础 {r['base']:.2f} + 添头 {r['bonus']:.2f}，再×矩阵{r['matrix_factor']:g}×点数{r['point_factor'] if r['point_factor'] is not None else '待确认'}")
                 out.append('速度只按实际数值计分，不使用强化次数；显示17速起为一速，14–16速保留高速候选评分。')
             continue
-        score=r['score'];out.append(f"\n{r['name']}："+(f'{score:.2f}分' if score is not None else '不完整')+(' · 用途倾向' if r['eligible'] else ' · 未达到倾向门槛'))
+        if not r['compatible']:
+            out.append(f"\n{r['name']}：主属性不匹配，不计入该用途。");continue
+        score=r['score'];out.append(f"\n{r['name']}："+(f'{score:.2f}分' if score is not None else '不完整')+(' · 用途倾向' if r['eligible'] else (' · 主属性不匹配，不计入该用途' if not r['compatible'] else ' · 未达到倾向门槛')))
         out.append(f"  有效属性小计 {r['partial_score']:.2f} × 点数系数 {r['point_factor'] if r['point_factor'] is not None else '待确认'}")
         for a in r['contributions']:
             conversion=f" → 等效{a['equivalent']:g}%" if a['name'] in ('生命','攻击','防御') else ''

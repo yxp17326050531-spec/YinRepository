@@ -107,7 +107,7 @@ class ScoringPresetDialog(QDialog):
             f"一速 =（速度曲线基础分 + 最多{s['secondary_bonus_cap']:g}分添头）×矩阵系数×点数系数。\n"
             f"第一档 {s['top']} ×{s['top_factor']:g}\n第二档 {s['second']} ×{s['second_factor']:g}\n其他已知矩阵 ×{s['other_factor']:g}（暂定）\n"
             f"普通2点 ×{s['two_points_factor']:g}；已确认8件套2点与3点均×1。\n8件套：{s['eight_piece']}\n\n"
-            '输出和辅助同样应用2点折扣及8件套例外，但不沿用一速矩阵偏好；未判定主属性、部位及整套配装兼容性。\n'
+            '输出和辅助同样应用2点折扣及8件套例外，但不沿用一速矩阵偏好；主属性先筛选用途，未判定部位及整套配装兼容性。\n'
             '未知副属性不计最终分；账号按源器UID去重，每件只取最高用途分。库存总分可能混用同一件的配装用途，不代表同时可组出的队伍。')
     def save_rules(self,rules):
         rules=validate_rules(rules);saved=self.presets()
