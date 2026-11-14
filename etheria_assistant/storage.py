@@ -103,6 +103,10 @@ class Archive:
             cursor=db.execute('SELECT id,original FROM battles WHERE id NOT IN (SELECT battle_id FROM battle_summaries)')
             while rows:=cursor.fetchmany(200):
                 for row in rows:self._save_summary(db,row['id'],json.loads(row['original']),modes)
+            # Correct summaries created before asymmetric GVG rosters were confirmed.
+            db.execute("""UPDATE battle_summaries SET auto_kind='GVG' WHERE auto_kind='PVE' AND (
+                (json_array_length(metadata,'$.teams.A')=3 AND json_array_length(metadata,'$.teams.B')=4)
+                OR (json_array_length(metadata,'$.teams.A')=4 AND json_array_length(metadata,'$.teams.B')=3))""")
         # Replay saved observations once so old captures gain automatic results too.
         with self.connect() as db:
             for row in db.execute("SELECT id,data,source FROM observations WHERE kind='settlement'").fetchall():
@@ -764,7 +768,7 @@ class Archive:
                 'notes':['BP观测未确认预选/选取/禁用含义，未关联具体对局，不能计算pick/ban率。',
                          '阵容出场率分母为符合筛选条件的队伍数；未知胜负不计入胜率。',
                          '协议A/B与本人身份分开；结算码不固定对应胜方，己方未确认不计算本人胜负。',
-                         '3v3归GVG，非3v3/4v4归PVE；4v4有确认选人证据才自动归BP排位；回放单独分类，手动分类优先。']}
+                         '3v3、3v4和4v3归GVG；其他非4v4阵容归PVE；4v4有确认选人证据才自动归BP排位；回放单独分类，手动分类优先。']}
 
     def validation_dataset(self):
         dataset=self.dataset()
@@ -818,4 +822,5 @@ def project_unit(unit, mappings, annotation=None):
             out['matrix_effects_candidates'].append(dict(matrix, effect_id=effect))
     out['manual'] = copy.deepcopy(annotation) if annotation else None
     return out
+
 

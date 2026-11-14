@@ -1,10 +1,55 @@
 """Responsive Qt battle rows, with identity and two distinct attribute groups."""
 from html import escape
+from math import isfinite
+from time import monotonic
 from PySide6.QtCore import Qt,QTimer
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QWidget,QFrame,QLabel,QVBoxLayout,QHBoxLayout,QGridLayout,QMenu,QSizePolicy,QBoxLayout,QLayout
 from artwork import image_label,matrix_color
 from capture import shell_text,matrix_text,imprint_text
 from battle_attributes import decode_extra_attributes
+
+ATTRIBUTE_COLOR_RANGES = {
+    'hp': (30000, 85000), 'attack': (3000, 5500), 'defense': (1500, 5000),
+    'speed': (300, 400), 'crit': (80, 100), 'crit_damage': (200, 400),
+    'effect_hit': (100, 300), 'effect_resist': (100, 300),
+}
+ATTRIBUTE_COLORS = ((242, 244, 252), (255, 225, 103), (255, 166, 83), (255, 95, 108))
+
+
+def attribute_color(key, value):
+    if key not in ATTRIBUTE_COLOR_RANGES or not isinstance(value, (int, float)) or not isfinite(value):
+        return None
+    low, high = ATTRIBUTE_COLOR_RANGES[key]
+    position = max(0.0, min(1.0, (value - low) / (high - low))) * (len(ATTRIBUTE_COLORS) - 1)
+    index = min(int(position), len(ATTRIBUTE_COLORS) - 2)
+    fraction = position - index
+    return QColor(*(round(start + (end - start) * fraction)
+                    for start, end in zip(ATTRIBUTE_COLORS[index], ATTRIBUTE_COLORS[index + 1])))
+
+
+class RainbowSpeed(QLabel):
+    """Cycle the text color while the exceptionally fast value is on screen."""
+    def __init__(self, shown):
+        super().__init__(shown)
+        self.setObjectName('speed')
+        self.timer = QTimer(self)
+        self.timer.setInterval(100)
+        self.timer.timeout.connect(self.update_color)
+        self.update_color()
+
+    def update_color(self):
+        color = QColor.fromHsvF((monotonic() / 3.0) % 1.0, .58, 1.0)
+        self.setStyleSheet(f'color: {color.name()};')
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.update_color()
+        self.timer.start()
+
+    def hideEvent(self, event):
+        self.timer.stop()
+        super().hideEvent(event)
 
 
 def text(value,name=None):
@@ -80,7 +125,14 @@ class UnitCard(QFrame):
             heading=text(title,'attributeTitle');heading.setWordWrap(True)
             policy=heading.sizePolicy();policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored);heading.setSizePolicy(policy)
             col.addWidget(heading)
-            metric=text(shown,'speed' if key=='speed' else 'statValue');metric.setWordWrap(False)
+            color = attribute_color(key, value)
+            if key == 'speed' and color is not None and value > 405:
+                metric = RainbowSpeed(shown)
+            else:
+                metric = text(shown, 'speed' if key == 'speed' else 'statValue')
+                if color is not None:
+                    metric.setStyleSheet(f'color: {color.name()};')
+            metric.setWordWrap(False)
             metric.setAccessibleName(f"{team}方 {unit['hero_id']} {title}")
             if index>=8:metric.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
             tip=title+'：'+shown+' · 对局开场已下发值；缺失不代表0，不再次叠加库存。'

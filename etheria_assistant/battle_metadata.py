@@ -13,10 +13,10 @@ def mode_info(battle, mappings=None):
     if battle.get('capture_context') == 'replay' or battle.get('source_opcode') == '0x8421':
         return {'kind': '回放/观战', 'origin': 'protocol', 'reason': '0x8421回放响应或明确选择的回放场景'}
     sizes=tuple(len(battle.get('teams',{}).get(t,[])) for t in ('A','B'))
-    if all(sizes) and sizes==(3,3):
-        return {'kind':'GVG','origin':'roster_size','reason':'按用户设定：双方各3名角色'}
+    if sizes in ((3,3),(3,4),(4,3)):
+        return {'kind':'GVG','origin':'roster_size','reason':f'按用户设定：{sizes[0]}v{sizes[1]}阵容'}
     if all(sizes) and sizes!=(4,4):
-        return {'kind':'PVE','origin':'roster_size','reason':'按用户设定：非4v4、非3v3'}
+        return {'kind':'PVE','origin':'roster_size','reason':'按用户设定：阵容人数不属于GVG或4v4'}
     known = (mappings or {}).get('battle_modes', {})
     hits = {known[mode_key(c)] for c in battle.get('mode_candidates', []) if mode_key(c) in known}
     hits &= set(KINDS) - {'未分类', '回放/观战'}
@@ -90,4 +90,5 @@ def infer_side(battle, references):
                 'side_reason': f'与24小时内手动确认的己方有至少{min(evidence)}个角色完整属性及效果一致（推定，可校正）'}
     return {'own_team': None, 'side_origin': 'unknown',
             'side_reason': '己方证据冲突' if hits else '未确认己方；不默认A，不计算本人胜负'}
+
 

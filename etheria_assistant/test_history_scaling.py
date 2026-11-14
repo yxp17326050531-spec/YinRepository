@@ -25,7 +25,7 @@ class HistoryScalingTests(unittest.TestCase):
         battle['participants']=[{'nickname':name,'team':'A'},{'nickname':'Other#5678','team':'B'}]
         return battle
     def test_requested_size_rules_confirmed_draft_replay_and_manual_override(self):
-        for sizes,kind in (((3,3),'GVG'),((4,1),'PVE'),((5,5),'PVE'),((4,4),'未分类')):
+        for sizes,kind in (((3,3),'GVG'),((3,4),'GVG'),((4,3),'GVG'),((4,1),'PVE'),((5,5),'PVE'),((4,4),'未分类')):
             self.assertEqual(mode_info(self.battle(sizes=sizes))['kind'],kind)
         battle=self.battle();battle['draft_evidence']={'confirmed_teams':['A','B']}
         self.assertEqual(mode_info(battle)['kind'],'BP排位')
@@ -35,6 +35,22 @@ class HistoryScalingTests(unittest.TestCase):
         self.assertEqual(self.archive.history(sample_kind='练习/测试')[0],1)
         self.archive.classify_battles([bid],'未分类')
         self.assertEqual(self.archive.history(sample_kind='GVG')[0],1)
+
+    def test_asymmetric_gvg_repairs_previous_sql_summaries(self):
+        bid = self.archive.save_battle(self.battle(sizes=(3, 4)), 'test')
+        reverse = self.archive.save_battle(self.battle(stamp=110, sizes=(4, 3)), 'test')
+        original = self.archive.get(bid)['original']
+        other = self.archive.save_battle(self.battle(stamp=120, sizes=(3, 2)), 'test')
+        self.archive.set_classification(reverse, '练习/测试')
+        with self.archive.connect() as db:
+            db.execute("UPDATE battle_summaries SET auto_kind='PVE'")
+        reopened = Archive(self.temp.name)
+        self.assertEqual(reopened.history(sample_kind='GVG', query='Target')[0], 1)
+        self.assertEqual(reopened.history(sample_kind='PVE')[0], 1)
+        self.assertEqual(reopened.context(bid)['sample_kind'], 'GVG')
+        self.assertEqual(reopened.context(reverse)['sample_kind'], '练习/测试')
+        self.assertEqual(reopened.context(other)['sample_kind'], 'PVE')
+        self.assertEqual(reopened.get(bid)['original'], original)
 
     def test_confirmed_draft_requires_recent_matching_both_teams_on_same_connection(self):
         for preview,stale,other,one,expected in ((False,False,False,False,'BP排位'),
@@ -102,3 +118,4 @@ class HistoryScalingTests(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+

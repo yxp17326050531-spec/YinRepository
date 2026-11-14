@@ -27,7 +27,7 @@ from battle_widgets import unit_card
 from equipment import (project_gear, attribute_text, matches_gear, normalize_filters,
                        filter_options, filter_summary, RARITIES, UNKNOWN, ATTRIBUTES,
                        normalize_sort, sort_gear, gear_sort_value)
-from inventory_widgets import GearFilterDialog
+from inventory_widgets import GearFilterDialog, GearDistributionDialog
 from overview_widgets import GearOverview
 from gear_scoring import ROLES, default_rules, validate_rules, score_gear, score_text
 from preset_widgets import MappingPresetDialog, ScoringPresetDialog
@@ -35,6 +35,7 @@ from components import project_component, attribute_text as component_attribute_
 from battle_attributes import decode_extra_attributes, pending_attributes, pending_text, extra_text
 
 VERSION='2.11.25-calc-test'
+DEFAULT_HIDDEN_GEAR_COLUMNS = ('源器编号', '稀有度', '初始副属性', '装备关联', '用途倾向')
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 from battle_metadata import KINDS, result_text
@@ -128,6 +129,7 @@ class MainWindow(QMainWindow):
         self.latest=None; self.unsaved_battle=None; self.storage_failed=False; self.inventory_rows=[]; self.history_offset=0; self.history_ids=[]
         saved=self.archive.latest_inventory(); self.bag_snapshot=saved['data'] if saved else None
         self.gear_filters=normalize_filters(self.preferences.get('gear_filters',{}))
+        self.gear_filters['initial']=[]
         self.gear_sort=normalize_sort(self.preferences.get('gear_sort',{}))
         self.gear_metadata=self.archive.gear_metadata()
         try:self.scoring_rules=validate_rules(self.preferences.get('gear_scoring_active',default_rules()))
@@ -507,6 +509,7 @@ class MainWindow(QMainWindow):
         bar=QHBoxLayout(); self.gear_query=QLineEdit(); self.gear_query.setPlaceholderText('搜索矩阵 / 角色 / 源器或元件编号'); self.gear_query.textChanged.connect(lambda _:self.render_inventory()); bar.addWidget(self.gear_query,1)
         bar.addWidget(self.action('分类筛选',self.edit_gear_filters,True))
         bar.addWidget(self.action('清除筛选',self.clear_gear_filters))
+        bar.addWidget(self.action('矩阵分布',self.show_gear_distribution))
         bar.addWidget(self.action('校正分类',self.edit_gear_metadata))
         bar.addWidget(self.action('导出库存',lambda:self.write_json(self.bag_snapshot,'etheria_local_inventory.json'))); layout.addLayout(bar)
         sorting=QHBoxLayout(); sorting.addWidget(label('排序'))
@@ -535,6 +538,12 @@ class MainWindow(QMainWindow):
         tabs=QTabWidget(); self.inventory_tabs=tabs; self.gear_table=table(['源器编号','等级','排序数值','矩阵','点数','稀有度','初始副属性','主属性','副属性','装备关联','用途倾向','用途评分']); self.loadout_table=table(['角色','精确编号','配装类型','智壳','矩阵'])
         self.gear_table.horizontalHeader().moveSection(self.gear_table.horizontalHeader().visualIndex(11),2)
         self.gear_table.horizontalHeader().moveSection(self.gear_table.horizontalHeader().visualIndex(10),3)
+        saved_columns = self.preferences.get('gear_hidden_columns')
+        self.gear_hidden_columns = {name for name in saved_columns if isinstance(name, str)} if isinstance(saved_columns, list) else set(DEFAULT_HIDDEN_GEAR_COLUMNS)
+        columns = QPushButton('显示列')
+        columns.setMenu(self.build_gear_column_menu(columns))
+        bar.addWidget(columns)
+        self.update_gear_columns()
         tabs.addTab(self.gear_table,'源器背包'); tabs.addTab(self.loadout_table,'本号智壳与矩阵'); layout.addWidget(tabs,1)
         self.component_table=table(['元件编号','名称 / 配置','基础主属性','基础副属性','专属刻影','装配引用','锁定标志'])
         tabs.addTab(self.component_table,'元件背包')
@@ -545,6 +554,59 @@ class MainWindow(QMainWindow):
         self.gear_table.cellDoubleClicked.connect(lambda r,c:self.edit_gear_metadata())
     def save_overview_preferences(self,expanded,n):
         self.archive.save_settings({'gear_overview_expanded':expanded,'gear_overview_top_n':n})
+
+    def show_gear_distribution(self):
+        gear = (self.bag_snapshot or {}).get('gear', [])
+        dialog = GearDistributionDialog(gear, self.mappings, self.preferences.get('gear_distribution_level', 0), self)
+        dialog.exec()
+        self.preferences['gear_distribution_level'] = dialog.level.currentData()
+        self.archive.save_settings({'gear_distribution_level': dialog.level.currentData()})
+
+    def build_gear_column_menu(self, button):
+        menu = QMenu(button)
+        self.gear_column_actions = {}
+        for index in range(self.gear_table.columnCount()):
+            if index == 2:
+                continue  # Sorting values follow the selected sort key.
+            name = self.gear_table.horizontalHeaderItem(index).text()
+            item = menu.addAction(name)
+            item.setCheckable(True)
+            item.setChecked(name not in self.gear_hidden_columns)
+            item.toggled.connect(lambda visible, column=name: self.set_gear_column_visible(column, visible))
+            self.gear_column_actions[name] = item
+        menu.addSeparator()
+        menu.addAction('恢复默认', self.reset_gear_columns)
+        return menu
+
+    def set_gear_column_visible(self, name, visible):
+        if visible:
+            self.gear_hidden_columns.discard(name)
+        elif any(action.isChecked() for action in self.gear_column_actions.values()):
+            self.gear_hidden_columns.add(name)
+        else:
+            action = self.gear_column_actions[name]
+            action.blockSignals(True)
+            action.setChecked(True)
+            action.blockSignals(False)
+            return
+        self.update_gear_columns()
+        self.archive.save_settings({'gear_hidden_columns': sorted(self.gear_hidden_columns)})
+
+    def reset_gear_columns(self):
+        self.gear_hidden_columns = set(DEFAULT_HIDDEN_GEAR_COLUMNS)
+        for name, action in self.gear_column_actions.items():
+            action.blockSignals(True)
+            action.setChecked(name not in self.gear_hidden_columns)
+            action.blockSignals(False)
+        self.update_gear_columns()
+        self.archive.save_settings({'gear_hidden_columns': sorted(self.gear_hidden_columns)})
+
+    def update_gear_columns(self):
+        for index in range(self.gear_table.columnCount()):
+            if index != 2:
+                name = self.gear_table.horizontalHeaderItem(index).text()
+                self.gear_table.setColumnHidden(index, name in self.gear_hidden_columns)
+        self.gear_table.setColumnHidden(2, self.gear_sort['key'] == 'default')
     def edit_scoring_presets(self):
         ScoringPresetDialog(self.archive,self.scoring_rules,self.use_scoring_rules,self).exec()
     def use_scoring_rules(self,rules):
@@ -574,6 +636,7 @@ class MainWindow(QMainWindow):
         self.archive.save_settings({'gear_sort':self.gear_sort}); self.render_inventory()
     def edit_gear_filters(self):
         options=filter_options(self.mappings,(self.bag_snapshot or {}).get('gear',[]))
+        options.pop('initial', None)
         dialog=GearFilterDialog(options,self.gear_filters,self)
         if dialog.exec()==QDialog.DialogCode.Accepted:
             self.gear_filters=dialog.selected(); self.archive.save_settings({'gear_filters':self.gear_filters}); self.render_inventory()
@@ -607,7 +670,7 @@ class MainWindow(QMainWindow):
         attr_sort=self.gear_sort['key'].startswith('attr:')
         self.gear_sort_scope.setEnabled(attr_sort)
         self.gear_sort_order.setEnabled(self.gear_sort['key']!='default' or self.gear_score_sort.isChecked())
-        self.gear_table.setColumnHidden(2,self.gear_sort['key']=='default')
+        self.update_gear_columns()
         self.gear_table.horizontalHeaderItem(2).setText(self.gear_sort_key.currentText()+' · 排序值')
         ordered=sort_gear(snap.get('gear',[]),self.gear_sort)
         if self.gear_score_sort.isChecked():
@@ -987,5 +1050,6 @@ def main():
         QMessageBox.information(None,'伊瑟 · 对局助手',str(exc)); return 1
 
 if __name__=='__main__':sys.exit(main())
+
 
 

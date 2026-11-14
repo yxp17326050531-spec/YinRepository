@@ -387,6 +387,48 @@ class QtTests(unittest.TestCase):
         self.assertEqual(self.archive.gear_metadata()[42],{'rarity':'超凡','initial_sub_count':3})
         self.assertEqual(self.window.bag_snapshot['gear'][0],original)
 
+    def test_matrix_distribution_uses_inventory_and_includes_exact_level(self):
+        win = self.window
+        win.bag_snapshot = {'gear': [gear(1, level=15, matrix=1), gear(2, level=15, matrix=1),
+                                    gear(3, level=14, matrix=15), dict(gear(4, level=15), matrix=None),
+                                    gear(5, level=None)], 'capture_time': 100}
+        win.render_inventory()
+        win.gear_query.setText('no matching gear')
+        self.assertEqual(win.gear_table.rowCount(), 0)
+
+        def check(dialog):
+            self.assertEqual(dialog.pie.total, 5)
+            dialog.level.setCurrentIndex(dialog.level.findData(15))
+            self.assertEqual(dialog.pie.total, 3)
+            self.assertEqual(dialog.legend.rowCount(), 2)
+            self.assertEqual(dialog.legend.item(0, 1).text(), '2')
+            self.assertEqual(dialog.legend.item(0, 2).text(), '66.7%')
+            self.assertIn('未知矩阵', dialog.legend.item(1, 0).text())
+            return 1
+
+        from inventory_widgets import GearDistributionDialog
+        with patch.object(GearDistributionDialog, 'exec', check):
+            win.show_gear_distribution()
+        self.assertEqual(self.archive.settings()['gear_distribution_level'], 15)
+
+    def test_inventory_column_visibility_survives_refresh_and_restart(self):
+        win = self.window
+        self.assertTrue(win.gear_table.isColumnHidden(6))
+        win.gear_column_actions['初始副属性'].setChecked(True)
+        win.gear_column_actions['主属性'].setChecked(False)
+        win.render_inventory()
+        self.assertFalse(win.gear_table.isColumnHidden(6))
+        self.assertTrue(win.gear_table.isColumnHidden(7))
+        reopened = MainWindow(self.archive)
+        try:
+            self.assertFalse(reopened.gear_table.isColumnHidden(6))
+            self.assertTrue(reopened.gear_table.isColumnHidden(7))
+            reopened.reset_gear_columns()
+            self.assertTrue(reopened.gear_table.isColumnHidden(6))
+            self.assertFalse(reopened.gear_table.isColumnHidden(7))
+        finally:
+            reopened.close()
+
     def test_attribute_sort_controls_persist_and_retain_selected_uid(self):
         bag=[gear(1,attrs=[attr(8,33000),attr(16,1560)]),
              gear(2,attrs=[attr(8,33000),attr(16,1620)]),
@@ -637,4 +679,5 @@ class QtTests(unittest.TestCase):
                     self.assertGreaterEqual(second.y(),first.y()+first.height())
 
 if __name__=='__main__':unittest.main()
+
 

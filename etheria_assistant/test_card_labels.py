@@ -4,7 +4,7 @@ import unittest
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication, QPushButton, QWidget, QGridLayout
 
-from battle_widgets import UnitCard
+from battle_widgets import UnitCard, RainbowSpeed, attribute_color
 from theme import STYLE
 
 
@@ -19,11 +19,11 @@ class CardLabelTests(unittest.TestCase):
         cls.app.setFont(QFont('Microsoft YaHei UI', 10))
         cls.app.setStyleSheet(STYLE)
 
-    def make_card(self):
+    def make_card(self, speed=350):
         unit = {
             'hero_id': 1, 'hero_name': '合成角色',
             'shells': [], 'unknown_shell_effects': [], 'matrix_effects_candidates': [], 'imprints': [],
-            'stats': {'hp': 45734, 'attack': 2582, 'defense': 2360, 'speed': 350},
+            'stats': {'hp': 45734, 'attack': 2582, 'defense': 2360, 'speed': speed},
             'percent_attributes_tentative': {'crit': 106, 'crit_damage': 153.2,
                                            'effect_hit': 29.4, 'effect_resist': 43.4},
             'attributes_raw': [((v*10)<<8)|tag for tag,v in
@@ -84,6 +84,33 @@ class CardLabelTests(unittest.TestCase):
                     self.assertGreaterEqual(title.height(), title.heightForWidth(title.width()))
         finally:
             host.close()
+
+    def test_continuous_stat_colors_and_rainbow_speed_boundary(self):
+        from unittest.mock import patch
+
+        self.assertEqual(attribute_color('hp', 29999).name(), '#f2f4fc')
+        self.assertNotEqual(attribute_color('effect_resist', 150), attribute_color('effect_resist', 151))
+        self.assertNotEqual(attribute_color('crit', 99.9), attribute_color('crit', 100))
+        self.assertEqual(attribute_color('attack', 6000), attribute_color('crit', 100))
+        self.assertIsNone(attribute_color('effect_hit', None))
+        card = self.make_card(405)
+        fast = self.make_card(405.01)
+        try:
+            self.assertNotIsInstance(card.cells[3].layout().itemAt(1).widget(), RainbowSpeed)
+            rainbow = fast.cells[3].layout().itemAt(1).widget()
+            self.assertIsInstance(rainbow, RainbowSpeed)
+            fast.show()
+            self.assertTrue(rainbow.timer.isActive())
+            with patch('battle_widgets.monotonic', side_effect=(0, 1)):
+                rainbow.update_color()
+                first = rainbow.styleSheet()
+                rainbow.update_color()
+                self.assertNotEqual(first, rainbow.styleSheet())
+            fast.hide()
+            self.assertFalse(rainbow.timer.isActive())
+        finally:
+            card.close()
+            fast.close()
 
 if __name__ == '__main__':
     unittest.main()
