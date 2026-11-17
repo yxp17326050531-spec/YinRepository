@@ -29,12 +29,69 @@ def delta(uid,values,flag=None):
 def upgraded(uid,level):return scalar(2,level)+blob(3,vi(uid))
 
 
+def login_gear(uid, level=15):
+    return blob(1, scalar(1, uid) + scalar(2, 99999) + scalar(3, level)
+                + blob(4, vi(attr(8, 33000))) + scalar(5, (3 << 16) | 1) + scalar(6, 1))
+
+
+def login_shell(uid):
+    return blob(1, scalar(1, uid) + scalar(2, 54311) + scalar(4, 50) + scalar(5, 0)
+                + scalar(6, 0) + scalar(7, 0) + blob(8, b''))
+
+
+def login_hero(uid, gear_uid, shell_uid):
+    return blob(2, scalar(1, uid) + scalar(7, shell_uid) + scalar(9, 101)
+                + blob(10, vi(gear_uid)) + scalar(11, 0) + blob(12, b''))
+
+
 class EquipmentTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(); self.archive=Archive(self.temp.name)
     def tearDown(self):
         for h in self.archive.logger.handlers[:]:h.close(); self.archive.logger.removeHandler(h)
         self.temp.cleanup()
+
+    def test_login_replaces_other_account_inventory_and_cache_survives_restart(self):
+        job = CaptureJob(lambda *a: None, 20001, load_mappings(), self.archive)
+        job.source = 'synthetic login'
+        marker = scalar(4, 2)
+        old_login = ((0x1133, login_gear(42, 0) + login_gear(43) + marker),
+                     (0x1129, login_shell(101) + login_shell(102)),
+                     (0x1122, login_hero(1001, 42, 101)))
+        for op, body in old_login:
+            job.engine.message(op, body, 100)
+        saved = self.archive.latest_inventory()['data']
+        new_job = CaptureJob(lambda *a: None, 20001, load_mappings(), self.archive)
+        new_job.source = 'synthetic login'
+        new_job.engine.inventory.restore(saved)
+        new_login = ((0x1133, login_gear(51) + marker), (0x1129, login_shell(201)),
+                     (0x1122, login_hero(2001, 51, 201)))
+        for op, body in new_login:
+            new_job.engine.message(op, body, 200)
+        new_job.engine.message(0x1132, delta(51, [attr(8, 33000), attr(16, 1480)]), 201)
+        latest = self.archive.latest_inventory()['data']
+        self.assertEqual([item['uid'] for item in latest['gear']], [51])
+        self.assertEqual([item['uid'] for item in latest['shells']], [201])
+        self.assertEqual([item['base_id'] for item in latest['heroes']], [2001])
+        self.assertEqual(latest['gear'][0]['level'], 15)
+        self.assertEqual(latest['gear'][0]['attributes_raw'][-1], attr(16, 1480))
+        self.assertEqual(new_job.engine.inventory.initial_sub_counts, {})
+        self.assertFalse(latest['loadout_rows'][0]['incomplete'])
+        self.assertEqual(self.archive.latest_inventory(before=100)['data'], saved)
+
+    def test_partial_and_invalid_login_packets_do_not_replace_inventory(self):
+        inv = Inventory(load_mappings())
+        inv.restore({'gear': [gear()]})
+        marker = scalar(4, 2)
+        inv.update(0x1133, marker)
+        self.assertEqual(set(inv.gear), {42})
+        inv.update(0x1133, login_gear(43))
+        self.assertEqual(set(inv.gear), {42, 43})
+        for invalid in (login_gear(51) * 2, login_gear(51) + blob(1, scalar(1, 52))):
+            with self.assertRaises(ValueError):
+                inv.update(0x1133, invalid + marker)
+            self.assertEqual(set(inv.gear), {42, 43})
+
     def test_patch_preserves_matrix_flag_zero_and_other_items(self):
         inv=Inventory(load_mappings()); baseline={'gear':[gear(),gear(43)]}; inv.restore(baseline)
         values=[attr(8,15000),attr(22,64,1),attr(4,19200),attr(16,300),attr(19,23)]
@@ -126,3 +183,4 @@ class EquipmentTests(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+

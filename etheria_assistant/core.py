@@ -469,6 +469,13 @@ def decode_replay(body, mappings):
     return battle
 
 
+INVENTORY_LOGIN_FIELDS = {
+    0x1133: ((2, 3, 5, 6), (4,)),
+    0x1129: ((2, 4, 5, 6, 7), (8,)),
+    0x1122: ((7, 9, 11), (10, 12)),
+}
+
+
 class Inventory:
     """Only local equipment information, never used as an opponent loadout."""
     def __init__(self, mappings):
@@ -549,20 +556,55 @@ class Inventory:
                 if uid > 0:
                     self.gear.setdefault(uid, {1:uid})[3] = level
             return
-        target, number = {0x1122: (self.heroes, 2), 0x1129: (self.shells, 1),
-                          0x1133: (self.gear, 1), 0x1132: (self.gear, 3)}[op]
-        for f, w, data in fields(body):
-            if f == number and w == 2:
-                item = record(data)
-                if isinstance(item.get(1), int) and item[1] > 0:
-                    uid = item[1]
-                    if op == 0x1132:
-                        # Omitted fields mean unchanged; explicit zero must be retained.
-                        target.setdefault(uid, {1:uid}).update(item)
-                    else:
-                        target[uid] = item
-                    if target is self.gear and item.get(3) == 0 and isinstance(item.get(4), bytes):
-                        self.initial_sub_counts[uid] = max(0, len(packed(item[4])) - 1)
+        category, number = {0x1122: ('heroes', 2), 0x1129: ('shells', 1),
+                            0x1133: ('gear', 1), 0x1132: ('gear', 3)}[op]
+        envelope = fields(body)
+        items = [record(data) for f, w, data in envelope if f == number and w == 2]
+        # Only replace on shapes corroborated by the login capture. Unrecognized
+        # shapes (including an empty payload) cannot prove the bag is empty.
+        extras = [(f, w, value) for f, w, value in envelope if (f, w) != (number, 2)]
+        observed_envelope = extras == ([(4, 0, 2)] if op == 0x1133 else [])
+        if op in INVENTORY_LOGIN_FIELDS and items and observed_envelope:
+            numeric, packed_fields = INVENTORY_LOGIN_FIELDS[op]
+            complete = all(
+                all(isinstance(item.get(key), int) for key in numeric)
+                and all(isinstance(item.get(key), bytes) for key in packed_fields)
+                for item in items
+            )
+            if complete:
+                replacement, initial_counts = {}, {}
+                for item in items:
+                    uid = item.get(1)
+                    if not isinstance(uid, int) or uid <= 0 or uid in replacement:
+                        raise ValueError('登录库存包含无效或重复编号')
+                    values = {key: packed(item[key]) for key in packed_fields}
+                    if op == 0x1129 and 9 in item:
+                        packed(item[9])
+                    replacement[uid] = item
+                    if category == 'gear':
+                        if item[3] == 0:
+                            initial_counts[uid] = max(0, len(values[4]) - 1)
+                        elif uid in self.initial_sub_counts:
+                            initial_counts[uid] = self.initial_sub_counts[uid]
+                if category == 'gear':
+                    self.initial_sub_counts = initial_counts
+                setattr(self, category, replacement)
+                return
+            if op == 0x1133:
+                raise ValueError('登录源器列表字段不完整，保留已有库存')
+
+        target = getattr(self, category)
+        for item in items:
+            uid = item.get(1)
+            if not isinstance(uid, int) or uid <= 0:
+                continue
+            if op == 0x1132:
+                # Omitted fields mean unchanged; explicit zero must be retained.
+                target.setdefault(uid, {1:uid}).update(item)
+            else:
+                target[uid] = item
+            if category == 'gear' and item.get(3) == 0 and isinstance(item.get(4), bytes):
+                self.initial_sub_counts[uid] = max(0, len(packed(item[4])) - 1)
 
     def rows(self):
         out = []
@@ -878,4 +920,5 @@ if __name__ == '__main__':
         print(args.output)
     else:
         print(content)
+
 
