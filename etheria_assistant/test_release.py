@@ -29,6 +29,10 @@ class ReleaseTests(unittest.TestCase):
                 bad=internal/name;bad.write_bytes(b'synthetic private data')
                 with self.assertRaises(ValueError):release.package(bundle,root/'release','0.0.0','a'*40)
                 bad.unlink()
+            inventory = bundle / 'inventory'
+            inventory.mkdir()
+            (inventory / 'account.json').write_text('{}', encoding='utf-8')
+            with self.assertRaises(ValueError):release.package(bundle,root/'release','0.0.0','a'*40)
             self.assertEqual(release.sha256(archive),m['sha256'])
 
     def test_capture_bundle_checks_hashes_architecture_and_rejects_driver_or_path(self):

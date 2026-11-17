@@ -8,9 +8,11 @@ import re
 import subprocess
 import sys
 import threading
+import time
+import uuid
 from datetime import datetime
 from pathlib import Path
-from PySide6.QtCore import Qt, QTimer, QUrl, QEvent
+from PySide6.QtCore import Qt, QTimer, QUrl, QEvent, QIODevice, QSaveFile
 from PySide6.QtGui import QColor, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame, QLabel,
     QPushButton, QVBoxLayout, QHBoxLayout, QGridLayout, QStackedWidget, QScrollArea,
@@ -19,7 +21,8 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame, QLabe
     QDialogButtonBox, QFormLayout, QFileDialog, QMessageBox, QButtonGroup, QSplitter, QBoxLayout, QMenu, QSizePolicy)
 from capture_events import CaptureEvents
 from capture import CaptureJob, find_dumpcap, shell_text, matrix_text, imprint_text, HIDE_CONSOLE
-from core import load_mappings, shell_config_name, matrix_name
+from core import Inventory, load_mappings, shell_config_name, matrix_name
+from exe_updater import INVENTORY_DIRECTORY, install_root
 from storage import Archive, project_unit, unit_key, shell_candidates
 from analytics import analyse, rank_statistics
 from theme import STYLE
@@ -36,6 +39,7 @@ from battle_attributes import decode_extra_attributes, pending_attributes, pendi
 
 VERSION='2.11.27-calc-test'
 DEFAULT_HIDDEN_GEAR_COLUMNS = ('源器编号', '稀有度', '初始副属性', '装备关联', '用途倾向')
+INVENTORY_CATEGORIES = {'gear': '源器', 'shells': '智壳', 'components': '元件', 'heroes': '角色配装'}
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
             '矩阵库存编号':'matrices','矩阵战斗效果编号':'matrix_effects'}
 from battle_metadata import KINDS, result_text
@@ -127,8 +131,12 @@ class MainWindow(QMainWindow):
         self.job=None; self.token=0; self.current_id=None; self.live_id=None; self.browsing=False
         self.live_time=None; self.capture_diagnostics=self.preferences.get('last_capture_diagnostics',{})
         self.latest=None; self.unsaved_battle=None; self.storage_failed=False; self.inventory_rows=[]; self.history_offset=0; self.history_ids=[]
-        saved=self.archive.latest_inventory(); self.bag_snapshot=saved['data'] if saved else None
-        self.inventory_generation = (self.bag_snapshot or {}).get('inventory_generation')
+        self.inventory_path = self.preferences.get('inventory_path')
+        self.inventory_file_error = None
+        self.inventory_request = None
+        self.inventory_preview = None
+        self.capture_is_live = False
+        self.bag_snapshot = self.load_selected_inventory()
         self.gear_filters=normalize_filters(self.preferences.get('gear_filters',{}))
         self.gear_filters['initial']=[]
         self.gear_sort=normalize_sort(self.preferences.get('gear_sort',{}))
@@ -510,8 +518,15 @@ class MainWindow(QMainWindow):
         header = QHBoxLayout()
         self.bag_info = label('', 'hint')
         header.addWidget(self.bag_info, 1)
-        header.addWidget(self.action('清理当前装备', self.clear_current_equipment))
+        self.inventory_record_btn = self.action('录入库存', self.record_inventory, True)
+        self.inventory_cancel_btn = self.action('取消录入', self.cancel_inventory_entry)
+        header.addWidget(self.inventory_record_btn)
+        header.addWidget(self.inventory_cancel_btn)
+        header.addWidget(self.action('打开库存', self.open_inventory))
         layout.addLayout(header)
+        self.inventory_record_info = label('', 'hint')
+        layout.addWidget(self.inventory_record_info)
+        self.update_inventory_entry_controls()
         bar=QHBoxLayout(); self.gear_query=QLineEdit(); self.gear_query.setPlaceholderText('搜索矩阵 / 角色 / 源器或元件编号'); self.gear_query.textChanged.connect(lambda _:self.render_inventory()); bar.addWidget(self.gear_query,1)
         bar.addWidget(self.action('分类筛选',self.edit_gear_filters,True))
         bar.addWidget(self.action('清除筛选',self.clear_gear_filters))
@@ -568,22 +583,144 @@ class MainWindow(QMainWindow):
         self.preferences['gear_distribution_level'] = dialog.level.currentData()
         self.archive.save_settings({'gear_distribution_level': dialog.level.currentData()})
 
-    def clear_current_equipment(self):
+    def read_inventory_file(self, path):
+        snapshot = json.loads(Path(path).read_text(encoding='utf-8-sig'))
+        if (not isinstance(snapshot, dict) or snapshot.get('schema') != 'etheria-local-inventory-v1'
+                or not all(isinstance(snapshot.get(key), list) for key in ('gear', 'shells', 'heroes'))):
+            raise ValueError('请选择伊瑟对局助手保存或导出的库存 JSON。')
+        for category, key, values in (('components', 'uid', 'attributes_raw'),
+                                       ('component_groups', 'id_raw', 'component_uids_raw')):
+            rows = snapshot.get(category, [])
+            if not isinstance(rows, list) or any(
+                not isinstance(row, dict) or type(row.get(key)) is not int
+                or not isinstance(row.get(values), list)
+                or any(type(value) is not int or not 0 <= value < 2**64 for value in row[values])
+                for row in rows
+            ):
+                raise ValueError('库存 JSON 的元件或装配记录格式有误。')
+        stamp(snapshot.get('capture_time'))
+        stamp(snapshot.get('components_capture_time'))
+        # Rebuild derived loadouts using the current mappings.
+        inventory = Inventory(self.mappings)
+        inventory.restore(snapshot)
+        result = inventory.snapshot(snapshot.get('capture_time'), snapshot.get('observed_opcodes', []))
+        if isinstance(snapshot.get('notes'), list):
+            result['notes'] = snapshot['notes']
+        return result
+
+    def load_selected_inventory(self):
+        if self.inventory_path:
+            try:
+                return self.read_inventory_file(self.inventory_path)
+            except (OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError, RecursionError) as exc:
+                self.inventory_file_error = str(exc)
+                return None
+        saved = self.archive.latest_inventory()
+        return saved['data'] if saved else None
+
+    def select_inventory(self, path, snapshot):
+        self.archive.save_settings({'inventory_path': str(path)})
+        self.inventory_path = str(path)
+        self.inventory_file_error = None
+        self.set_inventory_snapshot(snapshot)
+
+    def set_inventory_snapshot(self, snapshot):
+        self.bag_snapshot = snapshot
+        self.inventory_rows = snapshot.get('loadout_rows', [])
+        self.render_inventory()
+
+    def inventory_directory(self):
+        return (install_root() or Path(__file__).resolve().parent) / INVENTORY_DIRECTORY
+
+    def open_inventory(self):
+        directory = Path(self.inventory_path).parent if self.inventory_path else self.inventory_directory()
+        path, _ = QFileDialog.getOpenFileName(self, '打开已保存的库存', str(directory), '库存 JSON (*.json)')
+        if path:
+            path = Path(path).resolve()
+            self.select_inventory(path, self.read_inventory_file(path))
+
+    def update_inventory_entry_controls(self, message=''):
+        self.inventory_cancel_btn.setVisible(self.inventory_request is not None)
+        self.inventory_record_btn.setEnabled(self.inventory_request is None or self.inventory_preview is not None)
+        self.inventory_record_btn.setText('确认保存' if self.inventory_preview is not None else '录入库存')
+        self.inventory_record_info.setText(message)
+        self.inventory_record_info.setVisible(bool(message))
+
+    def record_inventory(self):
+        if self.inventory_preview is not None:
+            self.confirm_inventory_entry()
+            return
+        if self.job and self.job.thread.is_alive():
+            if not self.capture_is_live or self.job.stop_event.is_set():
+                self.notify('请等当前读取结束，再录入库存。')
+                return
+        else:
+            if not self.dumpcap.text().strip() or not self.interface.currentData():
+                self.navigate(5)
+                self.notify('请选择 dumpcap 路径和实际联网网卡，再录入库存。')
+                return
+            self.start_job(dumpcap=self.dumpcap.text().strip(), interface=self.interface.currentData(), page=2)
+        self.inventory_request = (uuid.uuid4().hex, time.time())
+        self.job.request_inventory_entry(self.inventory_request)
+        self.update_inventory_entry_controls('请重启游戏并登录要录入的账号。')
+
+    def cancel_inventory_entry(self):
+        if self.job:
+            self.job.request_inventory_entry(None)
+        self.inventory_request = self.inventory_preview = None
+        self.update_inventory_entry_controls()
+
+    def receive_inventory_entry(self, result):
+        if not self.inventory_request or result['id'] != self.inventory_request[0]:
+            return
+        counts = result['counts']
+        summary = ' · '.join(f'{title} {counts[key]:,} 件' if key in counts else f'{title} 待读取'
+                             for key, title in INVENTORY_CATEGORIES.items())
+        self.inventory_preview = result.get('snapshot')
+        self.update_inventory_entry_controls(summary if counts else '请重启游戏并登录要录入的账号。')
+        if self.inventory_preview is not None:
+            self.confirm_inventory_entry()
+
+    def confirm_inventory_entry(self):
+        snapshot = self.inventory_preview
+        summary = '\n'.join(f'{title} {len(snapshot[key]):,} 件' for key, title in INVENTORY_CATEGORIES.items())
         answer = QMessageBox.question(
-            self, '清理当前装备',
-            '清理当前显示的源器、智壳、配装和元件缓存？历史对局和库存快照会保留。\n\n'
-            '清理后，请保持监听并重新登录要读取的游戏账号。',
+            self, '确认替换当前库存',
+            f'本次登录读取到\n\n{summary}\n\n保存后将显示这份库存。继续选择保存位置？',
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Cancel,
         )
         if answer != QMessageBox.StandardButton.Yes:
+            self.cancel_inventory_entry()
             return
-        snapshot = self.archive.clear_current_inventory()
-        self.inventory_generation = snapshot['inventory_generation']
-        if self.job and self.job.thread and self.job.thread.is_alive():
-            self.job.request_inventory_reset(snapshot)
-        self.handle_event('inventory_snapshot', snapshot)
-        self.notify('当前装备已清理。请在监听状态下重新登录游戏。')
+        directory = self.inventory_directory()
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            directory = Path.home()
+        filename = datetime.fromtimestamp(snapshot['capture_time']).strftime('etheria-inventory-%Y%m%d-%H%M%S.json')
+        path, _ = QFileDialog.getSaveFileName(self, '保存库存', str(directory / filename), '库存 JSON (*.json)')
+        if not path:
+            return
+        path = Path(path).resolve()
+        if path.suffix.lower() != '.json':
+            path = path.with_name(path.name + '.json')
+            if path.exists() and QMessageBox.question(self, '覆盖库存文件', f'替换 {path.name}？') != QMessageBox.StandardButton.Yes:
+                return
+        payload = json.dumps(snapshot, ensure_ascii=False, indent=2).encode('utf-8')
+        output = QSaveFile(str(path))
+        if not output.open(QIODevice.OpenModeFlag.WriteOnly) or output.write(payload) != len(payload) or not output.commit():
+            QMessageBox.warning(self, '库存保存失败', output.errorString())
+            return
+        try:
+            self.select_inventory(path, snapshot)
+        except Exception as exc:
+            self.archive.logger.exception('Failed to select saved inventory')
+            QMessageBox.warning(self, '库存文件已保存', f'{path}\n\n无法切换当前库存，请用「打开库存」重试。\n{exc}')
+            self.cancel_inventory_entry()
+            return
+        self.cancel_inventory_entry()
+        self.notify('已保存库存 ' + path.name)
 
     def build_gear_column_menu(self, button):
         menu = QMenu(button)
@@ -751,8 +888,16 @@ class MainWindow(QMainWindow):
         component_count=f"{len(snap['components'])} 件" if 'components' in snap else '未采集'
         component_time=f" · 元件观测 {stamp(snap.get('components_capture_time'))}" if 'components' in snap else ''
         self.bag_info.setText(f"筛出 {len(rows)} / {len(snap.get('gear',[]))} 件源器 · 智壳 {len(snap.get('shells',[]))} 个 · 元件 {component_count} · 采集 {stamp(snap.get('capture_time'))}"+component_time)
-        if self.inventory_generation and 0x1133 not in snap.get('observed_opcodes', []):
-            self.bag_info.setText('当前装备已清理 · 请在监听状态下重新登录游戏，等待读取源器列表')
+        if self.inventory_file_error:
+            self.bag_info.setText('无法读取上次的库存文件，请打开库存文件或重新录入。')
+            self.bag_info.setToolTip(f'{self.inventory_path}\n{self.inventory_file_error}')
+        elif self.inventory_path:
+            self.bag_info.setText(self.bag_info.text() + ' · ' + Path(self.inventory_path).name)
+            self.bag_info.setToolTip(self.inventory_path)
+        else:
+            if self.bag_snapshot is not None:
+                self.bag_info.setText(self.bag_info.text() + ' · 旧版库存')
+            self.bag_info.setToolTip('')
         self.gear_filter_info.setText(filter_summary(self.gear_filters,filter_options(self.mappings,snap.get('gear',[]))))
         self.gear_filter_info.setVisible(any(self.gear_filters.values()))
         self.gear_details.setPlainText('点击源器查看属性与原值。主副属性按已对照规则解码；未确认字段显示未知。稀有度和初始副属性条数可通过“校正分类”记录。')
@@ -978,12 +1123,14 @@ class MainWindow(QMainWindow):
     def start_live(self):
         if not self.dumpcap.text().strip() or not self.interface.currentData():self.navigate(5); self.notify('请选择 dumpcap 路径和实际联网网卡'); return
         self.start_job(dumpcap=self.dumpcap.text().strip(),interface=self.interface.currentData())
-    def start_job(self,**kwargs):
+    def start_job(self,page=0,**kwargs):
         if self.job and self.job.thread.is_alive():return
         self.save_preferences(); self.token+=1; token=self.token; self.browsing=False; self.current_id=None; self.live_id=None; self.live_time=None; self.unsaved_battle=None; self.storage_failed=False; self.render_battle()
         self.capture_diagnostics={}; self.capture_info.setText('正在等待本次采集的数据…'); self.capture_scene.setEnabled(False)
-        self.job=CaptureJob(lambda k,d:self.events.put((token,k,d)),self.port.value(),self.mappings,self.archive,self.capture_scene.currentData())
-        self.start_btn.setEnabled(False); self.import_btn.setEnabled(False); self.stop_btn.setEnabled(True); self.connection.setText('●  正在导入' if kwargs.get('path') else '●  正在监听'); self.navigate(0); self.job.start(**kwargs)
+        self.capture_is_live = not bool(kwargs.get('path'))
+        self.job=CaptureJob(lambda k,d:self.events.put((token,k,d)),self.port.value(),self.mappings,self.archive,
+                            self.capture_scene.currentData(), inventory_workflow=True)
+        self.start_btn.setEnabled(False); self.import_btn.setEnabled(False); self.stop_btn.setEnabled(True); self.connection.setText('●  正在导入' if kwargs.get('path') else '●  正在监听'); self.navigate(page); self.job.start(**kwargs)
     def stop_capture(self):
         if self.job:self.job.stop(); self.connection.setText('●  正在停止')
     def poll(self):
@@ -1015,12 +1162,7 @@ class MainWindow(QMainWindow):
             elif not bid:
                 self.unsaved_battle=data
                 if not self.browsing:self.current_id=None; self.render_battle()
-        elif kind=='inventory_snapshot':
-            if data.get('inventory_generation') != self.inventory_generation:
-                return
-            self.bag_snapshot = data
-            self.inventory_rows = data.get('loadout_rows', [])
-            self.render_inventory()
+        elif kind=='inventory_entry':self.receive_inventory_entry(data)
         elif kind=='diagnostics':self.render_capture_diagnostics(data)
         elif kind=='observation':
             if data.get('kind')=='settlement':
@@ -1030,9 +1172,13 @@ class MainWindow(QMainWindow):
         elif kind=='warning':self.notify(str(data))
         elif kind=='error':QMessageBox.warning(self,'读取失败',str(data))
         elif kind=='done':
+            self.capture_is_live = False
+            if self.inventory_request is not None and self.inventory_preview is None:
+                self.cancel_inventory_entry()
+                self.update_inventory_entry_controls('监听已结束。请重新点击「录入库存」。')
             self.capture_scene.setEnabled(True)
             self.start_btn.setEnabled(True); self.import_btn.setEnabled(True); self.stop_btn.setEnabled(False); self.connection.setText('●  未监听'); self.refresh_all()
-            self.notify('自动保存发生错误，请导出当前数据并查看日志' if self.storage_failed else '读取失败，已保存的数据保留，请查看日志' if data.get('failed') else '读取已结束，数据已保存')
+            self.notify('自动保存发生错误，请导出当前数据并查看日志' if self.storage_failed else '读取失败，已保存的数据保留，请查看日志' if data.get('failed') else '读取已结束')
     def refresh_records(self):
         self._stats_dirty=True;self._history_search_dirty=True
         self.render_battle();self.refresh_history()

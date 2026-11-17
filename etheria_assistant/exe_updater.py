@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 import zipfile
 
 REPO='yxp17326050531-spec/YinRepository'
+INVENTORY_DIRECTORY='inventory'
 API=f'https://api.github.com/repos/{REPO}/releases?per_page=100'
 FEED=f'https://github.com/{REPO}/releases.atom'
 LIMIT=400*1024*1024
@@ -112,7 +113,9 @@ def extract_checked(archive,destination):
             if stat.S_ISLNK(info.external_attr>>16):raise ValueError('更新包不允许链接')
             if name.casefold() in seen:raise ValueError('更新包有重复路径')
             seen.add(name.casefold())
-            if any(part.lower().endswith(('.sqlite3','.db','.pcap','.pcapng')) or part.lower() in ('runtime.log','history.sqlite3-wal','history.sqlite3-shm') for part in p.parts):raise ValueError('更新包含用户数据')
+            if (len(p.parts) > 1 and p.parts[1].lower() == INVENTORY_DIRECTORY
+                    or any(part.lower().endswith(('.sqlite3','.db','.pcap','.pcapng')) or part.lower() in ('runtime.log','history.sqlite3-wal','history.sqlite3-shm') for part in p.parts)):
+                raise ValueError('更新包含用户数据')
         z.extractall(destination)
     bundle=destination/'EtheriaAssistant'
     if not (bundle/'EtheriaAssistant.exe').is_file() or not (bundle/'_internal').is_dir():raise ValueError('更新包缺少程序或运行库')
@@ -133,7 +136,9 @@ def prepare(release,root):
         if digest!=m['sha256']:raise ValueError('更新包校验失败')
         extract_checked(archive,task/'staged')
         # Worker runs from a complete independent copy, avoiding locked Python/Qt DLLs.
-        worker=task/'worker';shutil.copytree(root,worker,ignore=shutil.ignore_patterns('*.sqlite3','*.sqlite3-*','*.pcap','*.pcapng','runtime.log*'))
+        worker=task/'worker'
+        shutil.copytree(root, worker, ignore=shutil.ignore_patterns(
+            INVENTORY_DIRECTORY, '*.sqlite3', '*.sqlite3-*', '*.pcap', '*.pcapng', 'runtime.log*'))
         return task
     except Exception:
         shutil.rmtree(task,ignore_errors=True);raise
@@ -169,6 +174,9 @@ def worker_main(task,root,pids):
         root.rename(old)
         try:
             new.rename(root)
+            inventories = old / INVENTORY_DIRECTORY
+            if inventories.is_dir():
+                shutil.copytree(inventories, root / INVENTORY_DIRECTORY, symlinks=True)
             env=dict(os.environ,ETHERIA_PORTABLE_ROOT=str(root),QT_QPA_PLATFORM='offscreen')
             report=task/'startup.json'
             subprocess.run([str(root/'EtheriaAssistant.exe'),'--smoke-test',str(report)],cwd=root,env=env,timeout=60,check=True)

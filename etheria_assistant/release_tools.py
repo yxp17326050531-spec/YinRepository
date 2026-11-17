@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from exe_updater import INVENTORY_DIRECTORY
 
 ROOT=Path(__file__).resolve().parent
 REPOSITORY='yxp17326050531-spec/YinRepository'
@@ -37,7 +38,7 @@ def forbidden(path):
     p=Path(path);name=p.name.lower()
     return (p.name in FORBIDDEN or name.startswith(('runtime.log','npcap','winpcap'))
             or name in ('packet.dll','wpcap.dll') or p.suffix.lower() in ('.db','.sqlite3','.pcap','.pcapng','.sys')
-            or '.sqlite3-' in name or any(x in ('.venv','.build-venv','.git','__pycache__') for x in p.parts))
+            or '.sqlite3-' in name or any(x in ('.venv','.build-venv','.git','__pycache__',INVENTORY_DIRECTORY) for x in p.parts))
 
 
 def capture_files(directory):

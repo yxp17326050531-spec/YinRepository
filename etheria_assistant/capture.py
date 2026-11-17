@@ -51,16 +51,33 @@ def matrix_text(unit):
 
 
 class CaptureJob:
-    def __init__(self, emit, port, mappings, archive=None, capture_context='live'):
+    def __init__(self, emit, port, mappings, archive=None, capture_context='live', *, inventory_workflow=False):
         self.emit = emit
         self.archive = archive
         self.source = ''
-        self.engine = Engine(self.on_event, port, mappings,capture_context)
+        self.engine = Engine(self.on_event, port, mappings, capture_context,
+                             automatic_inventory=not inventory_workflow)
         self.stop_event = threading.Event()
         self.lock = threading.Lock()
         self.process = None
         self.thread = None
         self.inventory_reset = None
+        self.inventory_workflow = inventory_workflow
+        self.inventory_entry = None
+        self.applied_inventory_entry = None
+
+    def request_inventory_entry(self, entry):
+        # Immutable request exchanged between the UI and capture thread.
+        self.inventory_entry = entry
+
+    def before_packet(self):
+        if self.inventory_workflow:
+            entry = self.inventory_entry
+            if entry != self.applied_inventory_entry:
+                self.engine.set_inventory_entry(entry)
+                self.applied_inventory_entry = entry
+        else:
+            self.apply_inventory_reset()
 
     def request_inventory_reset(self, snapshot):
         # The capture worker owns the mutable parser state.
@@ -132,15 +149,15 @@ class CaptureJob:
         try:
             if path:
                 with open(path, 'rb') as stream:
-                    if self.archive:
+                    if self.archive and not self.inventory_workflow:
                         first = next(packets(stream), None)
                         stream.seek(0)
                         # Never seed an older replay with a later inventory state.
                         saved = self.archive.latest_inventory(before=first[0]) if first else None
                         self.restore_inventory(saved)
-                    self.engine.read(stream, self.stop_event, before_packet=self.apply_inventory_reset)
+                    self.engine.read(stream, self.stop_event, before_packet=self.before_packet)
             else:
-                if self.archive:
+                if self.archive and not self.inventory_workflow:
                     saved = self.archive.latest_inventory()
                     self.restore_inventory(saved)
                 command = [dumpcap, '-i', interface, '-f', f'tcp port {self.engine.port}', '-s', '0', '-q', '-w', '-']
@@ -156,7 +173,7 @@ class CaptureJob:
 
                 reader = threading.Thread(target=drain_stderr, daemon=True)
                 reader.start()
-                self.engine.read(self.process.stdout, self.stop_event, before_packet=self.apply_inventory_reset)
+                self.engine.read(self.process.stdout, self.stop_event, before_packet=self.before_packet)
                 code = self.process.wait(timeout=5)
                 reader.join(timeout=1)
                 if code and not self.stop_event.is_set():

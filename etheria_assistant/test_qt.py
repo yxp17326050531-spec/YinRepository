@@ -6,6 +6,7 @@ os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QPlainTextEdit, QCheckBox, QLabel, QComboBox, QMessageBox
@@ -370,7 +371,7 @@ class QtTests(unittest.TestCase):
         self.assertEqual(self.archive.settings()['gear_filters']['matrix'],['1'])
         self.window.gear_table.selectRow(0)
         changed=gear(level=6,attrs=[attr(8,15000),attr(22,64,1),attr(16,570,1)])
-        self.window.handle_event('inventory_snapshot',{'gear':[gear(43,matrix=15),changed],'capture_time':101})
+        self.window.set_inventory_snapshot({'gear':[gear(43,matrix=15),changed],'capture_time':101})
         self.assertEqual(self.window.gear_display[self.window.gear_table.currentRow()]['uid'],42)
         self.assertIn('速度 +5.7',self.window.gear_details.toPlainText())
         self.window.gear_filters=normalize_filters({'subs':['16','25']}); self.window.render_inventory()
@@ -429,21 +430,60 @@ class QtTests(unittest.TestCase):
         finally:
             reopened.close()
 
-    def test_clearing_current_equipment_ignores_already_queued_snapshot(self):
+    def test_inventory_confirmation_cancellation_and_reopening_selected_file(self):
         win = self.window
         old = {'gear': [gear(42)], 'capture_time': 100}
-        win.handle_event('inventory_snapshot', old)
-        self.assertEqual(win.gear_table.rowCount(), 1)
-        with patch('qt_app.QMessageBox.question', return_value=QMessageBox.StandardButton.Yes):
-            win.clear_current_equipment()
-        self.assertEqual(win.gear_table.rowCount(), 0)
-        win.handle_event('inventory_snapshot', old)
-        self.assertEqual(win.gear_table.rowCount(), 0)
-        self.assertIn('重新登录', win.bag_info.text())
-        recovered = dict(win.bag_snapshot, gear=[gear(51)], observed_opcodes=[0x1133])
-        win.handle_event('inventory_snapshot', recovered)
+        self.archive.save_inventory(old, 'legacy')
+        win.set_inventory_snapshot(old)
+        snapshot = {'schema': 'etheria-local-inventory-v1', 'capture_time': 200,
+                    'gear': [gear(51)], 'shells': [], 'components': [], 'heroes': []}
+        counts = {'gear': 1, 'shells': 0, 'components': 0, 'heroes': 0}
+        ready = {'id': 'current', 'counts': counts, 'snapshot': snapshot}
+        win.inventory_request = ('current', 200)
+        with patch('qt_app.QMessageBox.question', return_value=QMessageBox.StandardButton.Cancel) as confirmation:
+            win.handle_event('inventory_entry', dict(ready, id='discarded'))
+            confirmation.assert_not_called()
+            win.handle_event('inventory_entry', {'id': 'current', 'counts': {'gear': 1}})
+            self.assertIn('智壳 待读取', win.inventory_record_info.text())
+            win.handle_event('inventory_entry', ready)
+            self.assertIn('源器 1 件', confirmation.call_args.args[2])
+            self.assertIsNone(win.inventory_preview)
+        self.assertEqual(win.bag_snapshot, old)
+
+        win.inventory_request = ('current', 200)
+        directory = Path(self.temp.name) / 'inventory'
+        file = directory / '账号B.json'
+        with (patch.object(win, 'inventory_directory', return_value=directory),
+              patch('qt_app.QMessageBox.question', return_value=QMessageBox.StandardButton.Yes),
+              patch('qt_app.QFileDialog.getSaveFileName', return_value=('', '')) as chooser,
+              patch('qt_app.QMessageBox.warning') as warning):
+            win.handle_event('inventory_entry', ready)
+            self.assertTrue(chooser.call_args.args[2].startswith(str(directory / 'etheria-inventory-')))
+            self.assertEqual(win.bag_snapshot, old)
+            self.assertEqual(win.inventory_preview, snapshot)
+            self.assertIsNone(self.archive.settings().get('inventory_path'))
+            chooser.return_value = (str(directory / 'missing' / '账号B.json'), '')
+            win.record_inventory()
+            self.assertEqual(warning.call_args.args[1], '库存保存失败')
+            self.assertEqual(win.bag_snapshot, old)
+            self.assertEqual(win.inventory_preview, snapshot)
+            chooser.return_value = (str(file), '')
+            win.record_inventory()
+        self.assertEqual(json.loads(file.read_text(encoding='utf-8')), snapshot)
+        self.assertEqual(self.archive.latest_inventory()['data'], old)
         self.assertEqual([item['uid'] for item in win.gear_display], [51])
         self.assertIsNotNone(self.archive.get(self.bid))
+        reopened = MainWindow(self.archive)
+        try:
+            self.assertEqual([item['uid'] for item in reopened.gear_display], [51])
+            other = directory / '账号A.json'
+            other.write_text(json.dumps(dict(snapshot, gear=[gear(42)])), encoding='utf-8')
+            with patch('qt_app.QFileDialog.getOpenFileName', return_value=(str(other), '')):
+                reopened.open_inventory()
+            self.assertEqual([item['uid'] for item in reopened.gear_display], [42])
+            self.assertEqual(self.archive.settings()['inventory_path'], str(other))
+        finally:
+            reopened.close()
 
     def test_attribute_sort_controls_persist_and_retain_selected_uid(self):
         bag=[gear(1,attrs=[attr(8,33000),attr(16,1560)]),

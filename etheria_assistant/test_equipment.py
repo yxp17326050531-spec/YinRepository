@@ -92,6 +92,43 @@ class EquipmentTests(unittest.TestCase):
                 inv.update(0x1133, invalid + marker)
             self.assertEqual(set(inv.gear), {42, 43})
 
+    def test_manual_entry_requires_one_fresh_connection_and_waits_for_all_lists(self):
+        from test_components import component_message
+        old = {'capture_time': 1, 'gear': [gear(42)]}
+        self.archive.save_inventory(old, 'old account')
+        events = []
+        job = CaptureJob(lambda kind, data: events.append((kind, data)), 20001,
+                         load_mappings(), self.archive, inventory_workflow=True)
+        login = frame(0x1133, login_gear(51) + scalar(4, 2))
+        tail = (frame(0x1129, login_shell(201)) + frame(0x2961, component_message((301,)))
+                + frame(0x1122, login_hero(1001, 51, 201)))
+        job.engine.packet(2, 1, tcp(login + tail, flags=0x12))
+        self.assertFalse(events)
+
+        job.request_inventory_entry(('first', 3))
+        job.before_packet()
+        job.engine.packet(4, 1, tcp(login, seq=101+len(login+tail)))
+        self.assertFalse(events)  # Already open before the latest request.
+        job.engine.packet(5, 1, tcp(login, flags=0x12))
+        self.assertEqual(events[-1], ('inventory_entry', {'id': 'first', 'counts': {'gear': 1}}))
+        job.engine.message(0x1129, login_shell(999), 6, 'other connection')
+        job.engine.message(0x1132, delta(99, [attr(8, 33000)]), 6, job.engine.inventory_connection)
+        self.assertEqual(len(events), 1)
+
+        job.request_inventory_entry(('second', 7))
+        job.before_packet()
+        job.engine.packet(8, 1, tcp(tail, seq=101+len(login)))
+        self.assertEqual(len(events), 1)
+        job.engine.packet(9, 1, tcp(login, flags=0x12))
+        job.engine.packet(10, 1, tcp(tail, seq=101+len(login)))
+        ready = events[-1][1]
+        self.assertEqual(ready['id'], 'second')
+        self.assertEqual(ready['counts'], {'gear': 1, 'shells': 1, 'components': 1, 'heroes': 1})
+        self.assertEqual([g['uid'] for g in ready['snapshot']['gear']], [51])
+        self.assertEqual([s['uid'] for s in ready['snapshot']['shells']], [201])
+        self.assertFalse(ready['snapshot']['loadout_rows'][0]['incomplete'])
+        self.assertEqual(self.archive.latest_inventory()['data'], old)
+
     def test_clear_inventory_survives_restart_and_rebuilds_only_from_fresh_login(self):
         old = {'capture_time': 100, 'gear': [gear(42)], 'components': [{'uid': 3}]}
         self.archive.save_inventory(old, 'old account')

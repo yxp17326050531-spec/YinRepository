@@ -474,6 +474,7 @@ INVENTORY_LOGIN_FIELDS = {
     0x1129: ((2, 4, 5, 6, 7), (8,)),
     0x1122: ((7, 9, 11), (10, 12)),
 }
+INVENTORY_ENTRY_OPS = {0x1133: 'gear', 0x1129: 'shells', 0x2961: 'components', 0x1122: 'heroes'}
 
 
 class Inventory:
@@ -668,7 +669,7 @@ class Inventory:
 
 
 class Engine:
-    def __init__(self, emit, port=20001, mappings=None, capture_context='live'):
+    def __init__(self, emit, port=20001, mappings=None, capture_context='live', *, automatic_inventory=True):
         self.emit, self.port = emit, port
         self.mappings = mappings or load_mappings()
         self.flows = collections.OrderedDict()
@@ -680,6 +681,9 @@ class Engine:
         self.inventory_generation = None
         self.inventory_reset_time = None
         self.inventory_connection = None
+        self.automatic_inventory = automatic_inventory
+        self.inventory_entry = None
+        self.inventory_login_connections = set()
         self.actor_aliases = collections.OrderedDict()
         self.actor_serial = 0
         self.active_battle = False
@@ -803,7 +807,50 @@ class Engine:
         self.inventory_reset_time = timestamp
         self.inventory_connection = None
 
+    def set_inventory_entry(self, entry):
+        self.reset_inventory(None, None)
+        self.inventory_entry = entry
+        self.inventory_login_connections.clear()
+
+    def read_inventory_entry(self, op, body, timestamp, connection):
+        entry = self.inventory_entry
+        if (entry is None or timestamp < entry[1] or op not in INVENTORY_ENTRY_OPS
+                or connection not in self.inventory_login_connections
+                or self.inventory_connection not in (None, connection)):
+            return
+        if not self.inventory.update(op, body, login_only=True):
+            return
+        self.inventory_connection = connection
+        self.inventory_observed.add(op)
+        if op == 0x2961:
+            self.inventory.components_capture_time = timestamp
+        counts = {name: len(getattr(self.inventory, name))
+                  for number, name in INVENTORY_ENTRY_OPS.items() if number in self.inventory_observed}
+        result = {'id': entry[0], 'counts': counts}
+        if self.inventory_observed == INVENTORY_ENTRY_OPS.keys():
+            snapshot = self.inventory.snapshot(timestamp, self.inventory_observed)
+            snapshot['notes'][0] = '源器、智壳、元件及角色配装来自同一次登录。'
+            result['snapshot'] = snapshot
+            self.set_inventory_entry(None)
+        self.emit('inventory_entry', result)
+
+    def close_inventory_connection(self, connection):
+        self.inventory_login_connections.discard(connection)
+        if self.inventory_entry is not None and connection == self.inventory_connection:
+            entry = self.inventory_entry
+            self.reset_inventory(None, None)
+            self.emit('inventory_entry', {'id': entry[0], 'counts': {}})
+
+    def stream_gap(self, connection, message):
+        self.player_evidence.pop(connection, None)
+        self.close_inventory_connection(connection)
+        self.session(connection).invalidate(self.last_timestamp, 'TCP数据缺口影响本场完整性')
+        self.warn(message)
+
     def update_inventory(self, op, body, timestamp, connection):
+        if not self.automatic_inventory:
+            self.read_inventory_entry(op, body, timestamp, connection)
+            return
         if self.inventory_generation is not None:
             if timestamp < self.inventory_reset_time or self.inventory_connection not in (None, connection):
                 return
@@ -895,16 +942,20 @@ class Engine:
         if key not in self.flows or flags & 2:
             if key in self.flow_connections:
                 self.player_evidence.pop(self.flow_connections[key], None)
+                self.close_inventory_connection(self.flow_connections[key])
                 self.session(self.flow_connections[key]).finish(timestamp,'连接重新建立，旧会话未闭合')
             self.connection_serial += 1
             connection = f'连接{self.connection_serial}'
             self.flow_connections[key] = connection
+            if self.inventory_entry is not None and flags & 2 and timestamp >= self.inventory_entry[1]:
+                self.inventory_login_connections.add(connection)
             self.flows[key] = TCPStream(lambda op,body,t,c=connection:self.message(op,body,t,c),
-                                       lambda message,c=connection:(self.player_evidence.pop(c,None),self.session(c).invalidate(self.last_timestamp,'TCP数据缺口影响本场完整性'),self.warn(message)))
+                                       lambda message,c=connection:self.stream_gap(c,message))
         self.flows.move_to_end(key)
         while len(self.flows) > 64:
             oldkey,_ = self.flows.popitem(last=False)
             oldconnection = self.flow_connections.pop(oldkey,None)
+            self.close_inventory_connection(oldconnection)
             if oldconnection in self.sessions:self.sessions[oldconnection].finish(timestamp,'连接缓存超限')
             self.player_evidence.pop(oldconnection,None)
         framer=self.flows[key].framer; discarded=framer.discarded_bytes
@@ -912,6 +963,7 @@ class Engine:
         current=self.flows[key].framer
         self.counts['framing_discarded_bytes'] += current.discarded_bytes-discarded if current is framer else current.discarded_bytes
         if flags & 5:  # FIN/RST
+            self.close_inventory_connection(self.flow_connections[key])
             self.player_evidence.pop(self.flow_connections[key], None)
             self.session(self.flow_connections[key]).finish(timestamp,'连接关闭，尚未收到本场结算')
             self.flows.pop(key, None)

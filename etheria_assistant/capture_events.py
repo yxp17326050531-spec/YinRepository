@@ -5,7 +5,7 @@ from threading import Condition
 
 
 class CaptureEvents:
-    STATES={'counts','diagnostics','inventory','inventory_snapshot'}
+    STATES={'counts','diagnostics','inventory','inventory_snapshot','inventory_entry'}
 
     def __init__(self,limit=128):
         self.limit=limit;self.items=OrderedDict();self.condition=Condition()

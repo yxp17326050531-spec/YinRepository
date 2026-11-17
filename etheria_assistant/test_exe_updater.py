@@ -18,7 +18,8 @@ class UpdaterTests(unittest.TestCase):
         for value in ['http://github.com/x','https://evil.com/x','https://github.com/other/repo/releases/download/v1/a.zip','https://user:pass@github.com/x']:
             self.assertFalse(allowed_url(value))
     def test_extract_rejects_traversal_and_user_database(self):
-        for name in ['EtheriaAssistant/../../bad.exe','EtheriaAssistant/history.sqlite3','EtheriaAssistant/evil:stream']:
+        for name in ['EtheriaAssistant/../../bad.exe','EtheriaAssistant/history.sqlite3',
+                     'EtheriaAssistant/inventory/other-account.json','EtheriaAssistant/evil:stream']:
             with tempfile.TemporaryDirectory() as tmp:
                 archive=Path(tmp)/'a.zip'
                 with zipfile.ZipFile(archive,'w') as z:z.writestr(name,b'bad')
@@ -39,6 +40,26 @@ class UpdaterTests(unittest.TestCase):
                 self.assertEqual(popen.call_args.args[0][0],str(Path(tmp)/'worker/EtheriaAssistant.exe'))
                 import os
                 self.assertEqual(popen.call_args.args[0][-1],str(os.getpid()))
+
+    def test_update_preserves_locally_saved_inventory_files(self):
+        from unittest.mock import patch
+        from exe_updater import worker_main
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            root = parent / 'EtheriaAssistant'
+            stock = root / 'inventory' / '账号A.json'
+            stock.parent.mkdir(parents=True)
+            stock.write_text('old inventory', encoding='utf-8')
+            task = parent / 'EtheriaUpdate-test'
+            (task / 'staged' / 'EtheriaAssistant').mkdir(parents=True)
+
+            def smoke(args, **kwargs):
+                Path(args[-1]).write_text('{"ok":true}', encoding='utf-8')
+
+            with (patch('exe_updater.subprocess.run', side_effect=smoke),
+                  patch('exe_updater.subprocess.Popen')):
+                self.assertEqual(worker_main(task, root, []), 0)
+            self.assertEqual(stock.read_text(encoding='utf-8'), 'old inventory')
 
     def test_official_feed_fallback_when_anonymous_api_is_rate_limited(self):
         from unittest.mock import patch
