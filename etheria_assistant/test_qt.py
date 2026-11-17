@@ -481,7 +481,7 @@ class QtTests(unittest.TestCase):
             with patch('qt_app.QFileDialog.getOpenFileName', return_value=(str(other), '')):
                 reopened.open_inventory()
             self.assertEqual([item['uid'] for item in reopened.gear_display], [42])
-            self.assertEqual(self.archive.settings()['inventory_path'], str(other))
+            self.assertTrue(Path(self.archive.settings()['inventory_path']).samefile(other))
         finally:
             reopened.close()
 

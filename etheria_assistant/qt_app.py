@@ -619,8 +619,9 @@ class MainWindow(QMainWindow):
         return saved['data'] if saved else None
 
     def select_inventory(self, path, snapshot):
-        self.archive.save_settings({'inventory_path': str(path)})
-        self.inventory_path = str(path)
+        inventory_path = str(Path(path).resolve())
+        self.archive.save_settings({'inventory_path': inventory_path})
+        self.inventory_path = inventory_path
         self.inventory_file_error = None
         self.set_inventory_snapshot(snapshot)
 
@@ -636,7 +637,6 @@ class MainWindow(QMainWindow):
         directory = Path(self.inventory_path).parent if self.inventory_path else self.inventory_directory()
         path, _ = QFileDialog.getOpenFileName(self, '打开已保存的库存', str(directory), '库存 JSON (*.json)')
         if path:
-            path = Path(path).resolve()
             self.select_inventory(path, self.read_inventory_file(path))
 
     def update_inventory_entry_controls(self, message=''):
