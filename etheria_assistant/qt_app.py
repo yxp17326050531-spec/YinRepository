@@ -37,7 +37,7 @@ from preset_widgets import MappingPresetDialog, ScoringPresetDialog
 from components import project_component, attribute_text as component_attribute_text, component_detail as component_detail_text
 from battle_attributes import decode_extra_attributes, pending_attributes, pending_text, extra_text
 
-VERSION='2.11.27-calc-test'
+VERSION='2.11.28-calc-test'
 DEFAULT_HIDDEN_GEAR_COLUMNS = ('源器编号', '稀有度', '初始副属性', '装备关联', '用途倾向')
 INVENTORY_CATEGORIES = {'gear': '源器', 'shells': '智壳', 'components': '元件', 'heroes': '角色配装'}
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
