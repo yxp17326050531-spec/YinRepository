@@ -8,7 +8,7 @@ import time
 import unittest
 from unittest.mock import patch
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QPlainTextEdit, QCheckBox, QLabel, QComboBox
+from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QPlainTextEdit, QCheckBox, QLabel, QComboBox, QMessageBox
 from qt_app import MainWindow, Editor, VERSION
 from core import decode_battle, load_mappings
 from storage import Archive
@@ -429,6 +429,22 @@ class QtTests(unittest.TestCase):
         finally:
             reopened.close()
 
+    def test_clearing_current_equipment_ignores_already_queued_snapshot(self):
+        win = self.window
+        old = {'gear': [gear(42)], 'capture_time': 100}
+        win.handle_event('inventory_snapshot', old)
+        self.assertEqual(win.gear_table.rowCount(), 1)
+        with patch('qt_app.QMessageBox.question', return_value=QMessageBox.StandardButton.Yes):
+            win.clear_current_equipment()
+        self.assertEqual(win.gear_table.rowCount(), 0)
+        win.handle_event('inventory_snapshot', old)
+        self.assertEqual(win.gear_table.rowCount(), 0)
+        self.assertIn('重新登录', win.bag_info.text())
+        recovered = dict(win.bag_snapshot, gear=[gear(51)], observed_opcodes=[0x1133])
+        win.handle_event('inventory_snapshot', recovered)
+        self.assertEqual([item['uid'] for item in win.gear_display], [51])
+        self.assertIsNotNone(self.archive.get(self.bid))
+
     def test_attribute_sort_controls_persist_and_retain_selected_uid(self):
         bag=[gear(1,attrs=[attr(8,33000),attr(16,1560)]),
              gear(2,attrs=[attr(8,33000),attr(16,1620)]),
@@ -679,5 +695,3 @@ class QtTests(unittest.TestCase):
                     self.assertGreaterEqual(second.y(),first.y()+first.height())
 
 if __name__=='__main__':unittest.main()
-
-

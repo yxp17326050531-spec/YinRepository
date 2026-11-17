@@ -524,7 +524,7 @@ class Inventory:
                 if isinstance(h.get(key), int): item[field] = h[key]
             self.heroes[h['base_id']] = item
 
-    def update(self, op, body):
+    def update(self, op, body, *, login_only=False):
         if op == 0x2961:
             components,groups={},{}
             for f,w,data in fields(body):
@@ -546,7 +546,9 @@ class Inventory:
             self.components,self.component_groups=components,groups
             self.components_observed=True
             self.components_capture_time=None
-            return
+            return True
+        if login_only and op not in INVENTORY_LOGIN_FIELDS:
+            return False
         if op == 0x1134:
             response = record(body)
             level = response.get(2)
@@ -589,10 +591,12 @@ class Inventory:
                 if category == 'gear':
                     self.initial_sub_counts = initial_counts
                 setattr(self, category, replacement)
-                return
+                return True
             if op == 0x1133:
                 raise ValueError('登录源器列表字段不完整，保留已有库存')
 
+        if login_only:
+            return False
         target = getattr(self, category)
         for item in items:
             uid = item.get(1)
@@ -673,6 +677,9 @@ class Engine:
         self.latest = None
         self.last_warning = None
         self.inventory_observed = set()
+        self.inventory_generation = None
+        self.inventory_reset_time = None
+        self.inventory_connection = None
         self.actor_aliases = collections.OrderedDict()
         self.actor_serial = 0
         self.active_battle = False
@@ -789,6 +796,37 @@ class Engine:
             self.last_warning = message
             self.emit('warning', message)
 
+    def reset_inventory(self, generation, timestamp):
+        self.inventory = Inventory(self.mappings)
+        self.inventory_observed.clear()
+        self.inventory_generation = generation
+        self.inventory_reset_time = timestamp
+        self.inventory_connection = None
+
+    def update_inventory(self, op, body, timestamp, connection):
+        if self.inventory_generation is not None:
+            if timestamp < self.inventory_reset_time or self.inventory_connection not in (None, connection):
+                return
+            # A fresh login supplies the base for subsequent single-item updates.
+            if op in (0x1132, 0x1134) and 0x1133 not in self.inventory_observed:
+                return
+            login_only = op in INVENTORY_LOGIN_FIELDS and op not in self.inventory_observed
+            accepted = self.inventory.update(op, body, login_only=login_only)
+            if login_only and not accepted:
+                return
+            self.inventory_connection = connection
+        else:
+            self.inventory.update(op, body)
+        if op == 0x2961:
+            self.inventory.components_capture_time = timestamp
+        self.inventory_observed.add(op)
+        snapshot = self.inventory.snapshot(timestamp, self.inventory_observed)
+        if self.inventory_generation is not None:
+            snapshot['inventory_generation'] = self.inventory_generation
+            snapshot['inventory_reset_time'] = self.inventory_reset_time
+        self.emit('inventory', snapshot['loadout_rows'])
+        self.emit('inventory_snapshot', snapshot)
+
     def message(self, op, body, timestamp, connection='direct'):
         self.counts['messages'] += 1
         self.last_timestamp = timestamp
@@ -807,11 +845,7 @@ class Engine:
             elif op == 0x8421:
                 self.replay_message(body,timestamp,connection)
             elif op in (0x1122, 0x1129, 0x1132, 0x1133, 0x1134, 0x2961):
-                self.inventory.update(op, body)
-                if op==0x2961:self.inventory.components_capture_time=timestamp
-                self.emit('inventory', self.inventory.rows())
-                self.inventory_observed.add(op)
-                self.emit('inventory_snapshot', self.inventory.snapshot(timestamp, self.inventory_observed))
+                self.update_inventory(op, body, timestamp, connection)
             elif op == 0x5fc1:
                 self.counts['draft_messages']+=1
                 self.players(connection).draft(body, timestamp)
@@ -883,11 +917,13 @@ class Engine:
             self.flows.pop(key, None)
             self.flow_connections.pop(key,None)
 
-    def read(self, stream, stop=None):
+    def read(self, stream, stop=None, before_packet=None):
         last_update = 0
         for timestamp, link, data in packets(stream):
             if stop and stop.is_set():
                 break
+            if before_packet is not None:
+                before_packet()
             self.packet(timestamp, link, data)
             now = time.monotonic()
             if now - last_update > 0.5:
@@ -920,5 +956,3 @@ if __name__ == '__main__':
         print(args.output)
     else:
         print(content)
-
-

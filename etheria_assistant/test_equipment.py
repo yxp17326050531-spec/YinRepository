@@ -92,6 +92,37 @@ class EquipmentTests(unittest.TestCase):
                 inv.update(0x1133, invalid + marker)
             self.assertEqual(set(inv.gear), {42, 43})
 
+    def test_clear_inventory_survives_restart_and_rebuilds_only_from_fresh_login(self):
+        old = {'capture_time': 100, 'gear': [gear(42)], 'components': [{'uid': 3}]}
+        self.archive.save_inventory(old, 'old account')
+        reset = self.archive.clear_current_inventory()
+        cleared_at = reset['inventory_reset_time']
+        # A worker may still finish persisting its last snapshot after a clear.
+        self.archive.save_inventory(dict(old, gear=[gear(42), gear(43)], capture_time=cleared_at + 1), 'old worker')
+        reopened = Archive(self.temp.name)
+        self.assertEqual(reopened.latest_inventory()['data'], reset)
+        self.assertEqual(reopened.latest_inventory(before=100)['data'], old)
+
+        events = []
+        job = CaptureJob(lambda kind, data: events.append((kind, data)), 20001, load_mappings(), reopened)
+        job.restore_inventory(reopened.latest_inventory())
+        events.clear()
+        engine = job.engine
+        engine.message(0x1132, delta(42, [attr(8, 33000)]), cleared_at + 2, 'previous')
+        engine.message(0x1133, login_gear(42) + scalar(4, 2), cleared_at - 1, 'previous')
+        engine.message(0x1133, login_gear(42), cleared_at + 3, 'previous')
+        self.assertFalse(any(kind == 'inventory_snapshot' for kind, _ in events))
+        self.assertEqual(reopened.latest_inventory()['data'], reset)
+        engine.message(0x1133, login_gear(51) + scalar(4, 2), cleared_at + 4, 'current')
+        engine.message(0x1129, login_shell(201), cleared_at + 5, 'current')
+        engine.message(0x1132, delta(42, [attr(8, 33000)]), cleared_at + 6, 'previous')
+        engine.message(0x1132, delta(51, [attr(8, 33000), attr(16, 1480)]), cleared_at + 7, 'current')
+        snapshot = reopened.latest_inventory()['data']
+        self.assertEqual([item['uid'] for item in snapshot['gear']], [51])
+        self.assertEqual(snapshot['gear'][0]['attributes_raw'][-1], attr(16, 1480))
+        self.assertEqual([item['uid'] for item in snapshot['shells']], [201])
+        self.assertNotIn('components', snapshot)
+
     def test_patch_preserves_matrix_flag_zero_and_other_items(self):
         inv=Inventory(load_mappings()); baseline={'gear':[gear(),gear(43)]}; inv.restore(baseline)
         values=[attr(8,15000),attr(22,64,1),attr(4,19200),attr(16,300),attr(19,23)]
@@ -183,4 +214,3 @@ class EquipmentTests(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
-

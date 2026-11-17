@@ -673,17 +673,36 @@ class Archive:
                        (identity,snapshot.get('capture_time'),datetime.now(timezone.utc).isoformat(timespec='microseconds'),source,encode(snapshot)))
         return identity
 
+    def clear_current_inventory(self):
+        snapshot = {
+            'capture_time': datetime.now(timezone.utc).timestamp(),
+            'inventory_generation': uuid.uuid4().hex,
+            'gear': [], 'shells': [], 'heroes': [], 'loadout_rows': [],
+        }
+        snapshot['inventory_reset_time'] = snapshot['capture_time']
+        self.save_inventory(snapshot, '清理当前装备')
+        return snapshot
+
     def latest_inventory(self, before=None):
         with self.connect() as db:
-            condition = ' WHERE capture_time<=?' if before is not None else ''
+            clauses = ['capture_time<=?'] if before is not None else []
+            params = [before] if before is not None else []
+            cutoff = ' AND capture_time<=?' if before is not None else ''
+            reset = db.execute('SELECT capture_time,data FROM inventory_snapshots WHERE source=?'+cutoff+
+                               ' ORDER BY capture_time DESC,saved_at DESC,rowid DESC LIMIT 1',
+                               ('清理当前装备', *params)).fetchone()
+            if reset:
+                clauses.extend(("json_extract(data,'$.inventory_generation')=?", 'capture_time>=?'))
+                params.extend((json.loads(reset['data'])['inventory_generation'], reset['capture_time']))
+            condition = ' WHERE ' + ' AND '.join(clauses) if clauses else ''
             row = db.execute('SELECT * FROM inventory_snapshots'+condition+
                              ' ORDER BY capture_time DESC,saved_at DESC,rowid DESC LIMIT 1',
-                             (before,) if before is not None else ()).fetchone()
+                             params).fetchone()
             if not row:return None
             data=json.loads(row['data'])
             # Pre-component app versions could save a newer gear snapshot with
             # this category absent. Absence is not an observed empty inventory.
-            if 'components' not in data and row['capture_time'] is not None:
+            if not reset and 'components' not in data and row['capture_time'] is not None:
                 previous=db.execute('''SELECT capture_time,data FROM inventory_snapshots
                     WHERE capture_time<=? AND data LIKE ?
                     ORDER BY capture_time DESC,saved_at DESC,rowid DESC''',
@@ -822,5 +841,3 @@ def project_unit(unit, mappings, annotation=None):
             out['matrix_effects_candidates'].append(dict(matrix, effect_id=effect))
     out['manual'] = copy.deepcopy(annotation) if annotation else None
     return out
-
-

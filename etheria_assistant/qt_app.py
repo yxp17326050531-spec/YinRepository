@@ -128,6 +128,7 @@ class MainWindow(QMainWindow):
         self.live_time=None; self.capture_diagnostics=self.preferences.get('last_capture_diagnostics',{})
         self.latest=None; self.unsaved_battle=None; self.storage_failed=False; self.inventory_rows=[]; self.history_offset=0; self.history_ids=[]
         saved=self.archive.latest_inventory(); self.bag_snapshot=saved['data'] if saved else None
+        self.inventory_generation = (self.bag_snapshot or {}).get('inventory_generation')
         self.gear_filters=normalize_filters(self.preferences.get('gear_filters',{}))
         self.gear_filters['initial']=[]
         self.gear_sort=normalize_sort(self.preferences.get('gear_sort',{}))
@@ -505,7 +506,12 @@ class MainWindow(QMainWindow):
                 rows.append([*[self.hero_name(i) for i in ids],r['wins'],r['losses'],r['decided'],percent(r['win_rate'])])
             fill(t,rows)
     def build_inventory(self):
-        layout=self.page(); self.bag_info=label('','hint'); layout.addWidget(self.bag_info)
+        layout = self.page()
+        header = QHBoxLayout()
+        self.bag_info = label('', 'hint')
+        header.addWidget(self.bag_info, 1)
+        header.addWidget(self.action('清理当前装备', self.clear_current_equipment))
+        layout.addLayout(header)
         bar=QHBoxLayout(); self.gear_query=QLineEdit(); self.gear_query.setPlaceholderText('搜索矩阵 / 角色 / 源器或元件编号'); self.gear_query.textChanged.connect(lambda _:self.render_inventory()); bar.addWidget(self.gear_query,1)
         bar.addWidget(self.action('分类筛选',self.edit_gear_filters,True))
         bar.addWidget(self.action('清除筛选',self.clear_gear_filters))
@@ -561,6 +567,23 @@ class MainWindow(QMainWindow):
         dialog.exec()
         self.preferences['gear_distribution_level'] = dialog.level.currentData()
         self.archive.save_settings({'gear_distribution_level': dialog.level.currentData()})
+
+    def clear_current_equipment(self):
+        answer = QMessageBox.question(
+            self, '清理当前装备',
+            '清理当前显示的源器、智壳、配装和元件缓存？历史对局和库存快照会保留。\n\n'
+            '清理后，请保持监听并重新登录要读取的游戏账号。',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        snapshot = self.archive.clear_current_inventory()
+        self.inventory_generation = snapshot['inventory_generation']
+        if self.job and self.job.thread and self.job.thread.is_alive():
+            self.job.request_inventory_reset(snapshot)
+        self.handle_event('inventory_snapshot', snapshot)
+        self.notify('当前装备已清理。请在监听状态下重新登录游戏。')
 
     def build_gear_column_menu(self, button):
         menu = QMenu(button)
@@ -728,6 +751,8 @@ class MainWindow(QMainWindow):
         component_count=f"{len(snap['components'])} 件" if 'components' in snap else '未采集'
         component_time=f" · 元件观测 {stamp(snap.get('components_capture_time'))}" if 'components' in snap else ''
         self.bag_info.setText(f"筛出 {len(rows)} / {len(snap.get('gear',[]))} 件源器 · 智壳 {len(snap.get('shells',[]))} 个 · 元件 {component_count} · 采集 {stamp(snap.get('capture_time'))}"+component_time)
+        if self.inventory_generation and 0x1133 not in snap.get('observed_opcodes', []):
+            self.bag_info.setText('当前装备已清理 · 请在监听状态下重新登录游戏，等待读取源器列表')
         self.gear_filter_info.setText(filter_summary(self.gear_filters,filter_options(self.mappings,snap.get('gear',[]))))
         self.gear_filter_info.setVisible(any(self.gear_filters.values()))
         self.gear_details.setPlainText('点击源器查看属性与原值。主副属性按已对照规则解码；未确认字段显示未知。稀有度和初始副属性条数可通过“校正分类”记录。')
@@ -990,8 +1015,12 @@ class MainWindow(QMainWindow):
             elif not bid:
                 self.unsaved_battle=data
                 if not self.browsing:self.current_id=None; self.render_battle()
-        elif kind=='inventory':self.inventory_rows=data; self.render_inventory()
-        elif kind=='inventory_snapshot':self.bag_snapshot=data; self.inventory_rows=data.get('loadout_rows',self.inventory_rows); self.render_inventory()
+        elif kind=='inventory_snapshot':
+            if data.get('inventory_generation') != self.inventory_generation:
+                return
+            self.bag_snapshot = data
+            self.inventory_rows = data.get('loadout_rows', [])
+            self.render_inventory()
         elif kind=='diagnostics':self.render_capture_diagnostics(data)
         elif kind=='observation':
             if data.get('kind')=='settlement':
@@ -1050,6 +1079,3 @@ def main():
         QMessageBox.information(None,'伊瑟 · 对局助手',str(exc)); return 1
 
 if __name__=='__main__':sys.exit(main())
-
-
-
