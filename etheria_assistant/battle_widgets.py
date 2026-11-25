@@ -2,12 +2,12 @@
 from html import escape
 from math import isfinite
 from time import monotonic
-from PySide6.QtCore import Qt,QTimer
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QPointF,Qt,QTimer
+from PySide6.QtGui import QColor,QPainter,QPixmap,QPolygonF
 from PySide6.QtWidgets import QWidget,QFrame,QLabel,QVBoxLayout,QHBoxLayout,QGridLayout,QMenu,QSizePolicy,QBoxLayout,QLayout
-from artwork import image_label,matrix_color
+from artwork import image_label,matrix_color,suspected_hero_name
 from capture import shell_text,matrix_text,imprint_text
-from battle_attributes import decode_extra_attributes
+from battle_attributes import component_hints, decode_extra_attributes
 
 ATTRIBUTE_COLOR_RANGES = {
     'hp': (30000, 85000), 'attack': (3000, 5500), 'defense': (1500, 5000),
@@ -15,6 +15,68 @@ ATTRIBUTE_COLOR_RANGES = {
     'effect_hit': (100, 300), 'effect_resist': (100, 300),
 }
 ATTRIBUTE_COLORS = ((242, 244, 252), (255, 225, 103), (255, 166, 83), (255, 95, 108))
+BASE_ATTRIBUTES = (
+    ('hp', '生命'), ('attack', '攻击'), ('defense', '防御'), ('speed', '速度'),
+    ('crit', '暴击率'), ('crit_damage', '暴击伤害'),
+    ('effect_hit', '效果命中'), ('effect_resist', '效果抵抗'),
+)
+BASE_PERCENT_KEYS = frozenset(key for key, _ in BASE_ATTRIBUTES[4:])
+COMMON_DAMAGE_ATTRIBUTES = (
+    ('pvp_damage_bonus', 'PVP增伤'), ('damage_result_bonus', '结果增伤'),
+    ('ignore_defense', '无视防御'), ('pvp_damage_reduction', 'PVP减伤'),
+    ('damage_result_reduction', '结果减伤'), ('extra_damage_reduction', '额外减伤'),
+)
+DAMAGE_ATTRIBUTES = COMMON_DAMAGE_ATTRIBUTES + (
+    ('basic_damage_bonus', '普攻增伤'),
+    ('basic_damage_reduction', '普攻减伤'),
+    ('ultimate_damage_bonus', '终极增伤'),
+    ('ultimate_damage_reduction', '终极减伤'),
+    ('crit_damage_bonus', '暴击增伤'),
+    ('crit_damage_reduction', '被暴击减伤'),
+    ('boss_damage_bonus', '首领增伤'),
+    ('potential_damage_modifier', '命座增减伤'),
+)
+SUPPORT_ATTRIBUTES = (
+    ('healing_bonus', '施加治疗'),
+    ('healing_received_bonus', '受到治疗'),
+    ('shield_bonus', '施加护盾'),
+    ('shield_received_bonus', '受到护盾'),
+)
+BATTLE_ATTRIBUTE_GROUPS = (
+    ('基础属性', BASE_ATTRIBUTES), ('伤害', DAMAGE_ATTRIBUTES),
+    ('治疗与护盾', SUPPORT_ATTRIBUTES),
+)
+ALL_BATTLE_ATTRIBUTE_KEYS = tuple(key for _, group in BATTLE_ATTRIBUTE_GROUPS for key, _ in group)
+DEFAULT_BATTLE_ATTRIBUTE_KEYS = tuple(key for key, _ in BASE_ATTRIBUTES + COMMON_DAMAGE_ATTRIBUTES)
+
+
+def normalize_battle_attribute_keys(saved):
+    if not isinstance(saved, list):
+        return DEFAULT_BATTLE_ATTRIBUTE_KEYS
+    return tuple(key for key in ALL_BATTLE_ATTRIBUTE_KEYS if key in saved)
+
+
+def full_potential_badge(avatar):
+    size = 16
+    badge = QLabel(avatar)
+    badge.setObjectName('fullPotentialBadge')
+    badge.setAccessibleName('满命')
+    badge.setToolTip('满命 · 开场命座增减伤 10%（#38）。减伤贡献已计入额外减伤。')
+    badge.setGeometry(avatar.width() - size, avatar.height() - size, size, size)
+    icon = QPixmap(size * 4, size * 4)
+    icon.setDevicePixelRatio(4)
+    icon.fill(Qt.GlobalColor.transparent)
+    with QPainter(icon) as painter:
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor('#201825'))
+        painter.drawEllipse(QPointF(8, 8), 7.6, 7.6)
+        painter.setBrush(QColor('#ffd477'))
+        points = ((3.2, 5.7), (5.8, 7.5), (8, 4.2), (10.2, 7.5),
+                  (12.8, 5.7), (11.7, 10.8), (4.3, 10.8))
+        painter.drawPolygon(QPolygonF([QPointF(x, y) for x, y in points]))
+        painter.drawRoundedRect(4.4, 11.4, 7.2, 1, .45, .45)
+    badge.setPixmap(icon)
 
 
 def attribute_color(key, value):
@@ -59,21 +121,40 @@ def text(value,name=None):
 
 
 class UnitCard(QFrame):
-    """Reflow actual Qt layouts; all fourteen values remain visible at either width."""
-    def __init__(self,unit,team,action,edit_name,edit_loadout,details):
+    """Show opening stats and fit the card to its team's share of the viewport."""
+    def __init__(self,unit,team,action,edit_name,edit_loadout,details,
+                 visible_attributes=DEFAULT_BATTLE_ATTRIBUTE_KEYS,avatar_override=None):
         super().__init__();self.setObjectName('heroRow');self.wide=None
+        extra = decode_extra_attributes(unit.get('attributes_raw'))
+        potential = extra.get('potential_damage_modifier')
         self.heading_timer=QTimer(self);self.heading_timer.setSingleShot(True);self.heading_timer.timeout.connect(self.sync_heading_heights)
         self.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Maximum)
         self.root=QHBoxLayout(self);self.root.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint);self.root.setContentsMargins(3,1,3,1);self.root.setSpacing(3)
         identity=QWidget();identity.setObjectName('unitIdentity');identity.setFixedWidth(96)
         left=QVBoxLayout(identity);left.setContentsMargins(0,0,0,0);left.setSpacing(4)
-        top=QHBoxLayout();top.setSpacing(6);top.addWidget(image_label('heroes',unit['hero_name'],28))
-        name=action(unit['hero_name'],lambda:edit_name(unit));name.setObjectName('link')
+        top=QHBoxLayout();top.setSpacing(6)
+        hero_id, hero_name = unit['hero_id'], unit['hero_name']
+        suspected = suspected_hero_name(hero_id, hero_name)
+        avatar=image_label('heroes',suspected or hero_name,28,avatar_override);top.addWidget(avatar)
+        display_name = suspected or (f'#{hero_id}' if hero_name == f'角色 #{hero_id}' else hero_name)
+        name=action(display_name,lambda:edit_name(unit));name.setObjectName('link')
         name.setMinimumWidth(0);name.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Fixed)
-        name.setToolTip(unit['hero_name']+' · 修改精确编号名称 #'+str(unit['hero_id']));top.addWidget(name,1)
+        tooltip = f'编号 #{hero_id} · 编辑角色名称与头像'
+        if suspected:
+            tooltip = f'疑似{suspected}（编号末位相近）\n' + tooltip
+        avatar.setToolTip(tooltip)
+        name.setToolTip(tooltip);top.addWidget(name,1)
+        if potential == 10:
+            name.setProperty('fullPotential', True)
+            full_potential_badge(avatar)
         more=action('⋯',lambda:None);more.setObjectName('heroMore');more.setToolTip('角色详情与本场配装')
         menu=QMenu(more);menu.addAction('查看详情',lambda:details(unit));menu.addAction('修改本场配装',lambda:edit_loadout(unit))
+        menu.addAction('编辑角色名称与头像', lambda:edit_name(unit))
         more.setMenu(menu);left.addLayout(top)
+        if suspected:
+            hint = text('疑似', 'hint')
+            hint.setToolTip(tooltip)
+            left.addWidget(hint)
         shell_names={s['name'] for s in unit.get('shells',[])}
         shell=(unit.get('manual') or {}).get('shell') or (next(iter(shell_names)) if len(shell_names)==1 else None)
         shellrow=QHBoxLayout();shellrow.setSpacing(5)
@@ -109,18 +190,30 @@ class UnitCard(QFrame):
         right.addLayout(self.basic)
         secondary=QFrame();secondary.setObjectName('extraAttributes');self.extra=QGridLayout(secondary);self.extra.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
         self.extra.setContentsMargins(3,1,3,1);self.extra.setHorizontalSpacing(3);self.extra.setVerticalSpacing(0)
-        right.addWidget(secondary);right.addStretch();self.root.addWidget(attributes,1)
-        specs=[('hp','生命'),('attack','攻击'),('defense','防御'),('speed','速度'),
-               ('crit','暴击率'),('crit_damage','暴击伤害'),('effect_hit','效果命中'),('effect_resist','效果抵抗'),
-               ('pvp_damage_bonus','PVP增伤'),('damage_result_bonus','结果增伤'),('ignore_defense','无视防御'),
-               ('pvp_damage_reduction','PVP减伤'),('damage_result_reduction','结果减伤'),('extra_damage_reduction','额外减伤')]
-        extra=decode_extra_attributes(unit.get('attributes_raw'));self.cells=[]
+        right.addWidget(secondary)
+        hints = component_hints(extra)
+        if hints:
+            hint = text('疑似元件  ' + ' · '.join(names for names, _ in hints), 'componentHint')
+            hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+            hint.setToolTip('\n'.join(f'{names} · {evidence}' for names, evidence in hints))
+            right.addWidget(hint)
+        right.addStretch();self.root.addWidget(attributes,1)
+        base = [(key, title) for key, title in BASE_ATTRIBUTES if key in visible_attributes]
+        secondary_attributes = [(key, title) for key, title in DAMAGE_ATTRIBUTES + SUPPORT_ATTRIBUTES
+                                if key in visible_attributes]
+        specs = base + secondary_attributes
+        self.basic_count = len(base)
+        self.attribute_keys = [key for key, _ in specs]
+        secondary.setVisible(bool(secondary_attributes))
+        self.cells=[]
         for index,(key,title) in enumerate(specs):
-            values=extra if index>=8 else unit.get('percent_attributes_tentative',{}) if index>=4 else unit['stats']
+            is_extra = index >= self.basic_count
+            is_percent = is_extra or key in BASE_PERCENT_KEYS
+            values=extra if is_extra else unit.get('percent_attributes_tentative',{}) if is_percent else unit['stats']
             value=(values or {}).get(key)
-            shown='—' if not isinstance(value,(int,float)) else f'{value:g}%' if index>=4 else f'{value:.2f}' if key=='speed' else f'{value:g}'
+            shown='—' if not isinstance(value,(int,float)) else f'{value:g}%' if is_percent else f'{value:.2f}' if key=='speed' else f'{value:g}'
             cell=QWidget();col=QBoxLayout(QBoxLayout.Direction.LeftToRight,cell)
-            col.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint);col.setContentsMargins(0,0,0,0);col.setSpacing(3 if index>=8 else 0)
+            col.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint);col.setContentsMargins(0,0,0,0);col.setSpacing(3 if is_extra else 0)
             # Headings may wrap; numeric values keep their actual font size.
             heading=text(title,'attributeTitle');heading.setWordWrap(True)
             policy=heading.sizePolicy();policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored);heading.setSizePolicy(policy)
@@ -134,10 +227,10 @@ class UnitCard(QFrame):
                     metric.setStyleSheet(f'color: {color.name()};')
             metric.setWordWrap(False)
             metric.setAccessibleName(f"{team}方 {unit['hero_id']} {title}")
-            if index>=8:metric.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
+            if is_extra:metric.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
             tip=title+'：'+shown+' · 对局开场已下发值；缺失不代表0，不再次叠加库存。'
             if key in ('pvp_damage_bonus','pvp_damage_reduction'):tip+=' 对局开场总值，已对照科技/元件同类合计。'
-            if key=='extra_damage_reduction':tip+=' 潜能与涌泉效果分开，不按矩阵说明改写。'
+            if key=='extra_damage_reduction':tip+=' 命座与元件的额外减伤已计入此开场值。'
             if key=='damage_result_bonus':tip+=' 普通与相性增伤同区间；破序之刃10%等未下发条件值不补算。'
             metric.setToolTip(tip);col.addWidget(metric,1);self.cells.append(cell)
         self.reflow(False)
@@ -172,7 +265,7 @@ class UnitCard(QFrame):
             # Percentage labels and values are both long with Windows CJK
             # fonts. Stacking them also in compact mode prevents their summed
             # minimum widths from forcing both teams beyond the viewport.
-            stacked=(wide or stack_basic or index>=4) if index<8 else stack_extra
+            stacked=(wide or stack_basic or self.attribute_keys[index] in BASE_PERCENT_KEYS) if index<self.basic_count else stack_extra
             heading=cell.layout().itemAt(0).widget()
             # An inline label must reserve its text width before the numeric
             # value claims space. Ignored size policy otherwise permits zero.
@@ -186,11 +279,12 @@ class UnitCard(QFrame):
         for layout in (self.basic,self.extra):
             while layout.count():layout.takeAt(0)
             for column in range(8):layout.setColumnStretch(column,0)
-        basic_order=sorted(range(8),key=lambda i:self.cells[i].layout().itemAt(1).widget().minimumWidth(),reverse=True) if balanced else list(range(8))
+        basic_order=sorted(range(self.basic_count),key=lambda i:self.cells[i].layout().itemAt(1).widget().minimumWidth(),reverse=True) if balanced else []
         for index,cell in enumerate(self.cells):
-            grid=self.basic if index<8 else self.extra;i=index if index<8 else index-8
-            columns=(8 if wide else 4) if index<8 else extra_columns
-            if index<8 and balanced:
+            is_basic = index < self.basic_count
+            grid=self.basic if is_basic else self.extra;i=index if is_basic else index-self.basic_count
+            columns=(8 if wide else 4) if is_basic else extra_columns
+            if is_basic and balanced and self.basic_count > columns:
                 position=basic_order.index(index);grid.addWidget(cell,position%2,position//2)
             else:grid.addWidget(cell,i//columns,i%columns)
         # Recompute from the cells upward before testing the new minimum.
@@ -225,6 +319,8 @@ class UnitCard(QFrame):
             (False,3,False,True),(False,3,True,True),
             (False,2,False,True),(False,2,True,True),
             (False,3,True,True,True),(False,2,True,True,True)]
+        if len(self.cells) - self.basic_count > 6:
+            candidates.extend(((False,4,False,True),(False,4,True,True),(False,4,True,True,True)))
         fitting=[];measured=[]
         for priority,configuration in enumerate(candidates):
             self.reflow(*configuration)
@@ -243,6 +339,7 @@ class UnitCard(QFrame):
         self.heading_timer.start(0)
 
 
-def unit_card(unit,team,action,edit_name,edit_loadout,details):
-    return UnitCard(unit,team,action,edit_name,edit_loadout,details)
+def unit_card(unit,team,action,edit_name,edit_loadout,details,
+              visible_attributes=DEFAULT_BATTLE_ATTRIBUTE_KEYS,avatar_override=None):
+    return UnitCard(unit,team,action,edit_name,edit_loadout,details,visible_attributes,avatar_override)
 

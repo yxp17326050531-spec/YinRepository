@@ -2,6 +2,10 @@
   "schema": "etheria-ui-art-v1",
   "source": "用户提供的游戏图鉴，按可读名称裁取；不含账号、库存和截图界面",
   "heroes": {
+    "达罗斯": {
+      "atlas": "darros.png",
+      "rect": [0, 0, 192, 192]
+    },
     "多琪": {
       "atlas": "heroes.jpg",
       "rect": [

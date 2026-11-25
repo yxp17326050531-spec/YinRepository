@@ -27,6 +27,8 @@ QPushButton#nav {background:transparent; border:0; padding:9px 0; color:#a79eb8;
 QPushButton#nav:checked {background:#252036; color:#81dcfa; border-left:3px solid #59ccef; border-radius:5px;}
 QPushButton#link {border:0; padding:2px; text-align:left; background:transparent; font-weight:700; font-size:16px;}
 QPushButton#link:hover {color:#70deca;}
+QPushButton#link[fullPotential="true"], QPushButton#link[fullPotential="true"]:hover {color:#ffd477;}
+QLabel#componentHint {color:#a9b8cc; font-size:12px;}
 QLineEdit, QComboBox, QSpinBox, QPlainTextEdit {background:#1c1926; border:1px solid #40364d; border-radius:6px; padding:7px; selection-background-color:#30685f;}
 QComboBox QAbstractItemView {background:#272132; selection-background-color:#3b3152;}
 QTableWidget {background:#1c1925; alternate-background-color:#211d2b; border:1px solid #302a3c; border-radius:8px; gridline-color:#263347; selection-background-color:#2b5655; selection-color:#edfffa;}
@@ -65,6 +67,7 @@ QMenu::item {padding:8px 20px;}
 QMenu::item:selected {background:#3b3152;}
 QDialog {background:#1c1925;}
 QCheckBox {spacing:8px;}
+QDialog#battleAttributeSettings QCheckBox::indicator:unchecked {border:1px solid #746786; border-radius:3px;}
 QFrame#heroRow QFrame#extraAttributes {background:#17141f; border:0; border-radius:5px;}
 QLabel#teamOutcome {font-size:13px; font-weight:700; padding:4px 8px; border-radius:5px; background:#282332; color:#aaa1b8;}
 QLabel#teamOutcome[result=win] {background:#183b31; color:#61d7a0;}

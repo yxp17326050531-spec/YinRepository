@@ -59,6 +59,9 @@ class Archive:
                 CREATE TABLE IF NOT EXISTS mappings (
                     category TEXT NOT NULL, id TEXT NOT NULL, value TEXT NOT NULL,
                     PRIMARY KEY(category, id));
+                CREATE TABLE IF NOT EXISTS hero_portraits (
+                    hero_id TEXT PRIMARY KEY, builtin_name TEXT, png BLOB,
+                    CHECK ((builtin_name IS NULL) != (png IS NULL)));
                 CREATE TABLE IF NOT EXISTS audit (
                     time TEXT NOT NULL, action TEXT NOT NULL, target TEXT NOT NULL, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS battle_context (
@@ -347,11 +350,7 @@ class Archive:
         return result
 
     def set_mapping(self, category, identifier, name, threshold=None):
-        if category not in ('heroes','shell_configs','shell_effects','matrices','matrix_effects'):
-            raise ValueError('未知映射类型')
-        identifier = str(int(identifier))
-        if not 0 < int(identifier) < 2**64:
-            raise ValueError('编号应为正整数')
+        identifier, = self.mapping_ids(category, [identifier])
         name = name.strip()
         if not name or len(name) > 100:
             raise ValueError('名称不能为空，最多 100 字')
@@ -366,8 +365,36 @@ class Archive:
             else:threshold=None
             value['threshold'] = threshold
         with self.connect() as db:
-            db.execute('INSERT OR REPLACE INTO mappings VALUES (?,?,?)', (category, identifier, encode(value)))
-            db.execute('INSERT INTO audit VALUES (?,?,?,?)', (now(), 'mapping', category + '/' + identifier, encode(value)))
+            self._write_mapping(db, category, identifier, value)
+
+    @staticmethod
+    def _write_mapping(db, category, identifier, value):
+        encoded = encode(value)
+        db.execute('INSERT OR REPLACE INTO mappings VALUES (?,?,?)', (category, identifier, encoded))
+        db.execute('INSERT INTO audit VALUES (?,?,?,?)', (now(), 'mapping', category + '/' + identifier, encoded))
+
+    def hero_portraits(self, identifiers):
+        ids = tuple(dict.fromkeys(str(identifier) for identifier in identifiers))
+        if not ids:
+            return {}
+        placeholders = ','.join('?' for _ in ids)
+        with self.connect() as db:
+            return {row['hero_id']: (row['builtin_name'], row['png']) for row in db.execute(
+                f'SELECT hero_id,builtin_name,png FROM hero_portraits WHERE hero_id IN ({placeholders})', ids)}
+
+    def save_hero_profile(self, identifier, name, portrait):
+        identifier, = self.mapping_ids('heroes', [identifier])
+        name = name.strip()
+        if len(name) > 100:
+            raise ValueError('名称最多 100 字')
+        builtin, png = portrait
+        with self.connect() as db:
+            if name:
+                self._write_mapping(db, 'heroes', identifier, name)
+            if builtin is None and png is None:
+                db.execute('DELETE FROM hero_portraits WHERE hero_id=?', (identifier,))
+            else:
+                db.execute('INSERT OR REPLACE INTO hero_portraits VALUES (?,?,?)', (identifier, builtin, png))
 
     def remove_mapping(self, category, identifier):
         return self.remove_mappings(category, [identifier])

@@ -294,6 +294,61 @@ class QtTests(unittest.TestCase):
         metrics=[w for w in self.window.findChildren(QLabel) if w.objectName()=='statValue']
         self.assertTrue(all(w.font().pixelSize()>=18 for w in metrics))
 
+    def test_role_editor_saves_an_exact_name_and_local_portrait(self):
+        from artwork import portrait
+        from PySide6.QtGui import QColor, QImage
+        from PySide6.QtWidgets import QPushButton
+
+        self.assertFalse(portrait('heroes', '达罗斯', 28).isNull())
+        battle = copy.deepcopy(self.battle)
+        battle['capture_time'] += 10
+        battle['teams']['A'][0]['hero_id'] = 32352
+        battle['teams']['B'][0]['hero_id'] = 9999001
+        bid = self.archive.save_battle(battle, 'synthetic avatar identities')
+        self.window.browse_battle(bid)
+
+        def avatar_for(side):
+            card = self.window.team_layouts[side].itemAt(0).widget()
+            return next(w for w in card.findChildren(QLabel, 'artIcon')
+                        if w.accessibleName().startswith('heroes'))
+
+        self.assertIn('疑似奥萨尔', avatar_for('A').toolTip())
+        self.assertFalse(avatar_for('A').pixmap().isNull())
+        self.assertEqual(avatar_for('B').text(), '？')
+        image = QImage(96, 128, QImage.Format.Format_RGB32)
+        image.fill(QColor('red'))
+        path = str(Path(self.temp.name) / 'portrait.png')
+        self.assertTrue(image.save(path))
+
+        def edit(dialog):
+            dialog.findChild(QLineEdit).setText('本地名称')
+            upload = next(b for b in dialog.findChildren(QPushButton) if b.text() == '选择图像…')
+            with patch('qt_app.QFileDialog.getOpenFileName', return_value=(path, '')):
+                upload.click()
+            dialog.commit()
+
+        self.modal(edit)
+        self.window.edit_hero(self.window.latest['teams']['A'][0])
+        Path(path).unlink()
+        self.window.browse_battle(bid)
+        self.assertEqual(self.window.latest['teams']['A'][0]['hero_name'], '本地名称')
+        self.assertNotIn('疑似', avatar_for('A').toolTip())
+        self.assertEqual(avatar_for('A').pixmap().toImage().pixelColor(10, 10), QColor('red'))
+        alias, png = self.archive.hero_portraits([32352])['32352']
+        self.assertIsNone(alias)
+        self.assertTrue(png.startswith(b'\x89PNG'))
+        self.assertEqual(avatar_for('B').text(), '？')
+        self.assertEqual(self.archive.get(bid)['original'], battle)
+
+        def use_library(dialog):
+            dialog.findChild(QComboBox).setCurrentText('达罗斯')
+            dialog.commit()
+
+        self.modal(use_library)
+        self.window.edit_hero(self.window.latest['teams']['A'][0])
+        self.assertEqual(self.archive.hero_portraits([32352])['32352'], ('达罗斯', None))
+        self.assertFalse(avatar_for('A').pixmap().isNull())
+
     def test_review_dialog_sets_b_win_nicknames_and_own_replay_classification(self):
         from core import decode_replay
         from test_replay import replay_body
@@ -672,7 +727,7 @@ class QtTests(unittest.TestCase):
 
     def test_battle_details_shows_pending_raw_without_claiming_percent_semantics(self):
         unit=copy.deepcopy(self.battle['teams']['B'][0])
-        raw=(1<<63)|(123<<8)|188;unit['attributes_raw']=[raw,201]
+        raw=(1<<63)|(123<<8)|198;unit['attributes_raw']=[raw,201]
         def inspect(dialog):
             texts=[w.toPlainText() for w in dialog.findChildren(QPlainTextEdit)]
             pending=next(text for text in texts if '其他属性待对照' in text)
@@ -733,5 +788,99 @@ class QtTests(unittest.TestCase):
                 cards=[roster.itemAt(i).widget() for i in range(roster.count())]
                 for first,second in zip(cards,cards[1:]):
                     self.assertGreaterEqual(second.y(),first.y()+first.height())
+
+    def test_home_shows_added_attributes_component_hints_and_full_potential(self):
+        from battle_attributes import EXTRA_ATTRIBUTES
+        from battle_widgets import ALL_BATTLE_ATTRIBUTE_KEYS
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QPushButton
+
+        battle = copy.deepcopy(self.battle)
+        battle['capture_time'] += 100
+        attacker = battle['teams']['A'][0]
+        attacker['attributes_raw'] = [
+            (100 << 8) | 38, (170 << 8) | 41, (72 << 8) | 44,
+            (247 << 8) | 47, (93 << 8) | 91, (147 << 8) | 94,
+            (57 << 8) | 188, (1 << 63) | (61 << 8) | 197,
+        ]
+        battle['teams']['B'][0]['attributes_raw'] = [(100 << 8) | 47, 94]
+        for units in battle['teams'].values():
+            for hero_id in (32601, 32351, 30051):
+                units.append(dict(units[0], hero_id=hero_id))
+        bid = self.archive.save_battle(battle, 'synthetic opening stats')
+        self.window.browse_battle(bid)
+        self.window.show()
+
+        def select_all(dialog):
+            boxes = dialog.findChildren(QCheckBox)
+            self.assertEqual(len(boxes), 8 + len(EXTRA_ATTRIBUTES))
+            self.assertEqual(sum(box.isChecked() for box in boxes), 14)
+            next(b for b in dialog.findChildren(QPushButton) if b.text() == '全选').click()
+            dialog.commit()
+
+        self.modal(select_all)
+        self.window.edit_battle_attributes()
+        self.assertEqual(self.archive.settings()['battle_attribute_keys'], list(ALL_BATTLE_ATTRIBUTE_KEYS))
+        for width in (1050, 2048, 1050):
+            self.window.resize(width, 800)
+            QTest.qWait(100)
+            a = self.window.team_layouts['A'].itemAt(0).widget()
+            b = self.window.team_layouts['B'].itemAt(0).widget()
+            badge = a.findChild(QLabel, 'fullPotentialBadge')
+            self.assertTrue(badge.isVisible())
+            self.assertFalse(badge.pixmap().isNull())
+            self.assertIn('10%', badge.toolTip())
+            self.assertIsNone(b.findChild(QLabel, 'fullPotentialBadge'))
+            self.assertIsNone(b.findChild(QLabel, 'componentHint'))
+            hint = a.findChild(QLabel, 'componentHint')
+            for candidate in ('铁壁', '追袭／戏命／光佑', '晶刺／不屈', '急涌', '盾护'):
+                self.assertIn(candidate, hint.text())
+            self.assertGreaterEqual(hint.height(), hint.heightForWidth(hint.width()))
+            values = {label.accessibleName(): label for label in a.findChildren(QLabel)}
+            for name, percent in [('额外减伤', '17%'), ('普攻减伤', '6.1%'), ('终极增伤', '5.7%'),
+                                  ('施加治疗', '7.2%'), ('受到治疗', '24.7%'),
+                                  ('施加护盾', '9.3%'), ('受到护盾', '14.7%')]:
+                label = values[f'A方 {attacker["hero_id"]} {name}']
+                self.assertEqual(label.text(), percent)
+                self.assertGreaterEqual(label.width(), label.sizeHint().width())
+                self.assertGreaterEqual(label.height(), label.sizeHint().height())
+            opponent_values = {label.accessibleName().split(' ', 2)[-1]: label.text()
+                               for label in b.findChildren(QLabel) if label.accessibleName().startswith('B方 ')}
+            self.assertEqual(opponent_values['受到护盾'], '0%')
+            self.assertEqual(opponent_values['施加护盾'], '—')
+            for roster in self.window.team_layouts.values():
+                self.assertEqual(roster.count(), 4)
+                for i in range(roster.count()):
+                    card = roster.itemAt(i).widget()
+                    self.assertEqual(len(card.cells), len(ALL_BATTLE_ATTRIBUTE_KEYS))
+                    for cell in card.cells:
+                        metric = cell.layout().itemAt(1).widget()
+                        self.assertGreaterEqual(metric.width(), metric.sizeHint().width(), metric.accessibleName())
+                        self.assertGreaterEqual(metric.height(), metric.sizeHint().height(), metric.accessibleName())
+                    if i:
+                        previous = roster.itemAt(i-1).widget()
+                        self.assertGreaterEqual(card.y(), previous.y() + previous.height())
+            self.assertEqual(self.window.battle_scroll.horizontalScrollBar().maximum(), 0)
+        self.assertEqual(self.archive.get(bid)['original']['teams'], battle['teams'])
+
+        def select_one(dialog):
+            for box in dialog.findChildren(QCheckBox):
+                box.setChecked(box.text() == '受到护盾')
+            dialog.commit()
+
+        self.modal(select_one)
+        self.window.edit_battle_attributes()
+        self.assertEqual(self.archive.settings()['battle_attribute_keys'], ['shield_received_bonus'])
+        card = self.window.team_layouts['A'].itemAt(0).widget()
+        self.assertEqual(card.attribute_keys, ['shield_received_bonus'])
+        self.assertIsNotNone(card.findChild(QLabel, 'fullPotentialBadge'))
+
+        def reset(dialog):
+            next(b for b in dialog.findChildren(QPushButton) if b.text() == '恢复默认').click()
+            dialog.commit()
+
+        self.modal(reset)
+        self.window.edit_battle_attributes()
+        self.assertEqual(len(self.window.team_layouts['A'].itemAt(0).widget().cells), 14)
 
 if __name__=='__main__':unittest.main()

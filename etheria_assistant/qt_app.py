@@ -26,7 +26,9 @@ from exe_updater import INVENTORY_DIRECTORY, install_root
 from storage import Archive, project_unit, unit_key, shell_candidates
 from analytics import analyse, rank_statistics
 from theme import STYLE
-from battle_widgets import unit_card
+from artwork import catalogue, hero_portrait, read_portrait_png, suspected_hero_name
+from battle_widgets import (BATTLE_ATTRIBUTE_GROUPS, DEFAULT_BATTLE_ATTRIBUTE_KEYS,
+                            normalize_battle_attribute_keys, unit_card)
 from equipment import (project_gear, attribute_text, matches_gear, normalize_filters,
                        filter_options, filter_summary, RARITIES, UNKNOWN, ATTRIBUTES,
                        normalize_sort, sort_gear, gear_sort_value)
@@ -37,7 +39,7 @@ from preset_widgets import MappingPresetDialog, ScoringPresetDialog
 from components import project_component, attribute_text as component_attribute_text, component_detail as component_detail_text
 from battle_attributes import decode_extra_attributes, pending_attributes, pending_text, extra_text
 
-VERSION='2.11.28-calc-test'
+VERSION='2.11.29-calc-test'
 DEFAULT_HIDDEN_GEAR_COLUMNS = ('源器编号', '稀有度', '初始副属性', '装备关联', '用途倾向')
 INVENTORY_CATEGORIES = {'gear': '源器', 'shells': '智壳', 'components': '元件', 'heroes': '角色配装'}
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
@@ -198,7 +200,7 @@ class MainWindow(QMainWindow):
         bar.addWidget(self.action('最新',self.return_live));bar.addWidget(self.action('校正',self.edit_context))
         bar.addWidget(self.action('伤害试算',self.show_damage_calculator))
         more=self.action('更多',lambda:None);menu=QMenu(more)
-        for title,fn in [('记录信息',self.show_record_info),('读取诊断',self.show_capture_diagnostics),('导出本场',self.export_battle),('返回历史日志',self.back_to_history),('缓存与保存',self.show_capture_storage)]:menu.addAction(title,lambda checked=False,f=fn:self.guarded(f))
+        for title,fn in [('显示属性',self.edit_battle_attributes),('记录信息',self.show_record_info),('读取诊断',self.show_capture_diagnostics),('导出本场',self.export_battle),('返回历史日志',self.back_to_history),('缓存与保存',self.show_capture_storage)]:menu.addAction(title,lambda checked=False,f=fn:self.guarded(f))
         more.setMenu(menu);bar.addWidget(more);layout.addLayout(bar)
         # Detailed status stays available in the record dialog, not above rosters.
         self.record_info=label('','hint');self.record_info.setParent(self.stack.widget(0));self.record_info.hide()
@@ -277,6 +279,39 @@ class MainWindow(QMainWindow):
         while layout.count():
             item=layout.takeAt(0)
             if item.widget():item.widget().hide(); item.widget().deleteLater()
+    def edit_battle_attributes(self):
+        selected = normalize_battle_attribute_keys(self.preferences.get('battle_attribute_keys'))
+        dialog = Editor(self, '首页显示属性')
+        dialog.setObjectName('battleAttributeSettings')
+        dialog.resize(610, 440)
+        boxes = {}
+        for group_title, attributes in BATTLE_ATTRIBUTE_GROUPS:
+            dialog.form.addRow(label(group_title, 'hero'))
+            group = QWidget()
+            grid = QGridLayout(group)
+            grid.setContentsMargins(0, 0, 0, 0)
+            for index, (key, title) in enumerate(attributes):
+                box = QCheckBox(title)
+                box.setChecked(key in selected)
+                grid.addWidget(box, index // 3, index % 3)
+                boxes[key] = box
+            dialog.form.addRow(group)
+
+        def select(keys):
+            for key, box in boxes.items():
+                box.setChecked(key in keys)
+
+        def save():
+            settings = {'battle_attribute_keys': [key for key, box in boxes.items() if box.isChecked()]}
+            self.archive.save_settings(settings)
+            self.preferences.update(settings)
+            self.render_battle()
+
+        dialog.actions.insertWidget(1, button('全选', lambda: select(boxes)))
+        dialog.actions.insertWidget(2, button('恢复默认', lambda: select(DEFAULT_BATTLE_ATTRIBUTE_KEYS)))
+        dialog.on_save = save
+        dialog.exec()
+
     def render_battle(self):
         self._battle_dirty=False
         self.latest=None;ctx={}
@@ -306,6 +341,9 @@ class MainWindow(QMainWindow):
             self.battle_info.setText('自动保存失败 · 当前数据仍可导出，请检查磁盘和运行日志')
         else:self.current_id=None; self.battle_info.setText('等待对局')
         self.refresh_battle_navigation()
+        visible_attributes = normalize_battle_attribute_keys(self.preferences.get('battle_attribute_keys'))
+        portraits = self.archive.hero_portraits(
+            unit['hero_id'] for units in self.latest['teams'].values() for unit in units) if self.latest else {}
         for team,layout in self.team_layouts.items():
             replay=bool(self.latest and self.latest.get('view_context',self.latest.get('capture_context'))=='replay')
             own=ctx.get('own_team')
@@ -327,7 +365,8 @@ class MainWindow(QMainWindow):
             units=self.latest['teams'].get(team,[]) if self.latest else []
             if not units:layout.addWidget(label('暂无角色数据\n开始监听后，进入战斗将自动更新。','hint'))
             for unit in units:
-                layout.addWidget(unit_card(unit,team,self.action,self.edit_hero,self.edit_loadout,self.details))
+                layout.addWidget(unit_card(unit,team,self.action,self.edit_hero,self.edit_loadout,self.details,
+                                           visible_attributes,portraits.get(str(unit['hero_id']))))
         self.reflow_battle_cards()
     def refresh_battle_navigation(self):
         rows=self.archive.history_navigation(self.history_filter.currentData(),self.history_query); self.battle_navigation=[r['id'] for r in rows]
@@ -415,9 +454,63 @@ class MainWindow(QMainWindow):
         self.capture_info.setText(prefix+' · '+reason)
 
     def edit_hero(self,u):
-        d=Editor(self,f"角色编号 {u['hero_id']} · 名称映射"); entry=QLineEdit(u['hero_name']); d.form.addRow('名称',entry)
-        d.form.addRow(label('只修改这个精确编号；皮肤编号独立保存，历史显示同步更新。','hint'))
-        def save():self.archive.set_mapping('heroes',u['hero_id'],entry.text()); self.mapping_changed()
+        identifier = u['hero_id']
+        d = Editor(self, f'角色编号 {identifier} · 编辑名称与头像')
+        d.resize(610, 390)
+        existing_name = self.mappings['heroes'].get(str(identifier), '')
+        entry = QLineEdit(existing_name)
+        suspected = suspected_hero_name(identifier, u['hero_name'])
+        entry.setPlaceholderText(f'疑似{suspected}' if suspected else f'角色 #{identifier}')
+        d.form.addRow('名称', entry)
+        source = QComboBox()
+        source.addItem('按名称匹配', None)
+        for name in sorted(catalogue().get('heroes', {})):
+            source.addItem(name, name)
+        builtin, png = self.archive.hero_portraits([identifier]).get(str(identifier), (None, None))
+        if png:
+            source.addItem('本地图像', '')
+            source.setCurrentIndex(source.count() - 1)
+        elif builtin:
+            source.setCurrentIndex(max(0, source.findData(builtin)))
+        preview = label('？', 'artIcon')
+        preview.setFixedSize(64, 64)
+        preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        def selected_portrait():
+            choice = source.currentData()
+            return (None, png) if choice == '' else (choice, None)
+
+        def refresh_preview():
+            image = hero_portrait(entry.text().strip() or existing_name or suspected or '', 64, selected_portrait())
+            if image.isNull():
+                preview.setText('？')
+            else:
+                preview.setPixmap(image)
+
+        def choose_file():
+            nonlocal png
+            path, _ = QFileDialog.getOpenFileName(d, '选择角色头像', '', '图像 (*.png *.jpg *.jpeg *.webp *.bmp)')
+            if path:
+                png = read_portrait_png(path)
+                if source.findData('') < 0:
+                    source.addItem('本地图像', '')
+                source.setCurrentIndex(source.findData(''))
+                refresh_preview()
+
+        options = QHBoxLayout()
+        options.addWidget(source, 1)
+        options.addWidget(self.action('选择图像…', choose_file))
+        d.form.addRow('头像', options)
+        d.form.addRow('预览', preview)
+        d.form.addRow(label('名称留空时保留原名。保存后应用于该精确编号及其历史对局。','hint'))
+        source.currentIndexChanged.connect(refresh_preview)
+        entry.textChanged.connect(refresh_preview)
+        refresh_preview()
+
+        def save():
+            self.archive.save_hero_profile(identifier, entry.text(), selected_portrait())
+            self.mapping_changed()
+
         d.on_save=save; d.exec()
     def edit_loadout(self,u):
         if not self.current_id:return
@@ -1024,7 +1117,11 @@ class MainWindow(QMainWindow):
         self.edit_mapping(CATEGORIES[self.map_category.currentText()])
     def edit_selected_mapping(self):
         row=self.mapping_table.currentRow(); identifier=self.mapping_table.item(row,0).text() if row>=0 else ''
-        if identifier:self.edit_mapping(CATEGORIES[self.map_category.currentText()],identifier)
+        category = CATEGORIES[self.map_category.currentText()]
+        if identifier and category == 'heroes':
+            hero_id = int(identifier)
+            self.edit_hero({'hero_id': hero_id, 'hero_name': self.hero_name(hero_id)})
+        elif identifier:self.edit_mapping(category,identifier)
         else:self.notify('请先选择要编辑的编号，新增请点击“新增”')
     def edit_mapping(self,category,identifier=''):
         value=self.mappings[category].get(identifier,''); d=Editor(self,'编号名称映射')

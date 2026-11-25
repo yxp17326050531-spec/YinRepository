@@ -19,6 +19,12 @@ EXTRA_ATTRIBUTES = {
     191: ('ultimate_damage_reduction', '终极技能减伤'),
     194: ('basic_damage_bonus', '普攻增伤'),
     91: ('shield_bonus', '护盾量'),
+    38: ('potential_damage_modifier', '命座增减伤'),
+    44: ('healing_bonus', '施加治疗'),
+    47: ('healing_received_bonus', '受到治疗'),
+    94: ('shield_received_bonus', '受到护盾'),
+    188: ('ultimate_damage_bonus', '终极技能增伤'),
+    197: ('basic_damage_reduction', '普攻减伤'),
 }
 MAGNITUDE_MASK = (1 << 63) - 1
 
@@ -30,6 +36,25 @@ def decode_extra_attributes(raw):
     counts = Counter(value & 255 for value in raw)
     return {EXTRA_ATTRIBUTES[value & 255][0]: ((value & MAGNITUDE_MASK) >> 8) / 10
             for value in raw if (value & 255) in EXTRA_ATTRIBUTES and counts[value & 255] == 1}
+
+
+def component_hints(values):
+    """Return possible component names with the opening stats that suggest them."""
+    hints = []
+    if values.get('basic_damage_reduction', 0) > 0:
+        hints.append(('铁壁', '普攻减伤'))
+    if values.get('ultimate_damage_bonus', 0) > 0:
+        hints.append(('追袭／戏命／光佑', '终极技能增伤'))
+    if values.get('shield_received_bonus', 0) > 0 and values.get('healing_received_bonus', 0) > 0:
+        candidates = ['晶刺', '不屈']
+        if values.get('ultimate_damage_reduction', 0) > 0 and not values.get('crit_damage_bonus', 0):
+            candidates.reverse()
+        hints.append(('／'.join(candidates), '受到治疗、受到护盾'))
+    if values.get('healing_bonus', 0) > 0:
+        hints.append(('急涌', '施加治疗'))
+    if values.get('shield_bonus', 0) > 0:
+        hints.append(('盾护', '护盾量'))
+    return hints
 
 
 def pending_attributes(unit):
@@ -47,6 +72,10 @@ def extra_text(unit):
     lines = ['对局开场已下发属性（同一字段直接显示，不再次叠加库存）：']
     lines.extend(f'{name}：{values[key]:g}%' if key in values else f'{name}：—'
                  for key, name in EXTRA_ATTRIBUTES.values())
+    hints = component_hints(values)
+    if hints:
+        lines.append('疑似元件：')
+        lines.extend(f'{names}（线索：{evidence}）' for names, evidence in hints)
     lines.extend(['PVP字段已对照科技与元件的合计；其他字段不保证含全部矩阵或技能效果。',
                   '潜能提供的额外减伤与涌泉矩阵效果分开记录，不将数值互相替换。',
                   '普通与相性增伤按用户确认归同一增伤区间；破序之刃10%等条件值未下发时不补入（不会自动加10%）。',

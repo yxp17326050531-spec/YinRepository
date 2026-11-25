@@ -2,11 +2,16 @@
 import json
 from functools import lru_cache
 from pathlib import Path
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import QBuffer, QIODevice, Qt
+from PySide6.QtGui import QImageReader, QPixmap
 from PySide6.QtWidgets import QLabel
 
 ROOT=Path(__file__).resolve().parent/'assets'
+SUSPECTED_HERO_NAMES = {32352: '奥萨尔'}
+
+
+def suspected_hero_name(identifier, displayed_name):
+    return SUSPECTED_HERO_NAMES.get(identifier) if displayed_name == f'角色 #{identifier}' else None
 
 
 @lru_cache(maxsize=1)
@@ -15,9 +20,9 @@ def catalogue():
     except (OSError,ValueError):return {}
 
 
-@lru_cache(maxsize=3)
+@lru_cache(maxsize=4)
 def atlas(name):
-    return QPixmap(str(ROOT/name)) if name in ('heroes.jpg','shells.jpg','matrices.png') else QPixmap()
+    return QPixmap(str(ROOT/name)) if name in ('heroes.jpg','shells.jpg','matrices.png','darros.png') else QPixmap()
 
 
 @lru_cache(maxsize=512)
@@ -30,10 +35,46 @@ def portrait(kind,name,size):
     return image
 
 
-def image_label(kind,name,size):
+def hero_portrait(name, size, override=None):
+    if override:
+        builtin, png = override
+        if png:
+            image = QPixmap()
+            if image.loadFromData(png, 'PNG'):
+                image = image.scaled(size * 2, size * 2, Qt.AspectRatioMode.KeepAspectRatio,
+                                     Qt.TransformationMode.SmoothTransformation)
+                image.setDevicePixelRatio(2)
+                return image
+        if builtin:
+            return portrait('heroes', builtin, size)
+    return portrait('heroes', name, size)
+
+
+def read_portrait_png(path):
+    reader = QImageReader(str(path))
+    reader.setAutoTransform(True)
+    size = reader.size()
+    if not size.isValid() or size.width() * size.height() > 24_000_000:
+        raise ValueError('无法读取图像，或图像尺寸过大')
+    image = reader.read()
+    if image.isNull():
+        raise ValueError('无法读取图像：' + reader.errorString())
+    side = min(image.width(), image.height())
+    image = image.copy((image.width() - side) // 2, (image.height() - side) // 2, side, side)
+    image = image.scaled(128, 128, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+    buffer = QBuffer()
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    if not image.save(buffer, 'PNG'):
+        raise ValueError('无法保存头像图像')
+    return bytes(buffer.data())
+
+
+def image_label(kind,name,size,override=None):
     label=QLabel();label.setObjectName('artIcon');label.setFixedSize(size,size)
-    image=portrait(kind,name,size)
-    if image.isNull():label.setText((name or '？')[:1]);label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    image=hero_portrait(name,size,override) if kind=='heroes' else portrait(kind,name,size)
+    if image.isNull():
+        label.setText('？' if kind=='heroes' else (name or '？')[:1])
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
     else:label.setPixmap(image)
     label.setAccessibleName(f'{kind}图片 {name}');label.setToolTip(name or '未识别')
     return label

@@ -64,10 +64,11 @@ class BattleAttributeTests(unittest.TestCase):
         self.assertIn('PVP减伤：15.4%',extra_text({'attributes_raw':raw}))
         self.assertIn('不再次叠加库存',extra_text({'attributes_raw':raw}))
 
-    def test_duplicate_known_tags_and_coupled_unknown_fields_are_not_summed(self):
+    def test_duplicate_tags_stay_pending_and_received_bonuses_are_separate(self):
         raw=[(31<<8)|171,(52<<8)|171,(101<<8)|47,(101<<8)|94,174]
-        self.assertEqual(decode_extra_attributes(raw),{'pvp_damage_reduction':0})
-        self.assertEqual([r['tag'] for r in pending_attributes({'attributes_raw':raw})],[171,171,47,94])
+        self.assertEqual(decode_extra_attributes(raw),{'pvp_damage_reduction':0,
+            'healing_received_bonus':10.1,'shield_received_bonus':10.1})
+        self.assertEqual([r['tag'] for r in pending_attributes({'attributes_raw':raw})],[171,171])
         self.assertEqual(decode_extra_attributes(None),{})
 
     def test_existing_raw_archives_reproject_without_modifying_original(self):
@@ -104,9 +105,9 @@ class BattleAttributeTests(unittest.TestCase):
                     self.assertIn(part,text)
 
     def test_unknown_condition_has_no_invented_value_and_duplicates_stay_pending(self):
-        raw=[80,(1<<63)|(71<<8)|83,(1<<63)|(72<<8)|83,(86<<8)|188]
+        raw=[80,(1<<63)|(71<<8)|83,(1<<63)|(72<<8)|83,(86<<8)|198]
         self.assertEqual(decode_extra_attributes(raw),{'damage_result_bonus':0})
-        self.assertEqual([r['tag'] for r in pending_attributes({'attributes_raw':raw})],[83,83,188])
+        self.assertEqual([r['tag'] for r in pending_attributes({'attributes_raw':raw})],[83,83,198])
         self.assertNotIn('同属性增伤',extra_text({'attributes_raw':raw}))
 
 
