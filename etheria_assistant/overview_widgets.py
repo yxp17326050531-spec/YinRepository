@@ -7,14 +7,24 @@ from PySide6.QtWidgets import (QWidget,QFrame,QLabel,QVBoxLayout,QHBoxLayout,QGr
 from gear_overview import overview_metrics,top_count
 
 
-def text(value,style=''):
+def text(value, role, style=''):
     w=QLabel(value);w.setTextFormat(Qt.TextFormat.PlainText)
+    w.setObjectName(role)
     w.setStyleSheet('background:transparent;border:0;'+style);return w
+
+
+RADAR_COLORS = {
+    'classic': ('#191822', '#423c51', '#615871', '#3d374b', '#494254',
+                '#53e2d5', '#4e21d2c2', '#d5ccdf', '#e6f1f2', '#17242a', '#86fff0'),
+    'gold': ('#171511', '#5f503a', '#89734f', '#40362a', '#544632',
+             '#d7b77b', '#4ed7b77b', '#d0bea0', '#efe7d8', '#2b2115', '#f2d39a'),
+}
 
 
 class GearRadar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.theme = 'classic'
         self.axes = []
         self.targets = []
         self.count_mode = True
@@ -53,6 +63,8 @@ class GearRadar(QWidget):
             return
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        (background, border, outer_grid, inner_grid, spokes, line, fill,
+         title_color, value_color, marker_border, marker) = RADAR_COLORS[self.theme]
         w, h = self.width(), self.height()
         center = QPointF(w / 2, h / 2)
         radius = min((w - 172) / 1.74, (h - 60) / 2)
@@ -60,14 +72,14 @@ class GearRadar(QWidget):
             angle = math.pi * (i / 3 - .5)
             return center + QPointF(math.cos(angle), math.sin(angle)) * (radius * fraction)
 
-        p.setBrush(QColor('#191822'))
-        p.setPen(QPen(QColor('#423c51'), 1))
+        p.setBrush(QColor(background))
+        p.setPen(QPen(QColor(border), 1))
         p.drawRoundedRect(QRectF(1, 1, w - 2, h - 2), 9, 9)
         p.setBrush(Qt.BrushStyle.NoBrush)
         for level in (.25, .5, .75, 1):
-            p.setPen(QPen(QColor('#615871' if level == 1 else '#3d374b'), 1))
+            p.setPen(QPen(QColor(outer_grid if level == 1 else inner_grid), 1))
             p.drawPolygon(QPolygonF([point(i, level) for i in range(6)]))
-        p.setPen(QPen(QColor('#494254'), 1))
+        p.setPen(QPen(QColor(spokes), 1))
         for i in range(6):
             p.drawLine(center, point(i))
 
@@ -75,9 +87,9 @@ class GearRadar(QWidget):
         known = [v for v in values if v is not None]
         low, high = (min(known), max(known)) if known else (0, 0)
         vertices = [point(i, min(v / self.scale, 1)) if v is not None else None for i, v in enumerate(values)]
-        p.setPen(QPen(QColor('#53e2d5'), 2.6))
+        p.setPen(QPen(QColor(line), 2.6))
         if all(v is not None for v in vertices):
-            p.setBrush(QColor(33, 210, 194, 78))
+            p.setBrush(QColor(fill))
             p.drawPolygon(QPolygonF(vertices))
         else:
             for i, v in enumerate(vertices):
@@ -96,7 +108,7 @@ class GearRadar(QWidget):
         self.targets = []
         for i, (axis, v) in enumerate(zip(self.axes, values)):
             name = axis['name']
-            color = '#e6f1f2'
+            color = value_color
             badge = ''
             if v is not None and high > low:
                 if v == high:
@@ -105,8 +117,8 @@ class GearRadar(QWidget):
                     color, badge = '#ffaca7', ('最少' if self.count_mode else '最低')
             vertex = vertices[i]
             if vertex is not None:
-                p.setPen(QPen(QColor('#17242a'), 1.4))
-                p.setBrush(QColor(color if badge else '#86fff0'))
+                p.setPen(QPen(QColor(marker_border), 1.4))
+                p.setBrush(QColor(color if badge else marker))
                 p.drawEllipse(vertex, 4.2, 4.2)
             value = '—' if v is None else (f'{v:,}件' if self.count_mode else f'{v:.0f}%')
             title = (badge + ' · ' if badge else '') + name
@@ -121,7 +133,7 @@ class GearRadar(QWidget):
                 value_font.setBold(True)
                 value_width = QFontMetrics(value_font).horizontalAdvance(value) + 5
                 x = center.x() - (name_width + value_width) / 2
-                label(QRectF(x, y, name_width, 22), title, 13, False, '#d5ccdf')
+                label(QRectF(x, y, name_width, 22), title, 13, False, title_color)
                 label(QRectF(x + name_width, y, value_width, 22), value, 19, True, color)
                 self.targets.append(QPointF(center.x(), y + 11))
             else:
@@ -133,10 +145,10 @@ class GearRadar(QWidget):
                 if width < 112:
                     name_y = edge.y() - 23
                     label(QRectF(x, name_y, width, 15), badge, 10, True, color, align)
-                    label(QRectF(x, name_y + 15, width, 17), name, 13, False, '#d5ccdf', align)
+                    label(QRectF(x, name_y + 15, width, 17), name, 13, False, title_color, align)
                     value_y = name_y + 31
                 else:
-                    label(QRectF(x, edge.y() - 17, width, 17), title, 13, False, '#d5ccdf', align)
+                    label(QRectF(x, edge.y() - 17, width, 17), title, 13, False, title_color, align)
                     value_y = edge.y()
                 label(QRectF(x, value_y, width, 25), value, 19, True, color, align)
                 self.targets.append(QPointF(x + width / 2, edge.y()))
@@ -147,48 +159,52 @@ class GearOverview(QFrame):
     preferencesChanged=Signal(bool,int)
     def __init__(self,expanded=True,n=5,parent=None):
         super().__init__(parent);self.setObjectName('gearOverview');self.metrics=None;self._scores={};self._rules=None
-        self.setStyleSheet('QFrame#gearOverview {background:#1c1925;border:1px solid #3c334b;border-radius:10px;}')
         outer=QVBoxLayout(self);outer.setContentsMargins(14,7,14,8);outer.setSpacing(3)
         header=QHBoxLayout();outer.addLayout(header)
         self.toggle=QPushButton('练度概览');self.toggle.setCheckable(True);self.toggle.setChecked(expanded)
-        self.toggle.setStyleSheet('text-align:left;border:0;background:transparent;color:#ded5ed;padding:3px;font-size:14px;font-weight:600;')
+        self.toggle.setObjectName('gearOverviewToggle')
         self.toggle.setAccessibleName('展开或收起练度概览');header.addWidget(self.toggle)
-        self.badge=text('初版', 'color:#70dcce;font-size:11px;');header.addWidget(self.badge)
+        self.badge=text('初版', 'gearOverviewBadge', 'font-size:11px;');header.addWidget(self.badge)
         header.addStretch()
         self.mode = QComboBox()
         self.mode.addItems(['库存件数', '前 N 件质量'])
         self.mode.setAccessibleName('雷达图口径')
         header.addWidget(self.mode)
-        self.n_caption = text('各用途前', 'color:#c6bcd2;font-size:12px;')
+        self.n_caption = text('各用途前', 'gearOverviewCaption', 'font-size:12px;')
         header.addWidget(self.n_caption)
         self.n=QSpinBox();self.n.setRange(1,20);self.n.setValue(top_count(n));self.n.setFixedWidth(66);self.n.setStyleSheet('padding:2px;')
         header.addWidget(self.n)
-        self.unit_caption = text('件', 'color:#c6bcd2;font-size:12px;')
+        self.unit_caption = text('件', 'gearOverviewCaption', 'font-size:12px;')
         header.addWidget(self.unit_caption)
         self.body=QWidget();self.body.setStyleSheet('background:transparent;');outer.addWidget(self.body)
         row=QHBoxLayout(self.body);row.setContentsMargins(0,0,0,0);row.setSpacing(12)
         left=QVBoxLayout();left.setSpacing(3);left.addStretch();row.addLayout(left,3)
-        left.addWidget(text('源器总评分', 'color:#b6a4ca;font-size:13px;'))
-        self.total=text('—','color:#ffd170;font-size:40px;font-weight:800;');self.total.setAccessibleName('全库存源器总评分');left.addWidget(self.total)
-        self.counts=text('等待导入源器库存','color:#d0c7dd;font-size:12px;');left.addWidget(self.counts)
-        self.note=text('全库存 · 每件只取最高用途分','color:#9d92ac;font-size:11px;');left.addWidget(self.note)
-        self.compact=text('','color:#9d92ac;font-size:11px;');left.addWidget(self.compact);left.addStretch()
+        left.addWidget(text('源器总评分', 'gearOverviewScoreLabel', 'font-size:13px;'))
+        self.total=text('—','gearOverviewHighlight','font-size:40px;font-weight:800;');self.total.setAccessibleName('全库存源器总评分');left.addWidget(self.total)
+        self.counts=text('等待导入源器库存','gearOverviewCounts','font-size:12px;');left.addWidget(self.counts)
+        self.note=text('全库存 · 每件只取最高用途分','gearOverviewNote','font-size:11px;');left.addWidget(self.note)
+        self.compact=text('','gearOverviewNote','font-size:11px;');left.addWidget(self.compact);left.addStretch()
         self.radar=GearRadar();row.addWidget(self.radar,6)
-        right=QVBoxLayout();right.setSpacing(5);right.addWidget(text('速度储备', 'color:#d4c6e4;font-size:13px;font-weight:600;'))
+        right=QVBoxLayout();right.setSpacing(5);right.addWidget(text('速度储备', 'gearOverviewSpeed','font-size:13px;font-weight:600;'))
         grid=QGridLayout();grid.setHorizontalSpacing(20);grid.setVerticalSpacing(6);right.addLayout(grid)
         self.bin_labels={}
         for i,key in enumerate(('低于14','14–16','17','18','19','20+')):
             box=QVBoxLayout();box.setSpacing(0)
-            box.addWidget(text(key+'速','color:#9e93ae;font-size:11px;'))
-            count=text('0','color:'+('#ffd170' if key in ('19','20+') else '#e1d8eb')+';font-size:20px;font-weight:700;')
+            box.addWidget(text(key+'速','gearOverviewNote','font-size:11px;'))
+            role = 'gearOverviewHighlight' if key in ('19', '20+') else 'gearOverviewSpeedCount'
+            count=text('0',role,'font-size:20px;font-weight:700;')
             box.addWidget(count);grid.addLayout(box,i//3,i%3);self.bin_labels[key]=count
-        self.speed_note=text('按游戏四舍五入值统计','color:#9d92ac;font-size:10px;');right.addWidget(self.speed_note);right.addStretch()
+        self.speed_note=text('按游戏四舍五入值统计','gearOverviewNote','font-size:10px;');right.addWidget(self.speed_note);right.addStretch()
         row.addLayout(right,3)
-        self.footer=text('', 'color:#bdb3cb;font-size:12px;');self.footer.setWordWrap(True);outer.addWidget(self.footer)
+        self.footer=text('', 'gearOverviewFooter','font-size:12px;');self.footer.setWordWrap(True);outer.addWidget(self.footer)
         self.toggle.toggled.connect(self.change_expanded);self.n.valueChanged.connect(self.change_n)
         self.mode.currentIndexChanged.connect(self.refresh_radar)
         self.refresh_radar()
         self.change_expanded(expanded,notify=False)
+    def set_theme(self, theme):
+        self.radar.theme = theme
+        self.radar.update()
+
     def change_expanded(self,expanded,notify=True):
         self.mode.setVisible(expanded)
         self.body.setVisible(expanded);self.footer.setVisible(expanded);self.n.setEnabled(expanded)

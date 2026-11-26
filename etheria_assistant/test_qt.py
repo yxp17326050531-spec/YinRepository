@@ -43,6 +43,38 @@ class QtTests(unittest.TestCase):
         self.assertTrue(self.window.windowTitle().endswith(VERSION))
         self.assertEqual(self.window.version_label.toolTip(),VERSION)
 
+    def test_theme_changes_live_and_persists_with_nicknames_and_team_sides(self):
+        self.archive.save_settings({'own_nickname': '示例甲#1001'})
+        self.archive.set_review(self.bid, names={'A': '示例甲#1001', 'B': '示例乙#1002'})
+        self.window.preferences.update(self.archive.settings())
+        self.window.refresh_all()
+        expected = ['示例甲#1001 · 己方', '示例乙#1002 · 敌方']
+        titles = lambda window: [window.team_titles[team].text() for team in ('A', 'B')]
+        self.assertEqual(self.window.theme_picker.currentData(), 'gold')
+        self.assertEqual(self.window.gear_overview.radar.theme, 'gold')
+        self.assertEqual(titles(self.window), expected)
+        self.assertTrue(self.window.overview_header.property('decorated'))
+        self.assertTrue(all(not button.icon().isNull() for button in self.window.nav.buttons()))
+        self.window.navigate(5)
+        self.assertFalse(self.window.overview_header.property('decorated'))
+        self.window.theme_picker.setCurrentIndex(self.window.theme_picker.findData('classic'))
+        self.assertEqual(self.archive.settings()['interface_theme'], 'classic')
+        self.assertEqual(self.window.gear_overview.radar.theme, 'classic')
+        self.window.navigate(0)
+        self.assertFalse(self.window.overview_header.property('decorated'))
+        self.assertEqual(titles(self.window), expected)
+        reopened = MainWindow(self.archive)
+        try:
+            self.assertEqual(reopened.theme_picker.currentData(), 'classic')
+            self.assertEqual(reopened.gear_overview.radar.theme, 'classic')
+            reopened.browse_battle(self.bid)
+            self.assertEqual(titles(reopened), expected)
+            reopened.theme_picker.setCurrentIndex(reopened.theme_picker.findData('gold'))
+            self.assertTrue(reopened.overview_header.property('decorated'))
+            self.assertEqual(titles(reopened), expected)
+        finally:
+            reopened.close()
+
     def test_hidden_statistics_are_lazy_and_use_lightweight_dataset(self):
         with patch.object(self.archive,'dataset',side_effect=AssertionError('full export on tab switch')):
             with patch.object(self.archive,'analysis_dataset',wraps=self.archive.analysis_dataset) as build:
@@ -202,6 +234,63 @@ class QtTests(unittest.TestCase):
         self.window.setStyleSheet(style+'\nQLabel#attributeTitle, QLabel#statValue, QLabel#speed {letter-spacing:5px;}')
         self.test_eight_characters_and_full_attributes_fit_a_normal_window()
 
+    def test_opening_track_orders_speed_applies_opening_dreamguide_and_marks_ties(self):
+        from PySide6.QtTest import QTest
+
+        battle = copy.deepcopy(self.battle)
+        battle['capture_time'] += 100
+        roster = {
+            'A': [(32351, 403, []), (31253, 377, [1051]), (32601, 351, [1051]), (32401, 292, [])],
+            'B': [(40901, 324, [1051]), (32101, 305, []), (30051, 287, []), (33101, 251, [])],
+        }
+        for team, specs in roster.items():
+            battle['teams'][team] = [dict(battle['teams'][team][0], hero_id=hero_id,
+                                          effects_raw=effects, stats={'speed': speed})
+                                      for hero_id, speed, effects in specs]
+        bid = self.archive.save_battle(battle, 'synthetic opening turn')
+        self.window.browse_battle(bid)
+        self.window.resize(1050, 700)
+        self.window.show()
+        strip = self.window.opening_turn
+
+        def metrics():
+            return [tile.findChild(QLabel, 'openingMetric') for tile, _ in strip.track.markers]
+
+        QTest.qWait(50)
+        self.assertEqual([w.text() for w in metrics()], ['403','377','351','324','305','292','287','251'])
+        self.assertIn('A 方', metrics()[0].accessibleName())
+        self.assertIn('B 方', metrics()[3].accessibleName())
+        strip.forecast.click()
+        QTest.qWait(50)
+        values = metrics()
+        self.assertEqual(values[-1].text(), '100%')
+        self.assertEqual(strip.title.text(), '首次到线')
+        self.assertIn('面板速度 377', values[-1].accessibleName())
+        self.assertIn('+8 个百分点', values[-1].accessibleName())
+        self.assertIn('预计先到 100%', values[-1].accessibleName())
+        self.assertEqual(values[-2].text(), '98.3%')
+        self.assertIn('+4 个百分点', next(w.accessibleName() for w in values if '351' in w.accessibleName()))
+        self.assertNotIn('梦引', next(w.accessibleName() for w in values if '324' in w.accessibleName()))
+        tiles = [tile for tile, _ in strip.track.markers]
+        self.assertTrue(all(left.geometry().right() < right.x() for left, right in zip(tiles, tiles[1:])))
+        self.assertLess(tiles[-1].geometry().right(), strip.track.width())
+
+        teams = copy.deepcopy(self.window.latest['teams'])
+        teams['B'][0]['stats']['speed'] = 403
+        teams['A'][1]['manual'] = {'matrices': []}
+        strip.set_roster(teams, 'B', {})
+        self.assertEqual(strip.title.text(), '随机先动')
+        self.assertEqual([w.text() for w in metrics()][-2:], ['100%', '100%'])
+        self.assertIn('己方', metrics()[-1].accessibleName())
+        # Dreamguide checks the recipient's opening buff, independently of Freya's own set.
+        self.assertIn('+4 个百分点', next(w.accessibleName() for w in metrics() if '面板速度 351' in w.accessibleName()))
+        self.assertNotIn('戍卫触发梦引', next(w.accessibleName() for w in metrics() if '面板速度 377' in w.accessibleName()))
+        teams['B'][0]['stats'].pop('speed')
+        strip.set_roster(teams, 'B', {})
+        self.assertEqual(strip.title.text(), '到线待定')
+        self.assertTrue(all(w.text() == '—' for w in metrics()))
+        self.assertEqual(self.archive.get(bid)['original']['teams'], battle['teams'])
+
     def test_eight_character_layout_adapts_to_long_attribute_headings(self):
         # Stress heading and number widths independently: a fixed three-column
         # extra grid and a fixed compact basic row both overflow this case.
@@ -312,7 +401,7 @@ class QtTests(unittest.TestCase):
             return next(w for w in card.findChildren(QLabel, 'artIcon')
                         if w.accessibleName().startswith('heroes'))
 
-        self.assertIn('疑似奥萨尔', avatar_for('A').toolTip())
+        self.assertEqual(self.window.latest['teams']['A'][0]['hero_name'], '奥萨尔')
         self.assertFalse(avatar_for('A').pixmap().isNull())
         self.assertEqual(avatar_for('B').text(), '？')
         image = QImage(96, 128, QImage.Format.Format_RGB32)

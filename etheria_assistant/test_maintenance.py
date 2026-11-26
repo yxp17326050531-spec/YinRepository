@@ -40,7 +40,7 @@ class MaintenanceTests(unittest.TestCase):
         mappings=self.archive.mappings(load_mappings())
         self.assertEqual(project_unit(raw,mappings)['hero_name'],'用户确认角色')
         other=copy.deepcopy(raw);other['hero_id']=33152
-        self.assertEqual(project_unit(other,mappings)['hero_name'],'角色 #33152')
+        self.assertEqual(project_unit(other,mappings)['hero_name'],'什炎')
         self.assertEqual(raw,untouched)
         self.assertEqual(self.archive.get(bid)['original'],battle)
         with self.archive.connect() as db:

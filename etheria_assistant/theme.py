@@ -23,8 +23,21 @@ QPushButton:pressed {background:#162f35;}
 QPushButton:disabled {color:#58677b; background:#1b2431; border-color:#263246;}
 QPushButton#primary {background:#59ccef; color:#0c2631; border:0; font-weight:700;}
 QPushButton#primary:hover {background:#73e2ca;}
-QPushButton#nav {background:transparent; border:0; padding:9px 0; color:#a79eb8; font-size:13px;}
-QPushButton#nav:checked {background:#252036; color:#81dcfa; border-left:3px solid #59ccef; border-radius:5px;}
+QToolButton#nav {background:transparent; border:0; padding:7px 0; color:#a79eb8; font-size:13px;}
+QToolButton#nav:checked {background:#252036; color:#81dcfa; border-left:3px solid #59ccef; border-radius:5px;}
+QFrame#overviewHeader {background:transparent; border:0;}
+QFrame#overviewHeader QLabel {background:transparent;}
+QFrame#gearOverview {background:#1c1925; border:1px solid #3c334b; border-radius:10px;}
+QPushButton#gearOverviewToggle {text-align:left; border:0; background:transparent; color:#ded5ed; padding:3px; font-size:14px; font-weight:600;}
+QLabel#gearOverviewBadge {color:#70dcce;}
+QLabel#gearOverviewCaption {color:#c6bcd2;}
+QLabel#gearOverviewScoreLabel {color:#b6a4ca;}
+QLabel#gearOverviewCounts {color:#d0c7dd;}
+QLabel#gearOverviewNote {color:#9d92ac;}
+QLabel#gearOverviewSpeed {color:#d4c6e4;}
+QLabel#gearOverviewSpeedCount {color:#e1d8eb;}
+QLabel#gearOverviewHighlight {color:#ffd170;}
+QLabel#gearOverviewFooter {color:#bdb3cb;}
 QPushButton#link {border:0; padding:2px; text-align:left; background:transparent; font-weight:700; font-size:16px;}
 QPushButton#link:hover {color:#70deca;}
 QPushButton#link[fullPotential="true"], QPushButton#link[fullPotential="true"]:hover {color:#ffd477;}
@@ -61,6 +74,16 @@ QFrame#teamCard QLabel {background:transparent;}
 QLabel#teamBadge {font-size:12px; color:#8ba3b8; padding-right:4px;}
 QLabel#teamNeutral {font-size:18px; font-weight:700; color:#d1c6e2;}
 QLabel#battleStatus {color:#b4d7cf; font-size:14px;}
+QFrame#openingTurnStrip {background:#1b1724; border:1px solid #382e44; border-radius:7px;}
+QWidget#openingTurnTrack, QWidget#openingMarker, QLabel#openingMetric,
+QLabel#openingTurnTitle, QFrame#openingPortraitRing QLabel#artIcon {background:transparent;}
+QLabel#openingTurnTitle {color:#ded3ea; font-size:13px; font-weight:700;}
+QLabel#openingMetric {color:#ece5f5; font-size:16px; font-weight:700;}
+QPushButton#openingMode {padding:3px 6px; font-size:12px; background:#24202f; border-color:#40364d;}
+QPushButton#openingMode:checked {color:#77e2cb; border-color:#51cbb2;}
+QFrame#openingPortraitRing {border-radius:15px; background:#241d30;}
+QFrame#openingPortraitRing[side=own] {border:2px solid #49d0fc;}
+QFrame#openingPortraitRing[side=enemy] {border:2px solid #ba9cf7;}
 QPushButton#heroMore {padding:0 5px; font-size:17px; border:0; background:transparent;}
 QMenu {background:#211c2b; border:1px solid #4a3d59; padding:4px;}
 QMenu::item {padding:8px 20px;}
@@ -73,3 +96,61 @@ QLabel#teamOutcome {font-size:13px; font-weight:700; padding:4px 8px; border-rad
 QLabel#teamOutcome[result=win] {background:#183b31; color:#61d7a0;}
 QLabel#teamOutcome[result=loss] {background:#42242f; color:#f18798;}
 '''
+
+THEMES = {'gold': '暖黑古金', 'classic': '经典紫黑'}
+DEFAULT_THEME = 'gold'
+
+GOLD_STYLE = '''
+QWidget {background:#12110f; color:#efe7d8;}
+QMainWindow, QScrollArea, QStackedWidget {background:#12110f;}
+QFrame#sidebar {background:#161410; border-right:1px solid #494032;}
+QLabel#brand {color:#d4b477;}
+QLabel#hint, QLabel#componentHint {color:#b8ac99;}
+QLabel#title {color:#efe7d8; font-size:25px;}
+QLabel#speed {color:#eac584;}
+QFrame#card, QFrame#heroCard, QFrame#heroRow {background:#1d1b18; border:1px solid #494032;}
+QFrame#heroRow QFrame#extraAttributes {background:#171511;}
+QLabel#statValue {color:#efe7d8;}
+QLabel#attributeTitle, QLabel#battleStatus, QLabel#teamBadge {color:#b8ac99;}
+QLabel#teamNeutral {color:#e1d4bc;}
+QLabel#artIcon {background:#302b24; color:#d4b477;}
+QFrame#overviewHeader[decorated=true] {background:#1b1814; border:1px solid #5f503a; border-radius:7px;}
+QFrame#gearOverview {background:#1d1b18; border-color:#5f503a;}
+QPushButton#gearOverviewToggle, QLabel#gearOverviewCounts, QLabel#gearOverviewSpeed,
+QLabel#gearOverviewSpeedCount {color:#efe7d8;}
+QLabel#gearOverviewBadge, QLabel#gearOverviewHighlight {color:#eac584;}
+QLabel#gearOverviewCaption, QLabel#gearOverviewScoreLabel,
+QLabel#gearOverviewNote, QLabel#gearOverviewFooter {color:#b8ac99;}
+QToolButton#nav {color:#b8ac99;}
+QToolButton#nav:checked {background:#242019; color:#d7b77b; border-left:3px solid #d7b77b;}
+QPushButton {background:#24201b; border-color:#5c4e3b; color:#efe7d8;}
+QPushButton:hover {background:#332c22; border-color:#b2996d;}
+QPushButton:pressed {background:#3a3024;}
+QPushButton:disabled {color:#8d806b; background:#201c16; border-color:#3a3227;}
+QPushButton#primary {background:#d7b77b; color:#22190f;}
+QPushButton#primary:hover {background:#e7cc96;}
+QPushButton#link:hover {color:#d4b477;}
+QPushButton#smallAction, QPushButton#openingMode {background:#24201b; border-color:#5c4e3b;}
+QPushButton#openingMode:checked {color:#eac584; border-color:#b2996d;}
+QFrame#openingTurnStrip {background:#1b1814; border-color:#5f503a;}
+QFrame#openingPortraitRing {background:#252018;}
+QLabel#openingTurnTitle, QLabel#openingMetric {color:#efe7d8;}
+QLineEdit, QComboBox, QSpinBox, QPlainTextEdit {background:#1b1814; border-color:#5c4e3b; selection-background-color:#57452b;}
+QComboBox QAbstractItemView, QMenu {background:#242019; border-color:#5c4e3b; selection-background-color:#483a27;}
+QMenu::item:selected {background:#483a27;}
+QTableWidget {background:#1d1b18; alternate-background-color:#24211b; border-color:#494032;
+    gridline-color:#3a3125; selection-background-color:#57452b; selection-color:#fff4dd;}
+QHeaderView::section {background:#252019; color:#d0bea0; border-bottom-color:#5c4e3b;}
+QTableWidget::item {border-bottom-color:#3a3125;}
+QTabBar::tab {background:#221e18; color:#b8ac99;}
+QTabBar::tab:selected {color:#eac584; border-bottom-color:#d4b477;}
+QScrollBar:vertical, QScrollBar:horizontal {background:#171511;}
+QScrollBar::handle:vertical, QScrollBar::handle:horizontal {background:#574932;}
+QDialog, QStatusBar {background:#1b1814; color:#b8ac99;}
+QToolTip {background:#30271d; color:#efe7d8; border-color:#89734f;}
+QLabel#teamOutcome[result=unknown] {background:#2c261e; color:#b8ac99;}
+'''
+
+
+def interface_style(theme):
+    return STYLE + GOLD_STYLE if theme == 'gold' else STYLE

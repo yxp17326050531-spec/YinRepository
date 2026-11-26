@@ -21,7 +21,15 @@ def run(report):
                 for kind in ('heroes','shells','matrices'):
                     names=catalogue().get(kind,{})
                     if not names or portrait(kind,next(iter(names)),24).isNull():raise RuntimeError('Artwork missing: '+kind)
-                result={'ok':True,'version':VERSION,'check':'Qt startup, isolated archive, mappings and artwork'}
+                if not window.overview_header.property('decorated') or any(
+                        corner.isNull() for corner in window.overview_header.corners):
+                    raise RuntimeError('Gold overview header artwork missing')
+                if any(button.icon().isNull() for button in window.nav.buttons()):
+                    raise RuntimeError('Sidebar icon missing')
+                window.theme_picker.setCurrentIndex(window.theme_picker.findData('classic'))
+                if window.overview_header.property('decorated') or archive.settings().get('interface_theme') != 'classic':
+                    raise RuntimeError('Interface theme switch failed')
+                result={'ok':True,'version':VERSION,'check':'Qt startup, isolated archive, mappings, artwork and themes'}
             finally:
                 if window:window.close();app.processEvents()
                 if archive:

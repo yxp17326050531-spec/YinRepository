@@ -131,6 +131,7 @@ class UnitCard(QFrame):
         self.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Maximum)
         self.root=QHBoxLayout(self);self.root.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint);self.root.setContentsMargins(3,1,3,1);self.root.setSpacing(3)
         identity=QWidget();identity.setObjectName('unitIdentity');identity.setFixedWidth(96)
+        self.identity = identity
         left=QVBoxLayout(identity);left.setContentsMargins(0,0,0,0);left.setSpacing(4)
         top=QHBoxLayout();top.setSpacing(6)
         hero_id, hero_name = unit['hero_id'], unit['hero_name']
@@ -147,7 +148,7 @@ class UnitCard(QFrame):
         if potential == 10:
             name.setProperty('fullPotential', True)
             full_potential_badge(avatar)
-        more=action('⋯',lambda:None);more.setObjectName('heroMore');more.setToolTip('角色详情与本场配装')
+        more=action('…',lambda:None);more.setObjectName('heroMore');more.setToolTip('角色详情与本场配装')
         menu=QMenu(more);menu.addAction('查看详情',lambda:details(unit));menu.addAction('修改本场配装',lambda:edit_loadout(unit))
         menu.addAction('编辑角色名称与头像', lambda:edit_name(unit))
         more.setMenu(menu);left.addLayout(top)
@@ -301,6 +302,7 @@ class UnitCard(QFrame):
         # from delivering a smaller resize event to this card.
         self.ensurePolished()
         self.setMinimumWidth(0)
+        self.identity.setFixedWidth(96)
         for cell in self.cells:
             for widget in cell.findChildren(QWidget):
                 widget.ensurePolished()
@@ -333,7 +335,12 @@ class UnitCard(QFrame):
             if height>=0:size.setHeight(max(size.height(),height))
             measured.append((size.width(),size.height(),priority,configuration))
             if size.width()<=width:fitting.append((size.height(),priority,configuration))
-        self.reflow(*(min(fitting)[2] if fitting else min(measured)[3]))
+        configuration = min(fitting)[2] if fitting else min(measured)[3]
+        self.reflow(*configuration)
+        if fitting and width >= 550 and not any(configuration[2:4]):
+            # Leave extra room for equipment names after fitting the stat grid.
+            spare = width - self.minimumSizeHint().width()
+            self.identity.setFixedWidth(96 + min(48 if width >= 730 else 32, max(0, spare)))
         height=self.root.heightForWidth(width)
         self.setMinimumHeight(max(self.minimumSizeHint().height(),height+2*self.frameWidth()))
         self.heading_timer.start(0)

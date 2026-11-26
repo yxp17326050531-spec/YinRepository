@@ -12,23 +12,25 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from PySide6.QtCore import Qt, QTimer, QUrl, QEvent, QIODevice, QSaveFile
+from PySide6.QtCore import Qt, QTimer, QUrl, QEvent, QIODevice, QSaveFile, QSize
 from PySide6.QtGui import QColor, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame, QLabel,
     QPushButton, QVBoxLayout, QHBoxLayout, QGridLayout, QStackedWidget, QScrollArea,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QComboBox,
     QLineEdit, QSpinBox, QCheckBox, QPlainTextEdit, QTabWidget, QDialog,
-    QDialogButtonBox, QFormLayout, QFileDialog, QMessageBox, QButtonGroup, QSplitter, QBoxLayout, QMenu, QSizePolicy)
+    QDialogButtonBox, QFormLayout, QFileDialog, QMessageBox, QButtonGroup, QSplitter, QBoxLayout, QMenu, QSizePolicy, QToolButton)
 from capture_events import CaptureEvents
 from capture import CaptureJob, find_dumpcap, shell_text, matrix_text, imprint_text, HIDE_CONSOLE
 from core import Inventory, load_mappings, shell_config_name, matrix_name
 from exe_updater import INVENTORY_DIRECTORY, install_root
 from storage import Archive, project_unit, unit_key, shell_candidates
 from analytics import analyse, rank_statistics
-from theme import STYLE
+from theme import DEFAULT_THEME, THEMES, interface_style
+from theme_widgets import OverviewHeader, apply_window_frame, navigation_icon
 from artwork import catalogue, hero_portrait, read_portrait_png, suspected_hero_name
 from battle_widgets import (BATTLE_ATTRIBUTE_GROUPS, DEFAULT_BATTLE_ATTRIBUTE_KEYS,
                             normalize_battle_attribute_keys, unit_card)
+from opening_turn_widgets import OpeningTurnStrip
 from equipment import (project_gear, attribute_text, matches_gear, normalize_filters,
                        filter_options, filter_summary, RARITIES, UNKNOWN, ATTRIBUTES,
                        normalize_sort, sort_gear, gear_sort_value)
@@ -39,7 +41,7 @@ from preset_widgets import MappingPresetDialog, ScoringPresetDialog
 from components import project_component, attribute_text as component_attribute_text, component_detail as component_detail_text
 from battle_attributes import decode_extra_attributes, pending_attributes, pending_text, extra_text
 
-VERSION='2.11.29-calc-test'
+VERSION='2.11.30-calc-test'
 DEFAULT_HIDDEN_GEAR_COLUMNS = ('源器编号', '稀有度', '初始副属性', '装备关联', '用途倾向')
 INVENTORY_CATEGORIES = {'gear': '源器', 'shells': '智壳', 'components': '元件', 'heroes': '角色配装'}
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
@@ -124,8 +126,11 @@ class Editor(QDialog):
         except Exception as exc:QMessageBox.warning(self,'无法保存',str(exc))
 
 class MainWindow(QMainWindow):
+    NAV_ICONS = ('battle', 'stats', 'gear', 'history', 'mapping', 'settings')
     def __init__(self,archive=None):
         super().__init__(); self.archive=archive or Archive(); self.preferences=self.archive.settings()
+        saved_theme = self.preferences.get('interface_theme')
+        self.interface_theme = saved_theme if isinstance(saved_theme, str) and saved_theme in THEMES else DEFAULT_THEME
         self.mappings=self.archive.mappings(load_mappings()); self.events=CaptureEvents(128)
         self._mapping_undo=None
         self._stats_dirty=True;self._stats_signature=None;self._battle_dirty=True;self._inventory_dirty=True
@@ -148,7 +153,7 @@ class MainWindow(QMainWindow):
         self._score_input=None;self.gear_scores={}
         if self.bag_snapshot:self.inventory_rows=self.bag_snapshot.get('loadout_rows',[])
         self.setWindowTitle('伊瑟 · 对局助手 '+VERSION); self.resize(1280,800); self.setMinimumSize(1050,700)
-        self.setStyleSheet(STYLE); self.setup(); self.refresh_all()
+        self.setStyleSheet(interface_style(self.interface_theme)); self.setup(); self.refresh_all()
         self.timer=QTimer(self); self.timer.timeout.connect(self.poll); self.timer.start(80)
         self.set_topmost(self.preferences.get('topmost',False))
         self.archive.logger.info('Qt application %s started',VERSION)
@@ -165,21 +170,65 @@ class MainWindow(QMainWindow):
         side=QFrame(); side.setObjectName('sidebar'); side.setFixedWidth(60); s=QVBoxLayout(side); s.setContentsMargins(4,14,4,12)
         brand=label('伊','brand');brand.setAlignment(Qt.AlignmentFlag.AlignCenter);s.addWidget(brand);s.addSpacing(16)
         self.nav=QButtonGroup(self); self.stack=QStackedWidget()
-        for i,(icon,title) in enumerate(zip(['◈','▥','▦','◷','⌘','⚙'],['对局总览','战绩统计','源器与配装','历史与日志','编号映射','连接与设置'])):
-            b=QPushButton(icon+'\n'+['对局','战绩','配装','日志','映射','设置'][i]);b.setToolTip(title);b.setAccessibleName(title);b.setCheckable(True);b.setObjectName('nav');self.nav.addButton(b,i);s.addWidget(b)
+        for i, (caption, title) in enumerate(zip(
+                ('对局', '战绩', '配装', '日志', '映射', '设置'),
+                ('对局总览', '战绩统计', '源器与配装', '历史与日志', '编号映射', '连接与设置'))):
+            b = QToolButton()
+            b.setText(caption)
+            b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+            b.setIconSize(QSize(20, 20))
+            b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            b.setToolTip(title)
+            b.setAccessibleName(title)
+            b.setCheckable(True)
+            b.setObjectName('nav')
+            self.nav.addButton(b, i)
+            s.addWidget(b)
         self.nav.idClicked.connect(self.navigate);s.addStretch()
         self.version_label=label(VERSION,'hint');self.version_label.setAlignment(Qt.AlignmentFlag.AlignCenter);self.version_label.setToolTip(VERSION);s.addWidget(self.version_label);outer.addWidget(side)
         main=QWidget(); m=QVBoxLayout(main); m.setContentsMargins(12,10,12,8); m.setSpacing(8)
-        top=QHBoxLayout(); self.page_title=label('对局总览','title'); top.addWidget(self.page_title); top.addStretch()
+        self.overview_header = OverviewHeader()
+        top=QHBoxLayout(self.overview_header); top.setContentsMargins(0,0,0,0)
+        self.page_title=label('对局总览','title'); top.addWidget(self.page_title); top.addStretch()
         self.connection=label('●  未监听','hint'); top.addWidget(self.connection)
         self.import_btn=self.action('导入抓包',self.import_capture); top.addWidget(self.import_btn)
         self.start_btn=self.action('开始监听',self.start_live,True); top.addWidget(self.start_btn)
-        self.stop_btn=self.action('停止',self.stop_capture); self.stop_btn.setEnabled(False); top.addWidget(self.stop_btn); m.addLayout(top)
+        self.stop_btn=self.action('停止',self.stop_capture); self.stop_btn.setEnabled(False); top.addWidget(self.stop_btn); m.addWidget(self.overview_header)
         m.addWidget(self.stack,1); outer.addWidget(main,1)
         self.build_battle(); self.build_stats(); self.build_inventory(); self.build_history(); self.build_mappings(); self.build_settings()
+        self.refresh_theme_art()
         self.navigate(0); self.notify('就绪')
+    def refresh_theme_art(self):
+        for index, name in enumerate(self.NAV_ICONS):
+            self.nav.button(index).setIcon(navigation_icon(name, self.interface_theme))
+        self.overview_header.set_decorated(self.stack.currentIndex() == 0 and self.interface_theme == 'gold')
+        self.opening_turn.track.setProperty('goldTheme', self.interface_theme == 'gold')
+        self.opening_turn.track.update()
+        self.gear_overview.set_theme(self.interface_theme)
+
+    def change_interface_theme(self):
+        theme = self.theme_picker.currentData()
+        try:
+            self.archive.save_settings({'interface_theme': theme})
+        except Exception:
+            previous = self.theme_picker.blockSignals(True)
+            self.theme_picker.setCurrentIndex(self.theme_picker.findData(self.interface_theme))
+            self.theme_picker.blockSignals(previous)
+            raise
+        self.interface_theme = theme
+        self.preferences['interface_theme'] = theme
+        self.setStyleSheet(interface_style(theme))
+        self.refresh_theme_art()
+        apply_window_frame(self, theme)
+        self.notify(f'界面主题已切换为{THEMES[theme]}')
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        apply_window_frame(self, self.interface_theme)
+
     def navigate(self,index):
         self.stack.setCurrentIndex(index); self.nav.button(index).setChecked(True)
+        self.overview_header.set_decorated(index == 0 and self.interface_theme == 'gold')
         self.page_title.setText(['对局总览','战绩统计','源器与配装','历史与日志','编号映射','连接与设置'][index])
         if index==1 and self._stats_dirty:self.refresh_stats()
         if index==3:self.refresh_history()
@@ -190,7 +239,7 @@ class MainWindow(QMainWindow):
     def card(self):
         card=QFrame(); card.setObjectName('card'); layout=QVBoxLayout(card); layout.setContentsMargins(14,14,14,14); layout.setSpacing(12); return card,layout
     def build_battle(self):
-        layout=self.page();bar=QHBoxLayout();bar.setSpacing(6)
+        layout=self.page();layout.setSpacing(6);bar=QHBoxLayout();bar.setSpacing(6)
         self.previous_battle=self.action('‹',lambda:self.step_battle(1));self.previous_battle.setToolTip('上一场 · Alt+左');bar.addWidget(self.previous_battle)
         self.next_battle=self.action('›',lambda:self.step_battle(-1));self.next_battle.setToolTip('下一场 · Alt+右');bar.addWidget(self.next_battle)
         self.battle_jump=QComboBox();self.battle_jump.setMinimumContentsLength(16);self.battle_jump.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
@@ -207,17 +256,19 @@ class MainWindow(QMainWindow):
         self.capture_info=label('尚未开始本次采集','hint');self.capture_info.setParent(self.stack.widget(0));self.capture_info.hide()
         QShortcut(QKeySequence('Alt+Left'),self,activated=lambda:self.step_battle(1) if self.stack.currentIndex()==0 else None)
         QShortcut(QKeySequence('Alt+Right'),self,activated=lambda:self.step_battle(-1) if self.stack.currentIndex()==0 else None)
+        self.opening_turn = OpeningTurnStrip()
         scroll=QScrollArea();self.battle_scroll=scroll;scroll.setWidgetResizable(True);scroll.setFrameShape(QFrame.Shape.NoFrame);layout.addWidget(scroll,1)
+        layout.addWidget(self.opening_turn)
         content=QWidget();body=QVBoxLayout(content);body.setContentsMargins(0,0,0,0);body.setSpacing(0);scroll.setWidget(content)
         teams=QBoxLayout(QBoxLayout.Direction.LeftToRight);self.teams_layout=teams;teams.setSpacing(10)
         self.team_layouts={};self.team_titles={};self.nickname_buttons={};self.team_cards={};self.team_outcomes={}
         for team in ['A','B']:
-            card,c=self.card();card.setObjectName('teamCard');c.setContentsMargins(0,0,0,0);c.setSpacing(8);self.team_cards[team]=card
+            card,c=self.card();card.setObjectName('teamCard');c.setContentsMargins(0,0,0,0);c.setSpacing(5);self.team_cards[team]=card
             header=QHBoxLayout();badge=label(team,'teamBadge');header.addWidget(badge);title=label('记录 '+team+' 方','teamNeutral');title.setWordWrap(False);title.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Preferred);header.addWidget(title,1)
             assign=self.action('对应昵称',self.assign_nicknames);assign.setObjectName('smallAction');header.addWidget(assign)
             self.nickname_buttons[team]=assign;self.team_titles[team]=title
             outcome=label('待确认','teamOutcome');outcome.setWordWrap(False);header.addWidget(outcome);self.team_outcomes[team]=outcome;c.addLayout(header)
-            roster=QVBoxLayout();roster.setSpacing(8);c.addLayout(roster);c.addStretch();self.team_layouts[team]=roster;teams.addWidget(card,1)
+            roster=QVBoxLayout();roster.setSpacing(4);c.addLayout(roster);c.addStretch();self.team_layouts[team]=roster;teams.addWidget(card,1)
         body.addLayout(teams);body.addStretch()
         scroll.viewport().installEventFilter(self)
 
@@ -342,11 +393,12 @@ class MainWindow(QMainWindow):
         else:self.current_id=None; self.battle_info.setText('等待对局')
         self.refresh_battle_navigation()
         visible_attributes = normalize_battle_attribute_keys(self.preferences.get('battle_attribute_keys'))
-        portraits = self.archive.hero_portraits(
-            unit['hero_id'] for units in self.latest['teams'].values() for unit in units) if self.latest else {}
+        teams = self.latest['teams'] if self.latest else {}
+        portraits = self.archive.hero_portraits(unit['hero_id'] for units in teams.values() for unit in units)
+        replay=bool(self.latest and self.latest.get('view_context',self.latest.get('capture_context'))=='replay')
+        own=ctx.get('own_team')
+        self.opening_turn.set_roster(teams, None if replay else own, portraits)
         for team,layout in self.team_layouts.items():
-            replay=bool(self.latest and self.latest.get('view_context',self.latest.get('capture_context'))=='replay')
-            own=ctx.get('own_team')
             heading=f'记录 {team} 方' if replay or not own else f'⚔  {"己方" if team==own else "敌方"}队伍 · {team} 方'
             nickname=ctx.get('team_names',{}).get(team)
             self.team_titles[team].setText((nickname+' · '+('己方' if team==own else '敌方') if own and not replay else nickname) if nickname else heading)
@@ -362,7 +414,7 @@ class MainWindow(QMainWindow):
             outcome.setProperty('result',result);outcome.style().unpolish(outcome);outcome.style().polish(outcome)
             outcome.setToolTip('本场已确认结果；未确认不会默认判胜负。')
             self.clear_layout(layout)
-            units=self.latest['teams'].get(team,[]) if self.latest else []
+            units=teams.get(team,[])
             if not units:layout.addWidget(label('暂无角色数据\n开始监听后，进入战斗将自动更新。','hint'))
             for unit in units:
                 layout.addWidget(unit_card(unit,team,self.action,self.edit_hero,self.edit_loadout,self.details,
@@ -1157,6 +1209,12 @@ class MainWindow(QMainWindow):
         t.cellDoubleClicked.connect(edit); d.exec()
     def build_settings(self):
         layout=self.page(); card,c=self.card(); form=QFormLayout(); c.addLayout(form); layout.addWidget(card); layout.addStretch()
+        self.theme_picker = QComboBox()
+        for key, title in THEMES.items():
+            self.theme_picker.addItem(title, key)
+        self.theme_picker.setCurrentIndex(self.theme_picker.findData(self.interface_theme))
+        self.theme_picker.currentIndexChanged.connect(lambda: self.guarded(self.change_interface_theme))
+        form.addRow('界面主题', self.theme_picker)
         self.own_nickname=QLineEdit(self.preferences.get('own_nickname',''));self.own_nickname.setMaxLength(64)
         self.own_nickname.setPlaceholderText('推荐填写完整昵称，例如 玩家名#1234')
         form.addRow('我的游戏昵称',self.own_nickname)
