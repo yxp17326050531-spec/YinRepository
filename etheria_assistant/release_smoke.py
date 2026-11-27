@@ -20,7 +20,11 @@ def run(report):
                 if not load_mappings().get('heroes'):raise RuntimeError('Hero mapping missing')
                 for kind in ('heroes','shells','matrices'):
                     names=catalogue().get(kind,{})
-                    if not names or portrait(kind,next(iter(names)),24).isNull():raise RuntimeError('Artwork missing: '+kind)
+                    if not names:
+                        raise RuntimeError('Artwork catalogue missing: '+kind)
+                    for name in names:
+                        if portrait(kind,name,24).isNull():
+                            raise RuntimeError(f'Artwork missing: {kind}/{name}')
                 if not window.overview_header.property('decorated') or any(
                         corner.isNull() for corner in window.overview_header.corners):
                     raise RuntimeError('Gold overview header artwork missing')

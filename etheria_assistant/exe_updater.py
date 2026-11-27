@@ -2,6 +2,7 @@
 from __future__ import annotations
 import ctypes
 import hashlib
+from http.client import IncompleteRead
 import json
 import os
 from pathlib import Path,PurePosixPath
@@ -44,18 +45,47 @@ class SafeRedirect(urllib.request.HTTPRedirectHandler):
         if not allowed_url(newurl):raise ValueError('更新下载重定向地址不受信任')
         return super().redirect_request(req,fp,code,msg,headers,newurl)
 
-def download(url,path,maximum=LIMIT):
-    if not allowed_url(url):raise ValueError('更新地址不属于本项目发行渠道')
-    opener=urllib.request.build_opener(SafeRedirect())
-    try:
-        with opener.open(urllib.request.Request(url,headers={'User-Agent':'EtheriaAssistant-Updater','Accept':'application/vnd.github+json'}),timeout=30) as r,Path(path).open('wb') as out:
-            size=0
-            while block:=r.read(1024*1024):
-                size+=len(block)
-                if size>maximum:raise ValueError('更新文件超过大小限制')
-                out.write(block)
-    except Exception:
-        Path(path).unlink(missing_ok=True);raise
+def release_page(version=None):
+    base = f'https://github.com/{REPO}/releases'
+    if version is None:
+        return base
+    version_key(version)
+    return f'{base}/tag/v{version}'
+
+
+def download(url, path, maximum=LIMIT):
+    if not allowed_url(url):
+        raise ValueError('更新地址不属于本项目发行渠道')
+    path = Path(path)
+    opener = urllib.request.build_opener(SafeRedirect())
+    request = urllib.request.Request(url, headers={
+        'User-Agent': 'EtheriaAssistant-Updater', 'Accept': 'application/vnd.github+json'})
+    for attempt in range(3):
+        try:
+            with opener.open(request, timeout=60 if maximum == LIMIT else 15) as response, path.open('wb') as out:
+                length = response.headers.get('Content-Length')
+                expected = int(length) if length and length.isascii() and length.isdecimal() else None
+                if expected is not None and expected > maximum:
+                    raise ValueError('更新文件超过大小限制')
+                size = 0
+                while block := response.read(1024 * 1024):
+                    size += len(block)
+                    if size > maximum:
+                        raise ValueError('更新文件超过大小限制')
+                    out.write(block)
+                if expected is not None and size != expected:
+                    raise IncompleteRead(b'', expected - size)
+            return
+        except Exception as exc:
+            path.unlink(missing_ok=True)
+            reason = exc.reason if isinstance(exc, urllib.error.URLError) else exc
+            retry = isinstance(reason, (TimeoutError, ConnectionError, IncompleteRead))
+            if isinstance(exc, urllib.error.HTTPError):
+                retry = exc.code in (500, 502, 503, 504)
+                exc.close()
+            if not retry or attempt == 2:
+                raise
+            time.sleep(attempt + 1)
 
 def feed_releases(xml):
     """Official Atom fallback avoids anonymous REST API rate-limit dependence."""
@@ -81,7 +111,7 @@ def check(current,releases=None):
             p=Path(tmp)/'releases.json'
             try:
                 download(API,p,4*1024*1024);releases=json.loads(p.read_text(encoding='utf-8'))
-            except (urllib.error.URLError,TimeoutError,json.JSONDecodeError):
+            except (urllib.error.URLError, TimeoutError, ConnectionError, IncompleteRead, json.JSONDecodeError):
                 download(FEED,p,4*1024*1024);releases=feed_releases(p.read_text(encoding='utf-8'))
     choices=[]
     for release in releases:

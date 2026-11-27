@@ -136,13 +136,15 @@ class UnitCard(QFrame):
         top=QHBoxLayout();top.setSpacing(6)
         hero_id, hero_name = unit['hero_id'], unit['hero_name']
         suspected = suspected_hero_name(hero_id, hero_name)
-        avatar=image_label('heroes',suspected or hero_name,28,avatar_override);top.addWidget(avatar)
+        avatar=image_label('heroes',suspected or hero_name,28,avatar_override,hero_id=hero_id);top.addWidget(avatar)
         display_name = suspected or (f'#{hero_id}' if hero_name == f'角色 #{hero_id}' else hero_name)
         name=action(display_name,lambda:edit_name(unit));name.setObjectName('link')
         name.setMinimumWidth(0);name.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Fixed)
         tooltip = f'编号 #{hero_id} · 编辑角色名称与头像'
         if suspected:
             tooltip = f'疑似{suspected}（编号末位相近）\n' + tooltip
+        if avatar.pixmap().isNull():
+            tooltip = f'{display_name} · 暂无头像\n' + tooltip
         avatar.setToolTip(tooltip)
         name.setToolTip(tooltip);top.addWidget(name,1)
         if potential == 10:

@@ -32,7 +32,8 @@ class OpeningTurnTrack(QWidget):
         inside = QHBoxLayout(ring)
         inside.setContentsMargins(0, 0, 0, 0)
         name = row.unit['hero_name']
-        avatar = image_label('heroes', suspected_hero_name(row.unit['hero_id'], name) or name, 26, override)
+        hero_id = row.unit['hero_id']
+        avatar = image_label('heroes', suspected_hero_name(hero_id, name) or name, 26, override, hero_id=hero_id)
         source = avatar.pixmap()
         if not source.isNull():
             rounded = QPixmap(52, 52)

@@ -41,7 +41,7 @@ from preset_widgets import MappingPresetDialog, ScoringPresetDialog
 from components import project_component, attribute_text as component_attribute_text, component_detail as component_detail_text
 from battle_attributes import decode_extra_attributes, pending_attributes, pending_text, extra_text
 
-VERSION='2.11.31-calc-test'
+VERSION='2.11.32-calc-test'
 DEFAULT_HIDDEN_GEAR_COLUMNS = ('源器编号', '稀有度', '初始副属性', '装备关联', '用途倾向')
 INVENTORY_CATEGORIES = {'gear': '源器', 'shells': '智壳', 'components': '元件', 'heroes': '角色配装'}
 CATEGORIES={'角色编号':'heroes','智壳配置编号':'shell_configs','智壳战斗效果编号':'shell_effects',
@@ -515,7 +515,7 @@ class MainWindow(QMainWindow):
         entry.setPlaceholderText(f'疑似{suspected}' if suspected else f'角色 #{identifier}')
         d.form.addRow('名称', entry)
         source = QComboBox()
-        source.addItem('按名称匹配', None)
+        source.addItem('自动匹配头像', None)
         for name in sorted(catalogue().get('heroes', {})):
             source.addItem(name, name)
         builtin, png = self.archive.hero_portraits([identifier]).get(str(identifier), (None, None))
@@ -533,7 +533,8 @@ class MainWindow(QMainWindow):
             return (None, png) if choice == '' else (choice, None)
 
         def refresh_preview():
-            image = hero_portrait(entry.text().strip() or existing_name or suspected or '', 64, selected_portrait())
+            image = hero_portrait(entry.text().strip() or existing_name or suspected or '', 64,
+                                  selected_portrait(), hero_id=identifier)
             if image.isNull():
                 preview.setText('？')
             else:

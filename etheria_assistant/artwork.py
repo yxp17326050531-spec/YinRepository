@@ -6,6 +6,8 @@ from PySide6.QtCore import QBuffer, QIODevice, Qt
 from PySide6.QtGui import QImageReader, QPixmap
 from PySide6.QtWidgets import QLabel
 
+from core import load_mappings
+
 ROOT=Path(__file__).resolve().parent/'assets'
 SUSPECTED_HERO_NAMES = {32352: '奥萨尔'}
 
@@ -35,7 +37,12 @@ def portrait(kind,name,size):
     return image
 
 
-def hero_portrait(name, size, override=None):
+@lru_cache(maxsize=1)
+def builtin_hero_names():
+    return load_mappings().get('heroes', {})
+
+
+def hero_portrait(name, size, override=None, *, hero_id=None):
     if override:
         builtin, png = override
         if png:
@@ -46,8 +53,15 @@ def hero_portrait(name, size, override=None):
                 image.setDevicePixelRatio(2)
                 return image
         if builtin:
-            return portrait('heroes', builtin, size)
-    return portrait('heroes', name, size)
+            image = portrait('heroes', builtin, size)
+            if not image.isNull():
+                return image
+    image = portrait('heroes', name, size)
+    if image.isNull() and hero_id is not None:
+        original = builtin_hero_names().get(str(hero_id))
+        if original and original != name:
+            return portrait('heroes', original, size)
+    return image
 
 
 def read_portrait_png(path):
@@ -69,9 +83,9 @@ def read_portrait_png(path):
     return bytes(buffer.data())
 
 
-def image_label(kind,name,size,override=None):
+def image_label(kind,name,size,override=None,*,hero_id=None):
     label=QLabel();label.setObjectName('artIcon');label.setFixedSize(size,size)
-    image=hero_portrait(name,size,override) if kind=='heroes' else portrait(kind,name,size)
+    image=hero_portrait(name,size,override,hero_id=hero_id) if kind=='heroes' else portrait(kind,name,size)
     if image.isNull():
         label.setText('？' if kind=='heroes' else (name or '？')[:1])
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)

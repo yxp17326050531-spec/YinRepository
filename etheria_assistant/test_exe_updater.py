@@ -18,6 +18,28 @@ class UpdaterTests(unittest.TestCase):
         self.assertTrue(allowed_url('https://github.com/yxp17326050531-spec/YinRepository/releases/download/v1/a.zip'))
         for value in ['http://github.com/x','https://evil.com/x','https://github.com/other/repo/releases/download/v1/a.zip','https://user:pass@github.com/x']:
             self.assertFalse(allowed_url(value))
+
+    def test_download_retries_read_timeout_and_short_response(self):
+        from unittest.mock import MagicMock, patch
+        from exe_updater import API, download
+
+        def response(chunks):
+            stream = MagicMock()
+            stream.headers = {'Content-Length': '4'}
+            stream.read.side_effect = chunks
+            stream.__enter__.return_value = stream
+            return stream
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'asset'
+            with (patch('exe_updater.urllib.request.build_opener') as opener,
+                  patch('exe_updater.time.sleep')):
+                fetch = opener.return_value.open
+                fetch.side_effect = [response([b'pa', TimeoutError()]), response([b'p', b'']),
+                                     response([b'data', b''])]
+                download(API, path, 4)
+                self.assertEqual(fetch.call_count, 3)
+                self.assertEqual(path.read_bytes(), b'data')
     def test_extract_rejects_traversal_and_user_database(self):
         for name in ['EtheriaAssistant/../../bad.exe','EtheriaAssistant/history.sqlite3',
                      'EtheriaAssistant/inventory/other-account.json','EtheriaAssistant/evil:stream']:

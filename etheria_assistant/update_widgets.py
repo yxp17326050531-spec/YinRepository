@@ -2,7 +2,8 @@
 from datetime import datetime
 import sys
 
-from PySide6.QtCore import QObject, QThread, QTimer, Qt, Slot
+from PySide6.QtCore import QObject, QThread, QTimer, Qt, QUrl, Slot
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QLabel, QMessageBox, QPushButton
 
 import exe_updater as updater
@@ -36,6 +37,10 @@ class UpdateController(QObject):
         self.button = QPushButton('检查程序更新')
         layout.addWidget(self.button)
         self.button.clicked.connect(self.clicked)
+        self.browser_button = QPushButton('打开 GitHub 发行页')
+        self.browser_button.clicked.connect(self.open_release_page)
+        layout.addWidget(self.browser_button)
+        self.browser_button.hide()
         self.startup_check = QTimer(self)
         self.startup_check.setSingleShot(True)
         self.startup_check.timeout.connect(self.check)
@@ -86,6 +91,7 @@ class UpdateController(QObject):
 
     def checked(self, release):
         self.release = release
+        self.browser_button.setVisible(bool(release))
         if release:
             self.status.setText('发现新版 ' + release['version'] + '\n' + release['notes'][:1200])
             self.button.setText('下载并安装 ' + release['version'])
@@ -131,4 +137,9 @@ class UpdateController(QObject):
             self.failed(str(exc))
 
     def failed(self, message):
-        self.status.setText('更新未完成，可稍后重试。\n' + message)
+        self.browser_button.show()
+        self.status.setText('更新未完成。可稍后重试，或打开 GitHub 发行页手动下载。\n' + message)
+
+    def open_release_page(self):
+        version = self.release['version'] if self.release else None
+        QDesktopServices.openUrl(QUrl(updater.release_page(version)))
