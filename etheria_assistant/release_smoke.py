@@ -34,6 +34,8 @@ def run(report):
                 if window:window.close();app.processEvents()
                 if archive:
                     for handler in archive.logger.handlers[:]:handler.close();archive.logger.removeHandler(handler)
+        from exe_updater import install_root, record_update_cleanup
+        record_update_cleanup(report, install_root(), VERSION)
     except Exception:result={'ok':False,'error':traceback.format_exc()}
     Path(report).write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
     return 0 if result['ok'] else 1

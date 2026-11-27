@@ -8,10 +8,11 @@ class UpdaterTests(unittest.TestCase):
     def release(self,version):
         return {'tag_name':'v'+version,'assets':[{'name':'release.json'},{'name':'EtheriaAssistant-'+version+'-windows-x64.zip'}]}
     def test_channels_versions_and_missing_assets(self):
-        rows=[self.release('2.11.16-calc-test'),self.release('9.0.0')]
-        self.assertEqual(check('2.11.15-calc-test',rows)['version'],'2.11.16-calc-test')
+        rows=[self.release('2.11.16-calc-test'),self.release('9.0.0'),self.release('2.11.19-calc-test')]
+        self.assertEqual(check('2.11.15-calc-test',rows)['version'],'2.11.19-calc-test')
         self.assertEqual(check('2.11.15',rows)['version'],'9.0.0')
-        self.assertIsNone(check('2.11.16-calc-test',rows))
+        self.assertIsNone(check('2.11.19-calc-test',rows))
+        rows[-1]['assets'].pop()
         rows[0]['draft']=True;self.assertIsNone(check('2.11.15-calc-test',rows))
     def test_only_project_https_downloads(self):
         self.assertTrue(allowed_url('https://github.com/yxp17326050531-spec/YinRepository/releases/download/v1/a.zip'))
@@ -43,7 +44,7 @@ class UpdaterTests(unittest.TestCase):
 
     def test_update_preserves_locally_saved_inventory_files(self):
         from unittest.mock import patch
-        from exe_updater import worker_main
+        from exe_updater import clean_completed_update, record_update_cleanup, worker_main
         with tempfile.TemporaryDirectory() as tmp:
             parent = Path(tmp)
             root = parent / 'EtheriaAssistant'
@@ -51,15 +52,34 @@ class UpdaterTests(unittest.TestCase):
             stock.parent.mkdir(parents=True)
             stock.write_text('old inventory', encoding='utf-8')
             task = parent / 'EtheriaUpdate-test'
-            (task / 'staged' / 'EtheriaAssistant').mkdir(parents=True)
+            staged = task / 'staged' / 'EtheriaAssistant'
+            staged.mkdir(parents=True)
+            (task / 'worker').mkdir()
+            (task / 'release.json').write_text('{"version":"2.11.31-calc-test"}', encoding='utf-8')
+            (staged / 'EtheriaAssistant.exe').write_bytes(b'new exe')
+            (root / 'EtheriaAssistant.exe').write_bytes(b'old exe')
+            custom_stock = root / 'custom-inventory.json'
+            custom_stock.write_text('custom stock', encoding='utf-8')
 
             def smoke(args, **kwargs):
-                Path(args[-1]).write_text('{"ok":true}', encoding='utf-8')
+                report = Path(args[-1])
+                record_update_cleanup(report, root, '2.11.31-calc-test')
+                report.write_text('{"ok":true}', encoding='utf-8')
 
+            with (patch('exe_updater.subprocess.run', side_effect=RuntimeError('failed smoke')),
+                  patch('exe_updater.ctypes.windll', create=True)):
+                self.assertEqual(worker_main(task, root, []), 1)
+            self.assertEqual((root / 'EtheriaAssistant.exe').read_bytes(), b'old exe')
+            (task / 'previous').rmdir()
+            (task / 'update-error.txt').unlink()
             with (patch('exe_updater.subprocess.run', side_effect=smoke),
                   patch('exe_updater.subprocess.Popen')):
                 self.assertEqual(worker_main(task, root, []), 0)
+            clean_completed_update(root)
+            self.assertFalse(task.exists())
+            self.assertEqual((root / 'EtheriaAssistant.exe').read_bytes(), b'new exe')
             self.assertEqual(stock.read_text(encoding='utf-8'), 'old inventory')
+            self.assertEqual(custom_stock.read_text(encoding='utf-8'), 'custom stock')
 
     def test_official_feed_fallback_when_anonymous_api_is_rate_limited(self):
         from unittest.mock import patch

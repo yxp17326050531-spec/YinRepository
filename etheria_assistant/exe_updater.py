@@ -20,6 +20,9 @@ import zipfile
 
 REPO='yxp17326050531-spec/YinRepository'
 INVENTORY_DIRECTORY='inventory'
+PROGRAM_FILES = ('EtheriaAssistant.exe', '_internal', 'RELEASE_README.md',
+                 'THIRD_PARTY_NOTICES.md', 'licenses', 'BUILD_MANIFEST.json', '先看这里.txt')
+CLEANUP_TICKET = '.etheria-update-cleanup'
 API=f'https://api.github.com/repos/{REPO}/releases?per_page=100'
 FEED=f'https://github.com/{REPO}/releases.atom'
 LIMIT=400*1024*1024
@@ -135,10 +138,12 @@ def prepare(release,root):
         with archive.open('rb') as stream:digest=hashlib.file_digest(stream,'sha256').hexdigest()
         if digest!=m['sha256']:raise ValueError('更新包校验失败')
         extract_checked(archive,task/'staged')
+        archive.unlink()
         # Worker runs from a complete independent copy, avoiding locked Python/Qt DLLs.
         worker=task/'worker'
-        shutil.copytree(root, worker, ignore=shutil.ignore_patterns(
-            INVENTORY_DIRECTORY, '*.sqlite3', '*.sqlite3-*', '*.pcap', '*.pcapng', 'runtime.log*'))
+        worker.mkdir()
+        shutil.copy2(root/'EtheriaAssistant.exe', worker/'EtheriaAssistant.exe')
+        shutil.copytree(root/'_internal', worker/'_internal')
         return task
     except Exception:
         shutil.rmtree(task,ignore_errors=True);raise
@@ -166,26 +171,112 @@ def launch_worker(task,root):
     else:command=[str(worker/'EtheriaAssistant.exe'),*args]
     return subprocess.Popen(command,cwd=worker,creationflags=0x00000008|0x00000200,close_fds=True)
 
+def record_update_cleanup(report, root, version):
+    """A successful installed smoke test hands off just this update, including old workers."""
+    if root is None:
+        return
+    root = Path(root).resolve()
+    report = Path(report).absolute()
+    task = report.parent
+    if (report.name != 'startup.json' or task.parent != root.parent or task == root
+            or not re.fullmatch(r'EtheriaUpdate-[\w-]+', task.name)
+            or task.resolve() != task or not (task/'previous').is_dir()
+            or not (task/'worker').is_dir() or not (task/'release.json').is_file()):
+        return
+    if json.loads((task/'release.json').read_text(encoding='utf-8')).get('version') != version:
+        return
+    # Legacy workers moved the whole installation. Restore any user entries they
+    # left behind, e.g. an inventory saved beside the EXE under a custom name.
+    for item in (task/'previous').iterdir():
+        target = root/item.name
+        if item.name in PROGRAM_FILES or item.name == CLEANUP_TICKET or os.path.lexists(target):
+            continue
+        if item.is_dir() and not item.is_symlink() and not item.is_junction():
+            shutil.copytree(item, target, symlinks=True)
+        elif item.is_file() and not item.is_symlink():
+            shutil.copy2(item, target)
+    (root/CLEANUP_TICKET).write_text(task.name, encoding='utf-8')
+
+
+def clean_completed_update(root):
+    """Run from the new application after smoke/commit, retrying transient Windows locks."""
+    root = Path(root).resolve()
+    ticket = root/CLEANUP_TICKET
+    if not ticket.is_file() or ticket.is_symlink():
+        return
+    name = ticket.read_text(encoding='utf-8')
+    task = root.parent/name
+    if (not re.fullmatch(r'EtheriaUpdate-[\w-]+', name) or task == root or task.resolve() != task
+            or not (task/'success.txt').is_file() or not (task/'startup.json').is_file()
+            or not json.loads((task/'startup.json').read_text(encoding='utf-8')).get('ok')):
+        return
+    for folder in ('previous', 'worker', 'staged'):
+        child = task/folder
+        if child.resolve() != child or (child.exists() and not child.is_dir()):
+            return
+    for attempt in range(10):
+        try:
+            # Keep any legacy user files in previous/. Never scan or purge older tasks.
+            previous = task/'previous'
+            for entry in PROGRAM_FILES:
+                path = previous/entry
+                if path.is_symlink() or path.is_file():
+                    path.unlink()
+                elif path.is_junction():
+                    path.rmdir()
+                elif path.is_dir():
+                    shutil.rmtree(path)
+            worker = task/'worker'
+            if worker.is_dir():
+                shutil.rmtree(worker)
+            for filename in ('update.zip', 'release.json'):
+                (task/filename).unlink(missing_ok=True)
+            for folder in (previous, task/'staged'):
+                if folder.is_dir() and not any(folder.iterdir()):
+                    folder.rmdir()
+            for filename in ('startup.json', 'success.txt'):
+                (task/filename).unlink(missing_ok=True)
+            if not any(task.iterdir()):
+                task.rmdir()
+            ticket.unlink(missing_ok=True)
+            return
+        except PermissionError:
+            if attempt == 9:
+                return  # The ticket remains for the next launch.
+            time.sleep(.25)
+
+
 def worker_main(task,root,pids):
     task=Path(task).resolve();root=Path(root).resolve();old=task/'previous';new=task/'staged/EtheriaAssistant'
     try:
         if task.parent!=root.parent or not task.name.startswith('EtheriaUpdate-') or not new.is_dir():raise ValueError('更新任务目录不正确')
         for pid in dict.fromkeys(pids):wait_pid(pid)
-        root.rename(old)
+        if any(item.name not in PROGRAM_FILES for item in new.iterdir()):
+            raise ValueError('更新包包含无法识别的程序目录')
+        old.mkdir()
+        installed = []
         try:
-            new.rename(root)
-            inventories = old / INVENTORY_DIRECTORY
-            if inventories.is_dir():
-                shutil.copytree(inventories, root / INVENTORY_DIRECTORY, symlinks=True)
+            for name in PROGRAM_FILES:
+                if (root/name).exists():
+                    (root/name).rename(old/name)
+            for item in new.iterdir():
+                item.rename(root/item.name)
+                installed.append(item.name)
             env=dict(os.environ,ETHERIA_PORTABLE_ROOT=str(root),QT_QPA_PLATFORM='offscreen')
             report=task/'startup.json'
             subprocess.run([str(root/'EtheriaAssistant.exe'),'--smoke-test',str(report)],cwd=root,env=env,timeout=60,check=True)
             if not json.loads(report.read_text(encoding='utf-8'))['ok']:raise RuntimeError('新版启动检查失败')
+            new.rmdir()
+            (task/'success.txt').write_text('Update completed.', encoding='utf-8')
+            subprocess.Popen([str(root/'EtheriaAssistant.exe')],cwd=root,env={**os.environ,'ETHERIA_PORTABLE_ROOT':str(root)})
         except Exception:
-            if root.exists():root.rename(task/'failed-new')
-            old.rename(root);raise
-        subprocess.Popen([str(root/'EtheriaAssistant.exe')],cwd=root,env={**os.environ,'ETHERIA_PORTABLE_ROOT':str(root)})
-        (task/'success.txt').write_text('Previous program is in previous/. User database was not replaced.')
+            new.mkdir(exist_ok=True)
+            for name in installed:
+                (root/name).rename(new/name)
+            for item in old.iterdir():
+                item.rename(root/item.name)
+            (task/'success.txt').unlink(missing_ok=True)
+            raise
         return 0
     except Exception as exc:
         (task/'update-error.txt').write_text(str(exc),encoding='utf-8')

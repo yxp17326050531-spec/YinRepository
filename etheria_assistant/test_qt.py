@@ -43,6 +43,36 @@ class QtTests(unittest.TestCase):
         self.assertTrue(self.window.windowTitle().endswith(VERSION))
         self.assertEqual(self.window.version_label.toolTip(),VERSION)
 
+    def test_startup_update_prompts_before_preparing_a_download(self):
+        from PySide6.QtTest import QTest
+
+        controller = self.window.updates
+        release = {'version': '9.9.9-calc-test', 'notes': '示例'}
+        seen = []
+        answer = QTimer(self.window)
+
+        def dismiss():
+            dialog = QApplication.activeModalWidget()
+            if isinstance(dialog, QMessageBox):
+                seen.append(dialog.text())
+                dialog.defaultButton().click()
+
+        with (patch('update_widgets.updater.install_root', return_value=Path(self.temp.name)),
+              patch('update_widgets.updater.check', return_value=release) as check,
+              patch('update_widgets.updater.prepare') as prepare):
+            answer.timeout.connect(dismiss)
+            answer.start(10)
+            controller.startup_check.start(1)
+            deadline = time.monotonic() + 2
+            while not seen and time.monotonic() < deadline:
+                QTest.qWait(25)
+            answer.stop()
+            check.assert_called_once_with(VERSION)
+            prepare.assert_not_called()
+            self.assertEqual(len(seen), 1)
+            self.assertIn(release['version'], seen[0])
+            self.assertTrue(controller.button.isEnabled())
+
     def test_theme_changes_live_and_persists_with_nicknames_and_team_sides(self):
         self.archive.save_settings({'own_nickname': '示例甲#1001'})
         self.archive.set_review(self.bid, names={'A': '示例甲#1001', 'B': '示例乙#1002'})
